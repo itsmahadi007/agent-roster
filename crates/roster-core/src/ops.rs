@@ -3,7 +3,8 @@
 
 use crate::journal::{Journal, JournalError, Txn};
 use crate::launcher::{PathSetup, apply_path_setup, default_shell_rcs, path_setup_needed, write_launchers};
-use crate::model::{Agent, AgentColor, LimitsSource, ModelError, Roster, Tool, new_id};
+use crate::model::{Agent, AgentColor, LimitsSource, ModelError, Roster, StatuslineChain, Tool, new_id};
+use crate::statusline::settings_real_path;
 use crate::names::{CommandLookup, NameError, validate_name};
 use crate::note::{remove_block, write_notes};
 use crate::paths::{Platform, RosterPaths, collapse_tilde, expand_tilde};
@@ -44,6 +45,7 @@ enum Action {
     MoveToBackup(PathBuf),
     PathSetup(PathSetup),
     DefaultFn { tool: Tool, target: Option<String> },
+    WriteFile { path: PathBuf, content: String },
 }
 
 #[derive(Debug, Clone)]
@@ -381,6 +383,7 @@ pub fn apply(plan: Plan, p: &RosterPaths, journal: &mut Journal, ctx: &Ctx) -> R
             Action::MoveToBackup(d) => t.move_dir_to_backup(d)?,
             Action::PathSetup(s) => apply_path_setup(&mut t, s, p)?,
             Action::DefaultFn { tool, target } => apply_default_fn(&mut t, p, *tool, target.as_deref())?,
+            Action::WriteFile { path, content } => t.write_file(path, content.as_bytes())?,
         }
     }
     t.write_file(&p.roster_file(), toml.as_bytes())?;
@@ -391,4 +394,108 @@ pub fn apply(plan: Plan, p: &RosterPaths, journal: &mut Journal, ctx: &Ctx) -> R
         return Ok(None);
     }
     Ok(Some(t.commit()?))
+}
+
+fn claude_agent<'a>(r: &'a Roster, name: &str) -> Result<&'a Agent, OpError> {
+    let a = find(r, name)?;
+    if a.tool != Tool::Claude {
+        return Err(OpError::Refused(format!("{} is a Codex agent. Codex limits are read automatically.", a.name)));
+    }
+    Ok(a)
+}
+
+fn read_settings(path: &std::path::Path) -> Result<serde_json::Map<String, serde_json::Value>, OpError> {
+    match std::fs::read_to_string(path) {
+        Ok(t) if !t.trim().is_empty() => match serde_json::from_str::<serde_json::Value>(&t) {
+            Ok(serde_json::Value::Object(m)) => Ok(m),
+            _ => Err(OpError::Refused(format!("{} isn't valid JSON, so Agent Roster left it alone.", path.display()))),
+        },
+        _ => Ok(serde_json::Map::new()),
+    }
+}
+
+fn settings_text(m: serde_json::Map<String, serde_json::Value>) -> String {
+    let mut t = serde_json::to_string_pretty(&serde_json::Value::Object(m)).unwrap_or_else(|_| "{}".into());
+    t.push('\n');
+    t
+}
+
+/// Turns on Claude limits for an agent by routing its status line through `roster statusline`.
+pub fn plan_enable_claude_limits(r: &Roster, p: &RosterPaths, ctx: &Ctx, name: &str) -> Result<Plan, OpError> {
+    let a = claude_agent(r, name)?.clone();
+    let real = settings_real_path(&a, r, p);
+    let real_s = real.display().to_string();
+    let mut after = r.clone();
+    let sharing: Vec<String> = r
+        .agents
+        .iter()
+        .filter(|x| x.tool == Tool::Claude && settings_real_path(x, r, p) == real)
+        .map(|x| x.id.clone())
+        .collect();
+    for x in after.agents.iter_mut().filter(|x| sharing.contains(&x.id)) {
+        x.limits = LimitsSource::ClaudeStatusline;
+    }
+    if r.statusline.iter().any(|s| s.settings == real_s) {
+        let steps = vec![step(StepKind::Note, format!("Limits are already on for {}, through {}.", a.name, collapse_tilde(&real, &p.home)))];
+        return Ok(finish(format!("Turned on limits for {}", a.name), steps, after, vec![], p, ctx));
+    }
+    let mut settings = read_settings(&real)?;
+    let our_cmd = format!("{} statusline", ctx.roster_bin.display());
+    let mut line = settings.get("statusLine").and_then(|v| v.as_object()).cloned().unwrap_or_default();
+    let chain = line.get("command").and_then(|c| c.as_str()).map(String::from).filter(|c| !c.ends_with(" statusline"));
+    line.insert("type".into(), "command".into());
+    line.insert("command".into(), our_cmd.into());
+    settings.insert("statusLine".into(), serde_json::Value::Object(line));
+    after.statusline.push(StatuslineChain { settings: real_s, chain: chain.clone() });
+    let mut steps = vec![step(
+        StepKind::Change,
+        format!("Changes the status line in {} so Agent Roster can read {}'s limits.", collapse_tilde(&real, &p.home), a.name),
+    )];
+    if chain.is_some() {
+        steps.push(step(StepKind::Note, "Your current status line still shows, unchanged."));
+    }
+    steps.push(step(StepKind::Note, "Turning limits off puts the old status line back exactly."));
+    Ok(finish(
+        format!("Turned on limits for {}", a.name),
+        steps,
+        after,
+        vec![Action::WriteFile { path: real, content: settings_text(settings) }],
+        p,
+        ctx,
+    ))
+}
+
+pub fn plan_disable_claude_limits(r: &Roster, p: &RosterPaths, ctx: &Ctx, name: &str) -> Result<Plan, OpError> {
+    let a = claude_agent(r, name)?.clone();
+    let real = settings_real_path(&a, r, p);
+    let real_s = real.display().to_string();
+    let Some(entry) = r.statusline.iter().find(|s| s.settings == real_s).cloned() else {
+        return Err(OpError::Refused(format!("Limits aren't on for {}.", a.name)));
+    };
+    let mut after = r.clone();
+    after.statusline.retain(|s| s.settings != real_s);
+    for x in after.agents.iter_mut().filter(|x| x.tool == Tool::Claude && settings_real_path(x, r, p) == real) {
+        x.limits = LimitsSource::Off;
+    }
+    let mut settings = read_settings(&real)?;
+    match &entry.chain {
+        Some(cmd) => {
+            let mut line = settings.get("statusLine").and_then(|v| v.as_object()).cloned().unwrap_or_default();
+            line.insert("type".into(), "command".into());
+            line.insert("command".into(), cmd.clone().into());
+            settings.insert("statusLine".into(), serde_json::Value::Object(line));
+        }
+        None => {
+            settings.remove("statusLine");
+        }
+    }
+    let steps = vec![step(StepKind::Change, format!("Puts the original status line back in {}.", collapse_tilde(&real, &p.home)))];
+    Ok(finish(
+        format!("Turned off limits for {}", a.name),
+        steps,
+        after,
+        vec![Action::WriteFile { path: real, content: settings_text(settings) }],
+        p,
+        ctx,
+    ))
 }

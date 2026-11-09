@@ -10,3 +10,4 @@ pub mod limits;
 pub mod session;
 pub mod ops;
 pub mod share;
+pub mod statusline;
