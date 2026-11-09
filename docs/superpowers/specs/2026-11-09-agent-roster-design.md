@@ -280,6 +280,10 @@ markers), `run` (internal). Colors respect `NO_COLOR` and non-TTY output. `--jso
   satisfies both.)
 - Both: show "as of <time>"; numbers update when an agent is used. 90% or more is coral.
 
+### 6.7 Menu bar / tray
+List agents with color dot and week %, "Open a terminal as …", "Add agent", "Open Agent Roster".
+Built with Tauri's tray support.
+
 ### 6.8 Without a GUI: SSH and servers
 - **v0.1:** the CLI is complete on its own (G12). On a machine with no display, `roster ui` says
   "no desktop here, use the commands" instead of failing. Sign-in over SSH uses each tool's
@@ -290,10 +294,6 @@ markers), `run` (internal). Colors respect `NO_COLOR` and non-TTY output. `--jso
   the app: patch-bay rows in agent colors, limit bars, live calls, keys for add / rename / sign in
   / undo. It is option B from the first mockup round, built on the same `roster-core`, so it adds
   no new logic. `roster --plain` keeps today's printed overview for scripts.
-
-### 6.7 Menu bar / tray
-List agents with color dot and week %, "Open a terminal as …", "Add agent", "Open Agent Roster".
-Built with Tauri's tray support.
 
 ## 7. Platforms, releases and distribution
 
