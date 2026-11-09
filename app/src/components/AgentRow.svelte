@@ -48,9 +48,6 @@
     {#if agent.reset_text}
       <div class="rs">
         <span class:hot={agent.reset_hot}>{agent.reset_text}</span>
-        {#if agent.claude_limits === true}
-          <button class="link off" onclick={() => onLimits(agent.name, false)}>Turn off limits</button>
-        {/if}
       </div>
     {/if}
     {#if agent.limits_note}
@@ -58,8 +55,6 @@
         {agent.limits_note}
         {#if agent.claude_limits === false && agent.state !== "sign-in" && agent.state !== "not-installed"}
           <button class="link" onclick={() => onLimits(agent.name, true)}>Turn on limits</button>
-        {:else if agent.claude_limits === true && agent.windows.length === 0}
-          <button class="link off" onclick={() => onLimits(agent.name, false)}>Turn off limits</button>
         {/if}
       </div>
     {/if}
@@ -71,6 +66,9 @@
       <span class="state" style:color={active ? agent.color : agent.state === "not-installed" ? "var(--dim)" : "var(--mut)"}>
         <i style:background={active ? agent.color : "#3a4758"}></i>{agent.status_text}
       </span>
+    {/if}
+    {#if agent.claude_limits === true}
+      <button class="link off" onclick={() => onLimits(agent.name, false)}>Turn off limits</button>
     {/if}
     {#if error}<span class="error" title={error}>{error}</span>{/if}
   </div>
@@ -154,15 +152,19 @@
     font-size: 11.5px;
     color: var(--dim);
     padding-left: 46px;
-    display: flex;
-    gap: 8px;
-    align-items: baseline;
+    white-space: nowrap;
   }
   .rs.note {
     padding-left: 0;
+    white-space: normal;
+    display: flex;
     flex-wrap: wrap;
+    gap: 4px 8px;
   }
   .off {
+    position: absolute;
+    bottom: 9px;
+    left: 0;
     opacity: 0;
   }
   .ag:hover .off,
@@ -170,8 +172,11 @@
     opacity: 1;
   }
   .st {
+    align-self: stretch;
+    position: relative;
     display: flex;
     flex-direction: column;
+    justify-content: center;
     align-items: flex-start;
     gap: 4px;
     padding-right: 6px;
