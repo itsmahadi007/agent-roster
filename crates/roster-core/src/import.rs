@@ -177,14 +177,18 @@ pub fn plan_import(r: &Roster, p: &RosterPaths, ctx: &Ctx) -> Result<Plan, OpErr
         ));
     }
     for (file, name) in &own_files {
-        let shared = after.by_name(name).is_some_and(|a| a.share);
-        let text = if shared {
+        let agent = after.by_name(name).expect("imported agent");
+        let how = match agent.tool {
+            Tool::Claude => "through an import line",
+            Tool::Codex => "as a copy Agent Roster keeps up to date",
+        };
+        let text = if agent.share {
             format!(
-                "Gives {file} its own file instead of a link. Your main rules still reach {name} through an import line."
+                "Gives {file} its own file instead of a link. Your main rules still reach {name} {how}."
             )
         } else {
             format!(
-                "Gives {file} its own file instead of a link, without your main rules. Run `roster share {name} on` to bring them back through an import line."
+                "Gives {file} its own file instead of a link, without your main rules. Run `roster share {name} on` to bring them back {how}."
             )
         };
         steps.push(step(StepKind::Change, text));
