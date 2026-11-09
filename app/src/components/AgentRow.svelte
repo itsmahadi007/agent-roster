@@ -42,12 +42,12 @@
       <div class="ul" data-window={w.label}>
         <span>{w.label}</span>
         <b><i class:hot={w.hot} style:width="{w.used_percent}%" style:background={w.hot ? "var(--coral)" : agent.color}></i></b>
-        <em class:hot={w.hot}>{w.used_percent}%</em>
+        <em class="num" class:hot={w.hot}>{w.used_percent}%</em>
       </div>
     {/each}
     {#if agent.reset_text}
       <div class="rs">
-        <span class:hot={agent.reset_hot}>{agent.reset_text}</span>
+        <span class="num" class:hot={agent.reset_hot}>{agent.reset_text}</span>
       </div>
     {/if}
     {#if agent.limits_note}
@@ -64,7 +64,7 @@
       <button class="btn sm" style:border-color={agent.color} style:color={agent.color} onclick={doSignIn}>Sign in</button>
     {:else}
       <span class="state" style:color={active ? agent.color : agent.state === "not-installed" ? "var(--dim)" : "var(--mut)"}>
-        <i style:background={active ? agent.color : "#3a4758"}></i>{agent.status_text}
+        <i style:background={active ? agent.color : "var(--line-2)"}></i>{agent.status_text}
       </span>
     {/if}
     {#if agent.claude_limits === true}
@@ -78,7 +78,7 @@
 <style>
   .ag {
     display: grid;
-    grid-template-columns: 6px 1fr 210px 128px 44px;
+    grid-template-columns: 4px 1fr 208px 128px 44px;
     align-items: center;
     gap: 16px;
     height: 76px;
@@ -87,10 +87,14 @@
     border: 1px solid var(--line);
     border-right: 0;
     border-radius: 12px 0 0 12px;
+    transition: border-color 150ms var(--ease);
+  }
+  .ag:hover {
+    border-color: var(--line-2);
   }
   .stripe {
     height: 100%;
-    border-radius: 12px 0 0 12px;
+    border-radius: 11px 0 0 11px;
   }
   .who {
     min-width: 0;
@@ -98,41 +102,43 @@
   .nm {
     font-size: 30px;
     letter-spacing: -0.01em;
-    line-height: 1;
+    line-height: 32px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
   .sub {
     display: flex;
-    gap: 10px;
-    margin-top: 6px;
-    font-size: 12.5px;
+    gap: 12px;
+    margin-top: 4px;
+    font-size: 13px;
+    line-height: 20px;
     color: var(--mut);
     white-space: nowrap;
     overflow: hidden;
   }
   .tool {
     color: var(--txt);
-    font-weight: 600;
+    font-weight: 500;
   }
   .use {
     display: flex;
     flex-direction: column;
-    gap: 5px;
+    gap: 4px;
     font-size: 12px;
+    line-height: 16px;
     color: var(--mut);
   }
   .ul {
     display: grid;
-    grid-template-columns: 38px 1fr 34px;
+    grid-template-columns: 40px 1fr 36px;
     align-items: center;
     gap: 8px;
   }
   .ul b {
     height: 6px;
-    border-radius: 9px;
-    background: #0b1119;
+    border-radius: 3px;
+    background: var(--hole);
     border: 1px solid var(--line);
     overflow: hidden;
     display: block;
@@ -140,18 +146,19 @@
   .ul b i {
     display: block;
     height: 100%;
-    border-radius: 9px;
+    border-radius: 2px;
   }
   .ul em {
     font-style: normal;
     text-align: right;
     color: var(--txt);
-    font-weight: 600;
+    font-weight: 500;
   }
   .rs {
-    font-size: 11.5px;
+    font-size: 12px;
+    line-height: 16px;
     color: var(--dim);
-    padding-left: 46px;
+    padding-left: 48px;
     white-space: nowrap;
   }
   .rs.note {
@@ -163,9 +170,10 @@
   }
   .off {
     position: absolute;
-    bottom: 9px;
+    bottom: 8px;
     left: 0;
     opacity: 0;
+    transition: opacity 150ms var(--ease);
   }
   .ag:hover .off,
   .off:focus-visible {
@@ -179,15 +187,15 @@
     justify-content: center;
     align-items: flex-start;
     gap: 4px;
-    padding-right: 6px;
+    padding-right: 8px;
     min-width: 0;
   }
   .state {
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 12.5px;
-    font-weight: 600;
+    font-size: 13px;
+    font-weight: 500;
   }
   .state i {
     width: 8px;
@@ -197,7 +205,7 @@
     flex: none;
   }
   .st .error {
-    font-size: 11px;
+    font-size: 12px;
     max-width: 120px;
     white-space: nowrap;
     overflow: hidden;
@@ -215,8 +223,8 @@
     width: 16px;
     height: 16px;
     border-radius: 50%;
-    border: 2px solid #3a4758;
-    background: #0a1017;
+    border: 2px solid var(--line-2);
+    background: var(--hole);
     display: block;
   }
   .jack b.live {

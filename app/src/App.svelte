@@ -64,9 +64,9 @@
 {/if}
 
 {#if error && !view}
-  <div class="pad"><p class="error">{error}</p></div>
+  <div class="page"><p class="error">{error}</p></div>
 {:else if !view}
-  <div class="pad"><p class="hello-s">Looking at your agents…</p></div>
+  <div class="page"><p class="lede">Looking at your agents…</p></div>
 {:else if view.agents.length === 0 && screen === "agents"}
   <FirstRun palette={view.palette} onDone={() => navigate("agents")} />
 {:else if screen === "changes"}
@@ -90,15 +90,15 @@
   .notice {
     position: fixed;
     left: 50%;
-    bottom: 18px;
+    bottom: 16px;
     transform: translateX(-50%);
     display: flex;
-    gap: 14px;
+    gap: 16px;
     align-items: center;
     background: var(--raise);
-    border: 1px solid #33414f;
-    border-radius: 10px;
-    padding: 10px 14px;
+    border: 1px solid var(--line-2);
+    border-radius: 8px;
+    padding: 8px 16px;
     font-size: 13px;
     z-index: 20;
     max-width: 640px;

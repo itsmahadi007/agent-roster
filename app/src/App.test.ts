@@ -61,7 +61,7 @@ describe("App first run", () => {
       throw new Error(cmd);
     });
     render(App);
-    expect(await screen.findByText("No Claude Code or Codex login was found.")).toBeInTheDocument();
+    expect(await screen.findByText("No Claude Code or Codex login was found")).toBeInTheDocument();
   });
 });
 
@@ -70,7 +70,7 @@ describe("App history", () => {
     invoke.mockImplementation(async (cmd: string) => (cmd === "overview" ? overview : cmd === "changes" ? [] : null));
     render(App);
     await userEvent.click(await screen.findByRole("button", { name: "What changed" }));
-    expect(await screen.findByText("Everything Agent Roster did")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Everything Agent Roster did" })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Back to your agents" }));
     expect(await screen.findByRole("heading", { name: "Your agents" })).toBeInTheDocument();
   });

@@ -80,6 +80,14 @@ describe("AddAgent", () => {
     expect(invoke).toHaveBeenCalledWith("sign_in", { name: "boss" });
   });
 
+  it("has a title and a way back", async () => {
+    const onCancel = vi.fn();
+    render(AddAgent, props({ onCancel }));
+    expect(screen.getByRole("heading", { name: "Add an agent" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Back to your agents" }));
+    expect(onCancel).toHaveBeenCalled();
+  });
+
   it("gemini_is_disabled", () => {
     render(AddAgent, props());
     expect(screen.getByRole("button", { name: "Gemini soon" })).toBeDisabled();

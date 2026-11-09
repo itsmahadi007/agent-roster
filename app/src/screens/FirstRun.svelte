@@ -3,6 +3,7 @@
   import type { ColorView, FirstRunView, OpRequest, PlanView, Tool } from "../lib/types";
   import { firstRun, message, preview } from "../lib/api";
   import PlanSheet from "../components/PlanSheet.svelte";
+  import PageHead from "../components/PageHead.svelte";
 
   let { palette, onDone }: { palette: ColorView[]; onDone: () => void } = $props();
 
@@ -17,8 +18,8 @@
   const installed = $derived(fr ? fr.candidates.filter((c) => c.installed) : []);
   const title = $derived(
     installed.length === 0
-      ? "No Claude Code or Codex login was found."
-      : `You already have ${COUNT[installed.length] ?? installed.length} agent${installed.length === 1 ? "" : "s"}.`,
+      ? "No Claude Code or Codex login was found"
+      : `You already have ${COUNT[installed.length] ?? installed.length} agent${installed.length === 1 ? "" : "s"}`,
   );
 
   onMount(async () => {
@@ -45,18 +46,16 @@
   }
 </script>
 
-<div class="pad first">
+<div class="page first">
   {#if !fr}
-    {#if error}<p class="error">{error}</p>{:else}<p class="hello-s">Looking for your logins…</p>{/if}
+    {#if error}<p class="error">{error}</p>{:else}<p class="lede">Looking for your logins…</p>{/if}
   {:else}
-    <div class="hello">{title}</div>
-    <p class="hello-s">
-      {#if installed.length}
-        We found these {installed.every((c) => c.signed_in) ? "signed in " : ""}on this computer. Give them names, or keep ours. Nothing changes until you continue.
-      {:else}
-        Install Claude Code or Codex, sign in once, then open Agent Roster again.
-      {/if}
-    </p>
+    <PageHead
+      {title}
+      sub={installed.length
+        ? `We found these ${installed.every((c) => c.signed_in) ? "signed in " : ""}on this computer. Give them names, or keep ours. Nothing changes until you continue.`
+        : "Install Claude Code or Codex, sign in once, then open Agent Roster again."}
+    />
 
     {#if fr.prototype}
       <div class="proto">
@@ -110,14 +109,13 @@
 
 <style>
   .first {
-    margin: 0 auto;
-    padding-top: 48px;
+    padding-top: 52px; /* titles line up with screens that have a back link */
   }
   .found {
     display: flex;
     align-items: center;
-    gap: 14px;
-    padding: 14px 0;
+    gap: 16px;
+    padding: 16px 0;
     border-bottom: 1px solid var(--line);
   }
   .found:last-of-type {
@@ -128,21 +126,23 @@
   }
   .nm2 {
     font-size: 22px;
-    min-width: 140px;
+    line-height: 28px;
+    min-width: 144px;
   }
   input.nm2 {
     width: 160px;
+    height: 32px;
     background: var(--raise);
     border: 1px solid var(--line);
     border-radius: 8px;
-    padding: 2px 8px;
+    padding: 0 8px;
     font-family: inherit;
   }
   .meta {
     flex: 1;
-    font-size: 12.5px;
+    font-size: 13px;
+    line-height: 20px;
     color: var(--mut);
-    line-height: 1.5;
   }
   .proto {
     display: flex;
@@ -151,9 +151,9 @@
     gap: 12px;
     background: var(--well);
     border: 1px solid var(--line);
-    border-radius: 10px;
-    padding: 10px 14px;
+    border-radius: 8px;
+    padding: 8px 8px 8px 16px;
     font-size: 13px;
-    margin: 6px 0 8px;
+    margin-bottom: 8px;
   }
 </style>

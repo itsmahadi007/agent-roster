@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { ColorView, PlanView, Tool } from "../lib/types";
   import { apply, message, preview, signIn } from "../lib/api";
+  import PageHead from "../components/PageHead.svelte";
 
   let {
     palette,
@@ -83,75 +84,89 @@
   }
 </script>
 
-<div class="add">
-  <input
-    class="big wide"
-    aria-label="Name"
-    placeholder="name"
-    spellcheck="false"
-    autocomplete="off"
-    style:color={hex}
-    style:caret-color={hex}
-    bind:value={name}
-  />
+<div class="page add">
+  <PageHead title="Add an agent" sub="Its name is the command you type to start it" onBack={onCancel} />
+  <div class="cols">
+    <div class="form">
+      <input
+        class="big wide"
+        aria-label="Name"
+        placeholder="name"
+        spellcheck="false"
+        autocomplete="off"
+        style:color={hex}
+        style:caret-color={hex}
+        bind:value={name}
+      />
 
-  <div class="lbl">Color</div>
-  <div class="sw" role="radiogroup" aria-label="Color">
-    {#each palette as c (c.label)}
-      <button
-        role="radio"
-        aria-checked={c.label === color}
-        aria-label={c.label}
-        class:on={c.label === color}
-        style:background={c.hex}
-        onclick={() => (picked = c.label)}
-      ></button>
-    {/each}
-  </div>
+      <div class="lbl">Color</div>
+      <div class="sw" role="radiogroup" aria-label="Color">
+        {#each palette as c (c.label)}
+          <button
+            role="radio"
+            aria-checked={c.label === color}
+            aria-label={c.label}
+            class:on={c.label === color}
+            style:background={c.hex}
+            onclick={() => (picked = c.label)}
+          ></button>
+        {/each}
+      </div>
 
-  <div class="lbl">Tool</div>
-  <div class="seg">
-    {#each TOOLS as t (t.tool)}
-      <button class:on={tool === t.tool} aria-pressed={tool === t.tool} onclick={() => (tool = t.tool)}>{t.label}</button>
-    {/each}
-    <button class="off" disabled>Gemini soon</button>
-  </div>
+      <div class="lbl">Tool</div>
+      <div class="seg">
+        {#each TOOLS as t (t.tool)}
+          <button class:on={tool === t.tool} aria-pressed={tool === t.tool} onclick={() => (tool = t.tool)}>{t.label}</button>
+        {/each}
+        <button class="off" disabled>Gemini soon</button>
+      </div>
 
-  <div class="tg">
-    <button class="k" class:on={share} role="switch" aria-checked={share} aria-label="Share my skills" onclick={() => (share = !share)}></button>
-    <div>
-      Share my skills
-      <small>{share ? `On. Uses the skills of your main ${toolLabel} account.` : "Off. This account starts fully separate."}</small>
+      <div class="tg">
+        <button class="k" class:on={share} role="switch" aria-checked={share} aria-label="Share my skills" onclick={() => (share = !share)}></button>
+        <div>
+          Share my skills
+          <small>{share ? `On. Uses the skills of your main ${toolLabel} account.` : "Off. This account starts fully separate."}</small>
+        </div>
+      </div>
+
+      <label class="lbl role">
+        Role (optional)
+        <input bind:value={role} placeholder="what others should ask it for" spellcheck="false" />
+      </label>
     </div>
-  </div>
+    <div class="out">
+      <div class="lbl first">What will happen</div>
+      {#if applyError}<p class="error">{applyError}</p>{/if}
+      <div class="will" aria-live="polite">
+        {#if error}
+          <p class="error">{error}</p>
+        {:else if plan}
+          {#each plan.steps as s, i (i)}<div>{s.text}</div>{/each}
+        {:else}
+          <div class="dim">Type a name to see exactly what will happen</div>
+        {/if}
+      </div>
 
-  <label class="lbl role">
-    Role (optional)
-    <input bind:value={role} placeholder="what others should ask it for" spellcheck="false" />
-  </label>
-
-  {#if applyError}<p class="error">{applyError}</p>{/if}
-  <div class="will" aria-live="polite">
-    {#if error}
-      <p class="error">{error}</p>
-    {:else if plan}
-      {#each plan.steps as s, i (i)}<div>{s.text}</div>{/each}
-    {:else}
-      <div class="dim">Type a name to see exactly what will happen.</div>
-    {/if}
-  </div>
-
-  <div class="foot">
-    <button class="btn" onclick={onCancel} disabled={busy}>Cancel</button>
-    <button class="btn pri" onclick={add} disabled={!plan || busy}>Add and sign in</button>
+      <div class="foot">
+        <button class="btn" onclick={onCancel} disabled={busy}>Cancel</button>
+        <button class="btn pri" onclick={add} disabled={!plan || busy}>Add and sign in</button>
+      </div>
+    </div>
   </div>
 </div>
 
 <style>
   .add {
-    width: 420px;
-    margin: 0 auto;
-    padding: 26px 0 30px;
+    max-width: 1040px;
+  }
+  .cols {
+    display: grid;
+    grid-template-columns: minmax(0, 440px) minmax(0, 1fr);
+    gap: 48px;
+    align-items: start;
+  }
+  .lbl.first {
+    margin-top: 0;
   }
   .big {
     width: 100%;
@@ -159,33 +174,35 @@
     border: 0;
     border-bottom: 2px solid var(--line);
     font-family: inherit;
-    font-size: 46px;
-    line-height: 1;
-    letter-spacing: -0.015em;
-    padding: 18px 0 14px;
+    font-size: 44px;
+    line-height: 48px;
+    letter-spacing: -0.02em;
+    padding: 0 0 12px;
     outline: none;
+    transition: border-color 150ms var(--ease);
   }
   .big::placeholder {
     color: var(--dim);
   }
   .big:focus-visible {
     outline: none;
-    border-bottom-color: #3a4758;
+    border-bottom-color: var(--line-2);
   }
   .lbl {
-    font-size: 12.5px;
+    font-size: 13px;
+    line-height: 20px;
     color: var(--mut);
-    margin: 16px 0 8px;
+    margin: 20px 0 8px;
   }
   .sw {
     display: flex;
-    gap: 9px;
+    gap: 8px;
   }
   .sw button {
-    width: 26px;
-    height: 26px;
+    width: 28px;
+    height: 28px;
     border-radius: 50%;
-    border: 2px solid transparent;
+    border: 0;
     padding: 0;
   }
   .sw button.on {
@@ -196,17 +213,20 @@
   .seg {
     display: grid;
     grid-template-columns: 1fr 1fr 1fr;
-    gap: 6px;
+    gap: 8px;
   }
   .seg button {
-    text-align: center;
-    padding: 10px 6px;
-    border-radius: 9px;
+    height: 40px;
+    border-radius: 8px;
     border: 1px solid var(--line);
     background: var(--raise);
     color: var(--txt);
     font-size: 13px;
-    font-weight: 600;
+    font-weight: 500;
+    transition: border-color 150ms var(--ease);
+  }
+  .seg button:hover:not(:disabled):not(.on) {
+    border-color: var(--line-2);
   }
   .seg button.on {
     border-color: var(--txt);
@@ -220,18 +240,20 @@
     display: flex;
     align-items: center;
     gap: 12px;
-    margin-top: 14px;
+    margin-top: 20px;
     font-size: 13px;
+    line-height: 20px;
   }
   .tg .k {
-    width: 34px;
+    width: 36px;
     height: 20px;
-    border-radius: 999px;
-    background: #2a3646;
+    border-radius: 10px;
+    background: var(--line-2);
     position: relative;
     flex: none;
     border: 0;
     padding: 0;
+    transition: background-color 150ms var(--ease);
   }
   .tg .k::after {
     content: "";
@@ -241,50 +263,59 @@
     width: 14px;
     height: 14px;
     border-radius: 50%;
-    background: #8592a5;
-    transition: left 0.15s;
+    background: var(--mut);
+    transition:
+      transform 150ms var(--ease),
+      background-color 150ms var(--ease);
   }
   .tg .k.on {
     background: var(--jade);
   }
   .tg .k.on::after {
-    left: 17px;
+    transform: translateX(16px);
     background: var(--txt);
   }
   .tg small {
     display: block;
     color: var(--dim);
     font-size: 12px;
+    line-height: 16px;
   }
   .role {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 8px;
   }
   .role input {
+    height: 36px;
     background: var(--raise);
     border: 1px solid var(--line);
-    border-radius: 9px;
-    padding: 8px 10px;
+    border-radius: 8px;
+    padding: 0 12px;
     color: var(--txt);
     font: inherit;
     font-size: 13px;
   }
+  .role input::placeholder {
+    color: var(--dim);
+  }
   .will {
-    margin-top: 16px;
     background: var(--well);
     border: 1px solid var(--line);
-    border-radius: 10px;
-    padding: 12px 14px;
-    font-size: 12.5px;
-    line-height: 1.75;
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: 13px;
+    line-height: 22px;
     color: var(--mut);
-    min-height: 92px;
+    min-height: 112px;
   }
   .will .error {
     margin: 0;
   }
   .dim {
     color: var(--dim);
+  }
+  .out > .error {
+    margin: 0 0 8px;
   }
 </style>

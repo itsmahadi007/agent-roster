@@ -32,7 +32,7 @@ describe("Agents", () => {
 
   it("nobody on the line when there are no calls", () => {
     render(Agents, { view: { ...view, calls: [] }, onNavigate: () => {}, onLimits: () => {} });
-    expect(screen.getByText("Nobody is on the line.")).toBeInTheDocument();
+    expect(screen.getByText("Nobody is on the line")).toBeInTheDocument();
   });
 
   it("header buttons navigate", async () => {

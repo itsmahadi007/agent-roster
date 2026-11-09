@@ -79,7 +79,7 @@ describe("Changes", () => {
   it("empty history", async () => {
     invoke.mockResolvedValue([]);
     render(Changes, { onBack: () => {} });
-    expect(await screen.findByText("Agent Roster hasn't changed anything yet.")).toBeInTheDocument();
+    expect(await screen.findByText("Agent Roster hasn't changed anything yet")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Undo everything" })).not.toBeInTheDocument();
   });
 });

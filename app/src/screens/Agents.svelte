@@ -46,7 +46,7 @@
     min-height: 100%;
   }
   .bay {
-    padding: 22px 0 18px 26px;
+    padding: 24px 0 24px 24px;
     position: relative;
     min-width: 0;
   }
@@ -55,17 +55,17 @@
     align-items: flex-end;
     justify-content: space-between;
     gap: 16px;
-    padding-right: 26px;
-    margin-bottom: 18px;
+    padding-right: 24px;
+    margin-bottom: 16px;
   }
   .head h3 {
     margin: 0;
     font-size: 22px;
-    font-weight: 700;
-    letter-spacing: -0.01em;
+    line-height: 28px;
+    font-weight: 600;
   }
   .head p {
-    margin: 3px 0 0;
+    margin: 4px 0 0;
     color: var(--mut);
     font-size: 13px;
   }

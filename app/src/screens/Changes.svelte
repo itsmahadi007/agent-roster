@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import type { ChangeView } from "../lib/types";
   import { changes, message, undo, undoAll } from "../lib/api";
+  import PageHead from "../components/PageHead.svelte";
 
   let { onBack }: { onBack: () => void } = $props();
 
@@ -48,10 +49,8 @@
   onMount(load);
 </script>
 
-<div class="pad changes">
-  <button class="link back" onclick={onBack}>Back to your agents</button>
-  <div class="hello" style:font-size="22px">Everything Agent Roster did</div>
-  <p class="hello-s">Each change has a backup. Undo one, or undo all of them.</p>
+<div class="page">
+  <PageHead title="Everything Agent Roster did" sub="Each change has a backup. Undo one, or undo all of them." {onBack} />
 
   {#if list}
     {#each list as c (c.id)}
@@ -59,7 +58,7 @@
         <span class="dot" style:background={c.color ?? "var(--mut)"}></span>
         <span class="meta">
           <span class="what" class:gone={c.undone}>{c.summary}</span><br />
-          <span class="dim">{when(c.at)}</span>
+          <span class="dim num">{when(c.at)}</span>
         </span>
         {#if c.undone}
           <span class="dim">undone</span>
@@ -68,7 +67,7 @@
         {/if}
       </div>
     {:else}
-      <p class="hello-s">Agent Roster hasn't changed anything yet.</p>
+      <p class="lede">Agent Roster hasn't changed anything yet</p>
     {/each}
     <div class="found">
       <span class="dot" style:background="var(--jade)"></span>
@@ -96,26 +95,24 @@
 </div>
 
 <style>
-  .changes {
-    margin: 0 auto;
-  }
   .found {
     display: flex;
     align-items: center;
-    gap: 14px;
-    padding: 14px 0;
+    gap: 16px;
+    min-height: 68px;
+    padding: 12px 0;
     border-bottom: 1px solid var(--line);
   }
   .dot {
-    width: 10px;
-    height: 10px;
+    width: 8px;
+    height: 8px;
     border-radius: 50%;
     flex: none;
   }
   .meta {
     flex: 1;
-    font-size: 12.5px;
-    line-height: 1.5;
+    font-size: 13px;
+    line-height: 20px;
   }
   .what {
     color: var(--txt);
@@ -127,21 +124,21 @@
   }
   .dim {
     color: var(--dim);
-    font-size: 12.5px;
+    font-size: 12px;
   }
   .jade {
     color: var(--jade);
   }
   .ask {
-    margin-top: 14px;
+    margin-top: 16px;
     background: var(--well);
     border: 1px solid var(--line);
-    border-radius: 10px;
-    padding: 12px 14px;
+    border-radius: 8px;
+    padding: 12px 16px;
     font-size: 13px;
   }
   .ask .foot {
-    margin-top: 10px;
+    margin-top: 12px;
   }
   .bottom {
     justify-content: space-between;

@@ -17,7 +17,7 @@
         <div class="t">{c.detail}</div>
       </div>
     {:else}
-      <p class="quiet">Nobody is on the line.</p>
+      <p class="quiet">Nobody is on the line</p>
     {/each}
   </section>
   <section>
@@ -31,7 +31,7 @@
     {#each view.warnings as w, i (i)}
       <p class="warn"><b class="wide hot">{w.name}</b> {w.text}</p>
     {:else}
-      <p class="warn">No agent is near its limit.</p>
+      <p class="warn">No agent is near its limit</p>
     {/each}
     {#if view.limits_updated}
       <p class="quiet">Updated each time an agent is used. {view.limits_updated}</p>
@@ -46,25 +46,27 @@
   .side {
     background: var(--well);
     border-left: 1px solid var(--line);
-    padding: 22px 22px 18px 68px;
+    /* The left 64px is where the cable loops out of the jacks. */
+    padding: 24px 24px 24px 64px;
     display: flex;
     flex-direction: column;
-    gap: 18px;
+    gap: 24px;
     overflow-y: auto;
   }
   h4 {
     margin: 0 0 8px;
     font-size: 13px;
+    line-height: 20px;
     color: var(--mut);
-    font-weight: 600;
+    font-weight: 500;
   }
   section p {
     margin: 0;
   }
   .call {
     border-left: 2px solid;
-    padding: 2px 0 2px 14px;
-    margin-bottom: 10px;
+    padding: 0 0 0 12px;
+    margin-bottom: 8px;
   }
   .call .who {
     font-size: 13px;
@@ -74,46 +76,52 @@
     font-size: 14px;
   }
   .call .what {
-    font-size: 15px;
-    line-height: 1.4;
-    margin: 6px 0 8px;
+    font-size: 14px;
+    line-height: 20px;
+    margin: 4px 0;
     user-select: text;
   }
   .call .t {
     font-size: 12px;
+    line-height: 16px;
     color: var(--dim);
   }
   .cmds {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
+    gap: 8px;
   }
   .cmds span {
-    font-size: 12.5px;
-    padding: 5px 9px;
-    border-radius: 7px;
+    font-size: 12px;
+    line-height: 16px;
+    padding: 4px 8px;
+    border-radius: 6px;
     background: var(--raise);
     border: 1px solid var(--line);
     user-select: text;
   }
   .warn {
     font-size: 13px;
-    line-height: 1.5;
+    line-height: 20px;
     color: var(--txt);
-    margin-bottom: 6px !important;
+  }
+  .warn + .warn,
+  .warn + .quiet {
+    margin-top: 4px;
   }
   .quiet {
     font-size: 12px;
+    line-height: 16px;
     color: var(--dim);
   }
   .safe {
     margin-top: auto;
-    font-size: 12.5px;
+    font-size: 12px;
+    line-height: 20px;
     color: var(--mut);
-    line-height: 1.5;
   }
   .safe b {
     color: var(--jade);
-    font-weight: 600;
+    font-weight: 500;
   }
 </style>

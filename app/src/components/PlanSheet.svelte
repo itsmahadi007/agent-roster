@@ -73,40 +73,41 @@
   .sheet {
     width: min(520px, calc(100vw - 48px));
     background: var(--base);
-    border: 1px solid #2b3746;
-    border-radius: 14px;
-    padding: 22px;
-    box-shadow: 0 30px 70px rgba(0, 0, 0, 0.55);
+    border: 1px solid var(--line-2);
+    border-radius: 16px;
+    padding: 24px;
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
   }
   h4 {
     margin: 0 0 12px;
     font-size: 16px;
-    font-weight: 700;
+    line-height: 24px;
+    font-weight: 600;
   }
   ul {
     list-style: none;
     margin: 0;
-    padding: 12px 14px;
+    padding: 12px 16px;
     background: var(--well);
     border: 1px solid var(--line);
-    border-radius: 10px;
-    font-size: 12.5px;
-    line-height: 1.75;
+    border-radius: 8px;
+    font-size: 13px;
+    line-height: 22px;
     color: var(--mut);
   }
   li {
     display: flex;
-    gap: 10px;
+    gap: 8px;
   }
   .mark {
-    width: 10px;
+    width: 12px;
     flex: none;
   }
   [data-kind="add"] .mark {
     color: var(--jade);
   }
   [data-kind="change"] .mark {
-    color: #f0b429;
+    color: var(--amber);
   }
   [data-kind="remove"] .mark {
     color: var(--coral);

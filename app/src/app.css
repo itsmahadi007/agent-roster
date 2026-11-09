@@ -1,15 +1,19 @@
-/* Tokens copied from docs/mockups/app-window.html (.pb block). */
+/* Colors from docs/mockups/app-window.html (.pb block). Spacing on a 4px grid. */
 :root {
   --base: #111925;
   --raise: #18222f;
   --well: #0c131c;
+  --hole: #0a1017;
   --line: #26323f;
+  --line-2: #364352;
   --txt: #e6ebf2;
   --mut: #8592a5;
   --dim: #56637a;
   --coral: #ff7a6b;
   --jade: #2fbf8f;
+  --amber: #f0b429;
   --wide: "wdth" 125;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
   color-scheme: dark;
 }
 
@@ -25,6 +29,8 @@ body {
   color: var(--txt);
   font-family: "Archivo Variable", "Archivo", system-ui, sans-serif;
   font-variation-settings: "wdth" 100;
+  font-size: 14px;
+  line-height: 20px;
   -webkit-font-smoothing: antialiased;
   user-select: none;
   cursor: default;
@@ -38,9 +44,14 @@ body {
   font-family: "JetBrains Mono", ui-monospace, monospace;
 }
 
+/* Agent names: the wide cut of Archivo, the app's one display face. */
 .wide {
   font-variation-settings: var(--wide);
   font-weight: 800;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
 }
 
 .hot {
@@ -55,25 +66,38 @@ button {
 .btn {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  border-radius: 9px;
-  padding: 8px 14px;
+  gap: 8px;
+  height: 36px;
+  border-radius: 8px;
+  padding: 0 16px;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   border: 1px solid var(--line);
   background: var(--raise);
   color: var(--txt);
+  transition:
+    background-color 150ms var(--ease),
+    border-color 150ms var(--ease);
 }
 .btn:hover:not(:disabled) {
-  border-color: #3a4758;
+  border-color: var(--line-2);
 }
 .btn.pri {
   background: var(--txt);
   color: var(--base);
   border-color: var(--txt);
 }
+.btn.pri:hover:not(:disabled) {
+  background: #ffffff;
+  border-color: #ffffff;
+}
 .btn.sm {
-  padding: 5px 10px;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 6px;
+}
+.btn:active:not(:disabled) {
+  transform: scale(0.98);
 }
 .btn:disabled {
   opacity: 0.45;
@@ -91,9 +115,11 @@ input:focus-visible {
   border: 0;
   padding: 0;
   color: var(--mut);
-  font-size: 11.5px;
+  font-size: 12px;
   text-decoration: underline;
-  text-underline-offset: 2px;
+  text-decoration-color: var(--line-2);
+  text-underline-offset: 4px;
+  transition: color 150ms var(--ease);
 }
 .link:hover {
   color: var(--txt);
@@ -101,39 +127,28 @@ input:focus-visible {
 
 .error {
   color: var(--coral);
-  font-size: 12.5px;
-  line-height: 1.5;
+  font-size: 13px;
+  line-height: 20px;
 }
 
-.pad {
-  padding: 26px 30px;
-  max-width: 560px;
+/* Every screen but Your agents: one header, content on the same left edge. */
+.page {
+  padding: 24px 24px 32px;
+  max-width: 616px;
 }
 
-.hello {
-  font-size: 26px;
-  font-weight: 700;
-  line-height: 1.15;
-  letter-spacing: -0.015em;
-  margin: 4px 0 6px;
-}
-
-.hello-s {
+.lede {
   color: var(--mut);
-  font-size: 13.5px;
-  margin: 0 0 10px;
-  line-height: 1.5;
+  font-size: 13px;
+  line-height: 20px;
+  margin: 0;
 }
 
 .foot {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 18px;
-}
-
-.back {
-  margin-bottom: 14px;
+  margin-top: 16px;
 }
 
 @media (prefers-reduced-motion: reduce) {
