@@ -11,15 +11,43 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Change {
-    Created { path: PathBuf, after_sha256: String },
-    Modified { path: PathBuf, backup: PathBuf, after_sha256: String },
-    Removed { path: PathBuf, backup: PathBuf },
-    LinkRemoved { path: PathBuf, target: PathBuf },
-    LinkReplaced { path: PathBuf, target: PathBuf, after_sha256: String },
-    DirCreated { path: PathBuf },
-    Linked { link: PathBuf, target: PathBuf },
-    UserPath { before: Option<String>, after: String },
-    DirMoved { from: PathBuf, to: PathBuf },
+    Created {
+        path: PathBuf,
+        after_sha256: String,
+    },
+    Modified {
+        path: PathBuf,
+        backup: PathBuf,
+        after_sha256: String,
+    },
+    Removed {
+        path: PathBuf,
+        backup: PathBuf,
+    },
+    LinkRemoved {
+        path: PathBuf,
+        target: PathBuf,
+    },
+    LinkReplaced {
+        path: PathBuf,
+        target: PathBuf,
+        after_sha256: String,
+    },
+    DirCreated {
+        path: PathBuf,
+    },
+    Linked {
+        link: PathBuf,
+        target: PathBuf,
+    },
+    UserPath {
+        before: Option<String>,
+        after: String,
+    },
+    DirMoved {
+        from: PathBuf,
+        to: PathBuf,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -43,7 +71,11 @@ impl fmt::Display for JournalError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             JournalError::Io(e) => write!(f, "{e}"),
-            JournalError::IsLink(p) => write!(f, "{} is a link to another file, so it was left alone", p.display()),
+            JournalError::IsLink(p) => write!(
+                f,
+                "{} is a link to another file, so it was left alone",
+                p.display()
+            ),
             JournalError::Unsupported(w) => write!(f, "{w} isn't supported on this system"),
             JournalError::Corrupt(e) => write!(f, "the change history file is damaged: {e}"),
         }
@@ -88,7 +120,9 @@ fn file_sha(path: &Path) -> Option<String> {
 }
 
 fn is_link(path: &Path) -> bool {
-    fs::symlink_metadata(path).map(|m| m.file_type().is_symlink()).unwrap_or(false)
+    fs::symlink_metadata(path)
+        .map(|m| m.file_type().is_symlink())
+        .unwrap_or(false)
 }
 
 fn now() -> i64 {
@@ -110,7 +144,9 @@ impl Journal {
         let mut ops = vec![];
         if let Ok(text) = fs::read_to_string(&file) {
             for line in text.lines().filter(|l| !l.trim().is_empty()) {
-                ops.push(serde_json::from_str(line).map_err(|e| JournalError::Corrupt(e.to_string()))?);
+                ops.push(
+                    serde_json::from_str(line).map_err(|e| JournalError::Corrupt(e.to_string()))?,
+                );
             }
         }
         Ok(Journal { dir, ops })
@@ -122,7 +158,14 @@ impl Journal {
 
     pub fn begin(&mut self, summary: &str) -> Txn<'_> {
         let id = self.ops.iter().map(|o| o.id).max().unwrap_or(0) + 1;
-        Txn { journal: self, id, summary: summary.to_string(), changes: vec![], committed: false, backups: 0 }
+        Txn {
+            journal: self,
+            id,
+            summary: summary.to_string(),
+            changes: vec![],
+            committed: false,
+            backups: 0,
+        }
     }
 
     fn backup_dir(&self, id: u64) -> PathBuf {
@@ -133,7 +176,9 @@ impl Journal {
         fs::create_dir_all(&self.dir)?;
         let mut text = String::new();
         for op in &self.ops {
-            text.push_str(&serde_json::to_string(op).map_err(|e| JournalError::Corrupt(e.to_string()))?);
+            text.push_str(
+                &serde_json::to_string(op).map_err(|e| JournalError::Corrupt(e.to_string()))?,
+            );
             text.push('\n');
         }
         let tmp = self.dir.join("journal.jsonl.tmp");
@@ -144,14 +189,25 @@ impl Journal {
 
     fn append(&mut self, op: Op) -> Result<(), JournalError> {
         fs::create_dir_all(&self.dir)?;
-        let mut f = fs::OpenOptions::new().create(true).append(true).open(self.dir.join("journal.jsonl"))?;
-        writeln!(f, "{}", serde_json::to_string(&op).map_err(|e| JournalError::Corrupt(e.to_string()))?)?;
+        let mut f = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(self.dir.join("journal.jsonl"))?;
+        writeln!(
+            f,
+            "{}",
+            serde_json::to_string(&op).map_err(|e| JournalError::Corrupt(e.to_string()))?
+        )?;
         self.ops.push(op);
         Ok(())
     }
 
     pub fn undo(&mut self, op_id: u64) -> Result<(), UndoError> {
-        let idx = self.ops.iter().position(|o| o.id == op_id).ok_or(UndoError::NotFound(op_id))?;
+        let idx = self
+            .ops
+            .iter()
+            .position(|o| o.id == op_id)
+            .ok_or(UndoError::NotFound(op_id))?;
         if self.ops[idx].undone {
             return Err(UndoError::AlreadyUndone(op_id));
         }
@@ -180,7 +236,12 @@ impl Journal {
 
     /// Undo every change, newest first. Stops at the first conflict.
     pub fn undo_all(&mut self) -> Result<Vec<u64>, UndoError> {
-        let mut ids: Vec<u64> = self.ops.iter().filter(|o| !o.undone).map(|o| o.id).collect();
+        let mut ids: Vec<u64> = self
+            .ops
+            .iter()
+            .filter(|o| !o.undone)
+            .map(|o| o.id)
+            .collect();
         ids.sort_unstable_by(|a, b| b.cmp(a));
         let mut done = vec![];
         for id in ids {
@@ -192,11 +253,19 @@ impl Journal {
 }
 
 fn check_undo(c: &Change, freed: &std::collections::HashSet<PathBuf>) -> Result<(), UndoError> {
-    let conflict = |p: &Path| Err(UndoError::Conflict { path: p.to_path_buf() });
+    let conflict = |p: &Path| {
+        Err(UndoError::Conflict {
+            path: p.to_path_buf(),
+        })
+    };
     match c {
         Change::Created { path, after_sha256 }
-        | Change::Modified { path, after_sha256, .. }
-        | Change::LinkReplaced { path, after_sha256, .. } => {
+        | Change::Modified {
+            path, after_sha256, ..
+        }
+        | Change::LinkReplaced {
+            path, after_sha256, ..
+        } => {
             match file_sha(path) {
                 Some(cur) if &cur == after_sha256 && !is_link(path) => Ok(()),
                 None if !path.exists() => Ok(()), // already gone: nothing to protect
@@ -204,14 +273,26 @@ fn check_undo(c: &Change, freed: &std::collections::HashSet<PathBuf>) -> Result<
             }
         }
         Change::Removed { path, .. } | Change::LinkRemoved { path, .. } => {
-            if (path.exists() || is_link(path)) && !freed.contains(path) { conflict(path) } else { Ok(()) }
+            if (path.exists() || is_link(path)) && !freed.contains(path) {
+                conflict(path)
+            } else {
+                Ok(())
+            }
         }
         Change::Linked { link, .. } => {
-            if link.exists() && !is_link(link) && !is_junction(link) { conflict(link) } else { Ok(()) }
+            if link.exists() && !is_link(link) && !is_junction(link) {
+                conflict(link)
+            } else {
+                Ok(())
+            }
         }
         Change::DirCreated { .. } | Change::UserPath { .. } => Ok(()),
         Change::DirMoved { from, .. } => {
-            if from.exists() && !freed.contains(from) { conflict(from) } else { Ok(()) }
+            if from.exists() && !freed.contains(from) {
+                conflict(from)
+            } else {
+                Ok(())
+            }
         }
     }
 }
@@ -297,7 +378,9 @@ impl Txn<'_> {
         }
         // A file already touched in this transaction keeps its first backup.
         let existing = self.changes.iter_mut().find(|c| match c {
-            Change::Created { path: p, .. } | Change::Modified { path: p, .. } | Change::LinkReplaced { path: p, .. } => p == path,
+            Change::Created { path: p, .. }
+            | Change::Modified { path: p, .. }
+            | Change::LinkReplaced { path: p, .. } => p == path,
             _ => false,
         });
         if let Some(c) = existing {
@@ -316,10 +399,17 @@ impl Txn<'_> {
             }
             let backup = self.backup(path)?;
             fs::write(path, bytes)?;
-            self.changes.push(Change::Modified { path: path.to_path_buf(), backup, after_sha256: after });
+            self.changes.push(Change::Modified {
+                path: path.to_path_buf(),
+                backup,
+                after_sha256: after,
+            });
         } else {
             fs::write(path, bytes)?;
-            self.changes.push(Change::Created { path: path.to_path_buf(), after_sha256: after });
+            self.changes.push(Change::Created {
+                path: path.to_path_buf(),
+                after_sha256: after,
+            });
         }
         Ok(())
     }
@@ -335,7 +425,10 @@ impl Txn<'_> {
         if is_link(path) {
             let target = fs::read_link(path)?;
             fs::remove_file(path)?;
-            self.changes.push(Change::LinkRemoved { path: path.to_path_buf(), target });
+            self.changes.push(Change::LinkRemoved {
+                path: path.to_path_buf(),
+                target,
+            });
             return Ok(());
         }
         if !path.exists() {
@@ -343,7 +436,10 @@ impl Txn<'_> {
         }
         let backup = self.backup(path)?;
         fs::remove_file(path)?;
-        self.changes.push(Change::Removed { path: path.to_path_buf(), backup });
+        self.changes.push(Change::Removed {
+            path: path.to_path_buf(),
+            backup,
+        });
         Ok(())
     }
 
@@ -353,7 +449,10 @@ impl Txn<'_> {
             self.ensure_dir(parent)?;
         }
         make_dir_link(target, link)?;
-        self.changes.push(Change::Linked { link: link.to_path_buf(), target: target.to_path_buf() });
+        self.changes.push(Change::Linked {
+            link: link.to_path_buf(),
+            target: target.to_path_buf(),
+        });
         Ok(())
     }
 
@@ -366,7 +465,11 @@ impl Txn<'_> {
         let bytes = fs::read(path).unwrap_or_default();
         fs::remove_file(path)?;
         fs::write(path, &bytes)?;
-        self.changes.push(Change::LinkReplaced { path: path.to_path_buf(), target, after_sha256: sha256_hex(&bytes) });
+        self.changes.push(Change::LinkReplaced {
+            path: path.to_path_buf(),
+            target,
+            after_sha256: sha256_hex(&bytes),
+        });
         Ok(())
     }
 
@@ -374,7 +477,10 @@ impl Txn<'_> {
     pub fn set_windows_user_path(&mut self, value: &str) -> Result<(), JournalError> {
         let before = get_user_path()?;
         set_user_path(Some(value))?;
-        self.changes.push(Change::UserPath { before, after: value.to_string() });
+        self.changes.push(Change::UserPath {
+            before,
+            after: value.to_string(),
+        });
         Ok(())
     }
 
@@ -388,7 +494,10 @@ impl Txn<'_> {
         self.backups += 1;
         let to = backups.join(format!("dir-{}", self.backups));
         fs::rename(dir, &to)?;
-        self.changes.push(Change::DirMoved { from: dir.to_path_buf(), to });
+        self.changes.push(Change::DirMoved {
+            from: dir.to_path_buf(),
+            to,
+        });
         Ok(())
     }
 
@@ -398,7 +507,13 @@ impl Txn<'_> {
 
     pub fn commit(mut self) -> Result<u64, JournalError> {
         self.committed = true;
-        let op = Op { id: self.id, at: now(), summary: self.summary.clone(), changes: std::mem::take(&mut self.changes), undone: false };
+        let op = Op {
+            id: self.id,
+            at: now(),
+            summary: self.summary.clone(),
+            changes: std::mem::take(&mut self.changes),
+            undone: false,
+        };
         let id = op.id;
         self.journal.append(op)?;
         Ok(id)
@@ -438,7 +553,11 @@ fn make_dir_link(target: &Path, link: &Path) -> std::io::Result<()> {
         .arg(target)
         .stdout(std::process::Stdio::null())
         .status()?;
-    if status.success() { Ok(()) } else { Err(std::io::Error::other("mklink /J failed")) }
+    if status.success() {
+        Ok(())
+    } else {
+        Err(std::io::Error::other("mklink /J failed"))
+    }
 }
 
 #[cfg(unix)]
@@ -459,12 +578,14 @@ fn remove_link(link: &Path) -> std::io::Result<()> {
 
 #[cfg(windows)]
 fn get_user_path() -> Result<Option<String>, JournalError> {
-    let env = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER).open_subkey("Environment")?;
+    let env =
+        winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER).open_subkey("Environment")?;
     Ok(env.get_value::<String, _>("Path").ok())
 }
 #[cfg(windows)]
 fn set_user_path(v: Option<&str>) -> Result<(), JournalError> {
-    let (env, _) = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER).create_subkey("Environment")?;
+    let (env, _) =
+        winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER).create_subkey("Environment")?;
     match v {
         Some(v) => env.set_value("Path", &v.to_string())?,
         None => {
@@ -518,7 +639,10 @@ mod tests {
         let id = t.commit().unwrap();
         j.undo(id).unwrap();
         assert!(!f.exists());
-        assert!(!d.path().join("new").exists(), "created parent dirs are removed when empty");
+        assert!(
+            !d.path().join("new").exists(),
+            "created parent dirs are removed when empty"
+        );
     }
 
     #[test]
@@ -577,7 +701,13 @@ mod tests {
         assert_eq!(fs::read_to_string(&target).unwrap(), "T");
         assert_eq!(fs::read_to_string(&link).unwrap(), "N");
         j.undo(id).unwrap();
-        assert!(fs::symlink_metadata(&link).unwrap().file_type().is_symlink(), "undo restores the link");
+        assert!(
+            fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink(),
+            "undo restores the link"
+        );
     }
 
     #[cfg(unix)]
@@ -589,7 +719,10 @@ mod tests {
         fs::write(&target, "T").unwrap();
         std::os::unix::fs::symlink(&target, &link).unwrap();
         let mut t = j.begin("x");
-        assert!(matches!(t.write_file(&link, b"N"), Err(JournalError::IsLink(_))));
+        assert!(matches!(
+            t.write_file(&link, b"N"),
+            Err(JournalError::IsLink(_))
+        ));
     }
 
     #[test]

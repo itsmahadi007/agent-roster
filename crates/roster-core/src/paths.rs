@@ -30,11 +30,19 @@ pub struct RosterPaths {
 }
 
 impl RosterPaths {
-    pub fn for_home(home: &Path, platform: Platform, env: &dyn Fn(&str) -> Option<String>) -> RosterPaths {
+    pub fn for_home(
+        home: &Path,
+        platform: Platform,
+        env: &dyn Fn(&str) -> Option<String>,
+    ) -> RosterPaths {
         let (config_dir, data_dir) = match platform {
             Platform::Windows => {
-                let roaming = env("APPDATA").map(PathBuf::from).unwrap_or_else(|| home.join("AppData").join("Roaming"));
-                let local = env("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(|| home.join("AppData").join("Local"));
+                let roaming = env("APPDATA")
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| home.join("AppData").join("Roaming"));
+                let local = env("LOCALAPPDATA")
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| home.join("AppData").join("Local"));
                 (roaming.join("AgentRoster"), local.join("AgentRoster"))
             }
             Platform::Mac | Platform::Linux => {
@@ -45,7 +53,12 @@ impl RosterPaths {
                 (base.join("agent-roster"), home.join(".agent-roster"))
             }
         };
-        RosterPaths { home: home.to_path_buf(), config_dir, data_dir, platform }
+        RosterPaths {
+            home: home.to_path_buf(),
+            config_dir,
+            data_dir,
+            platform,
+        }
     }
 
     pub fn detect() -> RosterPaths {
@@ -101,7 +114,10 @@ mod tests {
     #[test]
     fn unix_layout() {
         let p = RosterPaths::for_home(Path::new("/h"), Platform::Mac, &|_| None);
-        assert_eq!(p.roster_file(), PathBuf::from("/h/.config/agent-roster/roster.toml"));
+        assert_eq!(
+            p.roster_file(),
+            PathBuf::from("/h/.config/agent-roster/roster.toml")
+        );
         assert_eq!(p.bin_dir(), PathBuf::from("/h/.agent-roster/bin"));
         assert_eq!(p.accounts_dir(), PathBuf::from("/h/.agent-roster/accounts"));
     }
@@ -111,7 +127,10 @@ mod tests {
         let p = RosterPaths::for_home(Path::new("/h"), Platform::Linux, &|k| {
             (k == "XDG_CONFIG_HOME").then(|| "/x".to_string())
         });
-        assert_eq!(p.roster_file(), PathBuf::from("/x/agent-roster/roster.toml"));
+        assert_eq!(
+            p.roster_file(),
+            PathBuf::from("/x/agent-roster/roster.toml")
+        );
     }
 
     #[test]
@@ -122,13 +141,27 @@ mod tests {
             _ => None,
         };
         let p = RosterPaths::for_home(Path::new(r"C:\U"), Platform::Windows, &env);
-        assert_eq!(p.roster_file(), PathBuf::from(r"C:\U\R").join("AgentRoster").join("roster.toml"));
-        assert_eq!(p.bin_dir(), PathBuf::from(r"C:\U\L").join("AgentRoster").join("bin"));
+        assert_eq!(
+            p.roster_file(),
+            PathBuf::from(r"C:\U\R")
+                .join("AgentRoster")
+                .join("roster.toml")
+        );
+        assert_eq!(
+            p.bin_dir(),
+            PathBuf::from(r"C:\U\L").join("AgentRoster").join("bin")
+        );
     }
 
     #[test]
     fn tilde_round_trip() {
-        assert_eq!(expand_tilde("~/.claude", Path::new("/h")), PathBuf::from("/h/.claude"));
-        assert_eq!(collapse_tilde(Path::new("/h/.codex-2"), Path::new("/h")), "~/.codex-2");
+        assert_eq!(
+            expand_tilde("~/.claude", Path::new("/h")),
+            PathBuf::from("/h/.claude")
+        );
+        assert_eq!(
+            collapse_tilde(Path::new("/h/.codex-2"), Path::new("/h")),
+            "~/.codex-2"
+        );
     }
 }

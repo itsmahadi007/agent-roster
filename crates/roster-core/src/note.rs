@@ -19,8 +19,18 @@ pub fn render_note(r: &Roster, me: &Agent) -> String {
     ));
     s.push_str("| Name | Tool | Role |\n|---|---|---|\n");
     for a in &r.agents {
-        let role = a.role.as_deref().unwrap_or("").replace('|', "/").replace('\n', " ");
-        s.push_str(&format!("| {} | {} | {} |\n", a.name, a.tool.display(), role));
+        let role = a
+            .role
+            .as_deref()
+            .unwrap_or("")
+            .replace('|', "/")
+            .replace('\n', " ");
+        s.push_str(&format!(
+            "| {} | {} | {} |\n",
+            a.name,
+            a.tool.display(),
+            role
+        ));
     }
     s.push_str(
         "\nHow to use another agent:\n\
@@ -55,7 +65,11 @@ pub fn upsert_block(existing: &str, block: &str) -> String {
         return format!("{}{}{}", &existing[..start], block, &existing[end..]);
     }
     let trimmed = existing.trim_end();
-    if trimmed.is_empty() { block.to_string() } else { format!("{trimmed}\n\n{block}") }
+    if trimmed.is_empty() {
+        block.to_string()
+    } else {
+        format!("{trimmed}\n\n{block}")
+    }
 }
 
 /// Removes the marked section and the blank line before it.
@@ -154,7 +168,10 @@ pub(crate) mod tests {
     fn preserves_text_outside_block() {
         let first = upsert_block("before\n", &blk());
         let with_after = format!("{first}\nafter\n");
-        let replaced = upsert_block(&with_after, &render_note(&roster_boss_worker(), &roster_boss_worker().agents[1]));
+        let replaced = upsert_block(
+            &with_after,
+            &render_note(&roster_boss_worker(), &roster_boss_worker().agents[1]),
+        );
         assert!(replaced.starts_with("before\n"));
         assert!(replaced.ends_with("after\n"));
         assert!(replaced.contains("You are `worker2`"));
@@ -200,7 +217,13 @@ pub(crate) mod tests {
         let d = tempfile::tempdir().unwrap();
         let p = paths(d.path());
         let mut r = roster_boss_worker();
-        r.agents.push(agent("c3", "worker1", Tool::Claude, "~/.agent-roster/accounts/c3", None));
+        r.agents.push(agent(
+            "c3",
+            "worker1",
+            Tool::Claude,
+            "~/.agent-roster/accounts/c3",
+            None,
+        ));
         let t = note_targets(&r, &p);
         assert_eq!(t[0].1, d.path().join(".claude/CLAUDE.md"));
         assert_eq!(t[1].1, d.path().join(".codex/AGENTS.md"));
@@ -233,6 +256,11 @@ pub(crate) mod tests {
         let sec = fs::read_to_string(d.path().join(".claude-2/CLAUDE.md")).unwrap();
         assert!(prim.contains("You are `agent1`") && !prim.contains("You are `agent2`"));
         assert!(sec.contains("You are `agent2`"));
-        assert!(!fs::symlink_metadata(d.path().join(".claude-2/CLAUDE.md")).unwrap().file_type().is_symlink());
+        assert!(
+            !fs::symlink_metadata(d.path().join(".claude-2/CLAUDE.md"))
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
     }
 }

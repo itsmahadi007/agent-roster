@@ -23,8 +23,15 @@ impl fmt::Display for RunError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             RunError::Roster(e) => write!(f, "{e}"),
-            RunError::UnknownAgent(id) => write!(f, "No agent on the roster has the id {id}. Run `roster doctor` to repair launchers."),
-            RunError::ToolMissing(t) => write!(f, "{} isn't installed on this computer, or isn't on PATH.", t.display()),
+            RunError::UnknownAgent(id) => write!(
+                f,
+                "No agent on the roster has the id {id}. Run `roster doctor` to repair launchers."
+            ),
+            RunError::ToolMissing(t) => write!(
+                f,
+                "{} isn't installed on this computer, or isn't on PATH.",
+                t.display()
+            ),
             RunError::Io(e) => write!(f, "{e}"),
         }
     }
@@ -43,7 +50,10 @@ pub struct RunPlan {
 }
 
 fn now() -> i64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
 }
 
 pub fn prepare_run(
@@ -54,26 +64,41 @@ pub fn prepare_run(
     interactive: bool,
 ) -> Result<RunPlan, RunError> {
     let r = Roster::load(p).map_err(RunError::Roster)?;
-    let agent = r.by_id(id).ok_or_else(|| RunError::UnknownAgent(id.to_string()))?;
+    let agent = r
+        .by_id(id)
+        .ok_or_else(|| RunError::UnknownAgent(id.to_string()))?;
     let path_var = env("PATH").unwrap_or_default();
-    let program = find_tool(agent.tool, &path_var, &p.bin_dir()).ok_or(RunError::ToolMissing(agent.tool))?;
+    let program =
+        find_tool(agent.tool, &path_var, &p.bin_dir()).ok_or(RunError::ToolMissing(agent.tool))?;
     let parent = env("ROSTER_AGENT").filter(|x| !x.is_empty() && x != id);
     let env_changes = build_env(agent, &r, p, parent.as_deref());
     let record = SessionRecord {
         pid: std::process::id(),
         agent_id: agent.id.clone(),
         parent_id: parent,
-        cwd: std::env::current_dir().map(|d| d.display().to_string()).unwrap_or_default(),
+        cwd: std::env::current_dir()
+            .map(|d| d.display().to_string())
+            .unwrap_or_default(),
         task: task_from_args(agent.tool, &args),
         started_at: now(),
     };
     let (banner, title) = if interactive {
         let color = env("NO_COLOR").is_none();
-        (Some(banner_text(agent, &r, p, color)), Some(format!("{} \u{2014} {}", agent.name, agent.tool.display())))
+        (
+            Some(banner_text(agent, &r, p, color)),
+            Some(format!("{} \u{2014} {}", agent.name, agent.tool.display())),
+        )
     } else {
         (None, None)
     };
-    Ok(RunPlan { program, args, env: env_changes, banner, title, record })
+    Ok(RunPlan {
+        program,
+        args,
+        env: env_changes,
+        banner,
+        title,
+        record,
+    })
 }
 
 fn banner_text(agent: &Agent, r: &Roster, p: &RosterPaths, color: bool) -> String {
@@ -82,8 +107,19 @@ fn banner_text(agent: &Agent, r: &Roster, p: &RosterPaths, color: bool) -> Strin
         Tool::Claude => read_claude_limits(p, &agent.id),
     };
     let limit_text = limits
-        .and_then(|l| l.windows.into_iter().max_by_key(|w| if w.label == "week" { 1 } else { 0 }))
-        .map(|w| format!("  {} {:.0}%, resets in {}", w.label, w.used_percent, format_reset(w.resets_at, now())))
+        .and_then(|l| {
+            l.windows
+                .into_iter()
+                .max_by_key(|w| if w.label == "week" { 1 } else { 0 })
+        })
+        .map(|w| {
+            format!(
+                "  {} {:.0}%, resets in {}",
+                w.label,
+                w.used_percent,
+                format_reset(w.resets_at, now())
+            )
+        })
         .unwrap_or_default();
     if color {
         let (cr, cg, cb) = agent.color.rgb();
@@ -142,7 +178,12 @@ pub fn exec_run(plan: RunPlan, p: &RosterPaths) -> Result<i32, RunError> {
 }
 
 /// The environment changes for running `agent`. `None` means "remove this variable".
-pub fn build_env(agent: &Agent, r: &Roster, p: &RosterPaths, parent_agent: Option<&str>) -> EnvChanges {
+pub fn build_env(
+    agent: &Agent,
+    r: &Roster,
+    p: &RosterPaths,
+    parent_agent: Option<&str>,
+) -> EnvChanges {
     let dir = if r.is_adopted_default(agent, p) {
         None
     } else {
@@ -169,7 +210,13 @@ mod tests {
         let r = Roster {
             version: 1,
             agents: vec![
-                agent("k1", "worker1", Tool::Claude, "~/.agent-roster/accounts/k1", None),
+                agent(
+                    "k1",
+                    "worker1",
+                    Tool::Claude,
+                    "~/.agent-roster/accounts/k1",
+                    None,
+                ),
                 agent("c3", "agent3", Tool::Codex, "~/.codex", None),
             ],
             statusline: vec![],
@@ -181,7 +228,11 @@ mod tests {
     fn env_secondary_sets_dir() {
         let (_d, p, r) = setup();
         let e = build_env(&r.agents[0], &r, &p, None);
-        let dir = p.home.join(".agent-roster/accounts/k1").display().to_string();
+        let dir = p
+            .home
+            .join(".agent-roster/accounts/k1")
+            .display()
+            .to_string();
         assert!(e.contains(&("CLAUDE_CONFIG_DIR".into(), Some(dir))));
         assert!(e.contains(&("CLAUDECODE".into(), None)));
         assert!(e.contains(&("ROSTER_AGENT".into(), Some("k1".into()))));
@@ -196,14 +247,21 @@ mod tests {
     #[test]
     fn env_records_parent() {
         let (_d, p, r) = setup();
-        assert!(build_env(&r.agents[1], &r, &p, Some("k1")).contains(&("ROSTER_PARENT".into(), Some("k1".into()))));
+        assert!(
+            build_env(&r.agents[1], &r, &p, Some("k1"))
+                .contains(&("ROSTER_PARENT".into(), Some("k1".into())))
+        );
         assert!(build_env(&r.agents[1], &r, &p, None).contains(&("ROSTER_PARENT".into(), None)));
     }
 
     fn fake_tool_dir(d: &std::path::Path, name: &str) -> std::path::PathBuf {
         let dir = d.join("tools");
         std::fs::create_dir_all(&dir).unwrap();
-        let f = dir.join(if cfg!(windows) { format!("{name}.exe") } else { name.to_string() });
+        let f = dir.join(if cfg!(windows) {
+            format!("{name}.exe")
+        } else {
+            name.to_string()
+        });
         std::fs::write(&f, "#!/bin/sh\n").unwrap();
         #[cfg(unix)]
         {
@@ -228,10 +286,20 @@ mod tests {
             "ROSTER_AGENT" => Some("c3".to_string()),
             _ => None,
         };
-        let plan = prepare_run("k1", vec!["-p".into(), "write tests".into()], &p, &env, false).unwrap();
+        let plan = prepare_run(
+            "k1",
+            vec!["-p".into(), "write tests".into()],
+            &p,
+            &env,
+            false,
+        )
+        .unwrap();
         assert_eq!(plan.program, tools.join("claude"));
         assert_eq!(plan.args, vec!["-p".to_string(), "write tests".to_string()]);
-        assert!(plan.env.contains(&("ROSTER_PARENT".into(), Some("c3".into()))));
+        assert!(
+            plan.env
+                .contains(&("ROSTER_PARENT".into(), Some("c3".into())))
+        );
         assert_eq!(plan.record.parent_id.as_deref(), Some("c3"));
         assert_eq!(plan.record.task.as_deref(), Some("write tests"));
         assert!(plan.banner.is_none(), "no banner when piped");
@@ -252,7 +320,13 @@ mod tests {
             "NO_COLOR" => Some("1".into()),
             _ => None,
         };
-        assert!(!prepare_run("c3", vec![], &p, &no_color, true).unwrap().banner.unwrap().contains('\u{1b}'));
+        assert!(
+            !prepare_run("c3", vec![], &p, &no_color, true)
+                .unwrap()
+                .banner
+                .unwrap()
+                .contains('\u{1b}')
+        );
     }
 
     #[test]
@@ -260,7 +334,13 @@ mod tests {
         let (_d, p, r) = setup();
         saved(&p, &r);
         let env = |k: &str| (k == "PATH").then(|| "/nonexistent".to_string());
-        assert!(matches!(prepare_run("zz", vec![], &p, &env, false), Err(RunError::UnknownAgent(_))));
-        assert!(matches!(prepare_run("c3", vec![], &p, &env, false), Err(RunError::ToolMissing(Tool::Codex))));
+        assert!(matches!(
+            prepare_run("zz", vec![], &p, &env, false),
+            Err(RunError::UnknownAgent(_))
+        ));
+        assert!(matches!(
+            prepare_run("c3", vec![], &p, &env, false),
+            Err(RunError::ToolMissing(Tool::Codex))
+        ));
     }
 }

@@ -52,13 +52,20 @@ impl fmt::Display for NameError {
         match self {
             NameError::Empty => write!(f, "Give the agent a name."),
             NameError::StartsWithDigit { suggestion } => {
-                write!(f, "A name can't start with a number, because terminals can't run it. Try {suggestion}.")
+                write!(
+                    f,
+                    "A name can't start with a number, because terminals can't run it. Try {suggestion}."
+                )
             }
             NameError::BadChars => write!(f, "Use only letters, numbers, - and _ in a name."),
             NameError::TooLong => write!(f, "Keep the name to 32 characters or fewer."),
             NameError::Taken(n) => write!(f, "Another agent is already named {n}."),
             NameError::CommandExists(p) => {
-                write!(f, "Your computer already has a command with that name ({}). Pick another name.", p.display())
+                write!(
+                    f,
+                    "Your computer already has a command with that name ({}). Pick another name.",
+                    p.display()
+                )
             }
             NameError::Reserved => write!(f, "That name is reserved. Pick another name."),
         }
@@ -78,11 +85,16 @@ pub fn validate_name(
     if name.len() > 32 {
         return Err(NameError::TooLong);
     }
-    if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
         return Err(NameError::BadChars);
     }
     if name.starts_with(|c: char| c.is_ascii_digit()) {
-        return Err(NameError::StartsWithDigit { suggestion: format!("a{name}") });
+        return Err(NameError::StartsWithDigit {
+            suggestion: format!("a{name}"),
+        });
     }
     if name.starts_with('-') {
         return Err(NameError::BadChars);
@@ -90,15 +102,15 @@ pub fn validate_name(
     if RESERVED.iter().any(|r| r.eq_ignore_ascii_case(name)) {
         return Err(NameError::Reserved);
     }
-    if let Some(a) = roster.by_name(name) {
-        if Some(a.id.as_str()) != ignore_id {
-            return Err(NameError::Taken(a.name.clone()));
-        }
+    if let Some(a) = roster.by_name(name)
+        && Some(a.id.as_str()) != ignore_id
+    {
+        return Err(NameError::Taken(a.name.clone()));
     }
-    if let Some(found) = lookup.find(name) {
-        if !is_our_shim(&found) {
-            return Err(NameError::CommandExists(found));
-        }
+    if let Some(found) = lookup.find(name)
+        && !is_our_shim(&found)
+    {
+        return Err(NameError::CommandExists(found));
     }
     Ok(())
 }
@@ -154,35 +166,56 @@ mod tests {
     fn digit_start_suggests() {
         assert_eq!(
             validate_name("1", &empty(), &NoCmds, None),
-            Err(NameError::StartsWithDigit { suggestion: "a1".into() })
+            Err(NameError::StartsWithDigit {
+                suggestion: "a1".into()
+            })
         );
     }
 
     #[test]
     fn bad_chars_and_length() {
-        assert_eq!(validate_name("my agent", &empty(), &NoCmds, None), Err(NameError::BadChars));
-        assert_eq!(validate_name("", &empty(), &NoCmds, None), Err(NameError::Empty));
-        assert_eq!(validate_name(&"a".repeat(33), &empty(), &NoCmds, None), Err(NameError::TooLong));
+        assert_eq!(
+            validate_name("my agent", &empty(), &NoCmds, None),
+            Err(NameError::BadChars)
+        );
+        assert_eq!(
+            validate_name("", &empty(), &NoCmds, None),
+            Err(NameError::Empty)
+        );
+        assert_eq!(
+            validate_name(&"a".repeat(33), &empty(), &NoCmds, None),
+            Err(NameError::TooLong)
+        );
     }
 
     #[test]
     fn existing_command_refused() {
         let cmds = FakeCmds(vec![("ls".into(), PathBuf::from("/bin/ls"))]);
-        assert!(matches!(validate_name("ls", &empty(), &cmds, None), Err(NameError::CommandExists(_))));
+        assert!(matches!(
+            validate_name("ls", &empty(), &cmds, None),
+            Err(NameError::CommandExists(_))
+        ));
     }
 
     #[test]
     fn our_shim_not_a_collision() {
         let d = tempfile::tempdir().unwrap();
         let shim = d.path().join("boss");
-        std::fs::write(&shim, "#!/bin/sh\n# generated-by-agent-roster id=abc123\nexec x\n").unwrap();
+        std::fs::write(
+            &shim,
+            "#!/bin/sh\n# generated-by-agent-roster id=abc123\nexec x\n",
+        )
+        .unwrap();
         let cmds = FakeCmds(vec![("boss".into(), shim)]);
         assert!(validate_name("boss", &empty(), &cmds, None).is_ok());
     }
 
     #[test]
     fn taken_by_another_agent() {
-        assert_eq!(validate_name("boss", &roster_with("boss", "id1"), &NoCmds, None), Err(NameError::Taken("boss".into())));
+        assert_eq!(
+            validate_name("boss", &roster_with("boss", "id1"), &NoCmds, None),
+            Err(NameError::Taken("boss".into()))
+        );
     }
 
     #[test]
@@ -192,7 +225,13 @@ mod tests {
 
     #[test]
     fn reserved() {
-        assert_eq!(validate_name("claude", &empty(), &NoCmds, None), Err(NameError::Reserved));
-        assert_eq!(validate_name("roster", &empty(), &NoCmds, None), Err(NameError::Reserved));
+        assert_eq!(
+            validate_name("claude", &empty(), &NoCmds, None),
+            Err(NameError::Reserved)
+        );
+        assert_eq!(
+            validate_name("roster", &empty(), &NoCmds, None),
+            Err(NameError::Reserved)
+        );
     }
 }

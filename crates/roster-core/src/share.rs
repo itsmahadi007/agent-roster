@@ -17,18 +17,28 @@ fn shared_dirs(tool: Tool) -> &'static [&'static str] {
 }
 
 fn is_link(p: &Path) -> bool {
-    std::fs::symlink_metadata(p).map(|m| m.file_type().is_symlink()).unwrap_or(false)
+    std::fs::symlink_metadata(p)
+        .map(|m| m.file_type().is_symlink())
+        .unwrap_or(false)
 }
 
 /// Puts the shared section at the top of the file, or removes it when `block` is `None`.
 pub fn upsert_shared(existing: &str, block: Option<&str>) -> String {
     let range = existing.find(SHARED_BEGIN).and_then(|s| {
         let e = existing[s..].find(SHARED_END)? + s + SHARED_END.len();
-        let e = if existing[e..].starts_with('\n') { e + 1 } else { e };
+        let e = if existing[e..].starts_with('\n') {
+            e + 1
+        } else {
+            e
+        };
         Some((s, e))
     });
     let without = match range {
-        Some((s, e)) => format!("{}{}", &existing[..s], existing[e..].trim_start_matches('\n')),
+        Some((s, e)) => format!(
+            "{}{}",
+            &existing[..s],
+            existing[e..].trim_start_matches('\n')
+        ),
         None => existing.to_string(),
     };
     match block {
@@ -51,7 +61,9 @@ pub fn apply_share(txn: &mut Txn, r: &Roster, p: &RosterPaths) -> Result<(), Jou
             }
             let link = dir.join(name);
             let target = primary.join(name);
-            let ours = std::fs::read_link(&link).map(|t| t == target).unwrap_or(false);
+            let ours = std::fs::read_link(&link)
+                .map(|t| t == target)
+                .unwrap_or(false);
             if a.share {
                 if !link.exists() && !is_link(&link) && target.is_dir() {
                     txn.link_dir(&link, &target)?;
@@ -63,7 +75,10 @@ pub fn apply_share(txn: &mut Txn, r: &Roster, p: &RosterPaths) -> Result<(), Jou
         let (file, block) = match a.tool {
             Tool::Claude => {
                 let src = collapse_tilde(&primary.join("CLAUDE.md"), &p.home);
-                (dir.join("CLAUDE.md"), format!("{SHARED_BEGIN}\n@{src}\n{SHARED_END}\n"))
+                (
+                    dir.join("CLAUDE.md"),
+                    format!("{SHARED_BEGIN}\n@{src}\n{SHARED_END}\n"),
+                )
             }
             Tool::Codex => {
                 let src_path = primary.join("AGENTS.md");
@@ -71,7 +86,10 @@ pub fn apply_share(txn: &mut Txn, r: &Roster, p: &RosterPaths) -> Result<(), Jou
                 let src = collapse_tilde(&src_path, &p.home);
                 (
                     dir.join("AGENTS.md"),
-                    format!("{SHARED_BEGIN}\n<!-- copied from {src}; Agent Roster refreshes this copy -->\n{}\n{SHARED_END}\n", content.trim()),
+                    format!(
+                        "{SHARED_BEGIN}\n<!-- copied from {src}; Agent Roster refreshes this copy -->\n{}\n{SHARED_END}\n",
+                        content.trim()
+                    ),
                 )
             }
         };

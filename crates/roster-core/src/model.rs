@@ -52,8 +52,13 @@ pub enum AgentColor {
 }
 
 impl AgentColor {
-    pub const ORDER: [AgentColor; 5] =
-        [AgentColor::Cobalt, AgentColor::Marigold, AgentColor::Jade, AgentColor::Orchid, AgentColor::Coral];
+    pub const ORDER: [AgentColor; 5] = [
+        AgentColor::Cobalt,
+        AgentColor::Marigold,
+        AgentColor::Jade,
+        AgentColor::Orchid,
+        AgentColor::Coral,
+    ];
 
     pub fn label(&self) -> &'static str {
         match self {
@@ -135,7 +140,11 @@ pub struct Roster {
 
 impl Default for Roster {
     fn default() -> Self {
-        Roster { version: 1, agents: vec![], statusline: vec![] }
+        Roster {
+            version: 1,
+            agents: vec![],
+            statusline: vec![],
+        }
     }
 }
 
@@ -155,11 +164,16 @@ impl fmt::Display for ModelError {
             ModelError::Io(e) => write!(f, "could not read or write the roster file: {e}"),
             ModelError::Parse(e) => write!(f, "the roster file is not valid: {e}"),
             ModelError::UnsupportedVersion(v) => {
-                write!(f, "the roster file is version {v}, which this version of roster can't read. Update roster.")
+                write!(
+                    f,
+                    "the roster file is version {v}, which this version of roster can't read. Update roster."
+                )
             }
             ModelError::DuplicateName(n) => write!(f, "two agents are named {n}"),
             ModelError::DuplicateId(i) => write!(f, "two agents share the id {i}"),
-            ModelError::TwoDefaults(t) => write!(f, "two {} agents are marked default", t.display()),
+            ModelError::TwoDefaults(t) => {
+                write!(f, "two {} agents are marked default", t.display())
+            }
         }
     }
 }
@@ -183,7 +197,8 @@ impl Roster {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Roster::default()),
             Err(e) => return Err(e.into()),
         };
-        let probe: VersionProbe = toml::from_str(&text).map_err(|e| ModelError::Parse(e.to_string()))?;
+        let probe: VersionProbe =
+            toml::from_str(&text).map_err(|e| ModelError::Parse(e.to_string()))?;
         if probe.version != 1 {
             return Err(ModelError::UnsupportedVersion(probe.version));
         }
@@ -220,7 +235,13 @@ impl Roster {
             }
         }
         for tool in [Tool::Claude, Tool::Codex] {
-            if self.agents.iter().filter(|a| a.tool == tool && a.default).count() > 1 {
+            if self
+                .agents
+                .iter()
+                .filter(|a| a.tool == tool && a.default)
+                .count()
+                > 1
+            {
                 return Err(ModelError::TwoDefaults(tool));
             }
         }
@@ -281,7 +302,11 @@ mod tests {
     }
 
     fn roster(agents: Vec<Agent>) -> Roster {
-        Roster { version: 1, agents, statusline: vec![] }
+        Roster {
+            version: 1,
+            agents,
+            statusline: vec![],
+        }
     }
 
     #[test]
@@ -304,14 +329,23 @@ mod tests {
 
     #[test]
     fn rejects_duplicate_names() {
-        let r = roster(vec![agent("a", "boss", Tool::Claude, false), agent("b", "boss", Tool::Codex, false)]);
+        let r = roster(vec![
+            agent("a", "boss", Tool::Claude, false),
+            agent("b", "boss", Tool::Codex, false),
+        ]);
         assert!(matches!(r.validate(), Err(ModelError::DuplicateName(n)) if n == "boss"));
     }
 
     #[test]
     fn rejects_two_defaults_per_tool() {
-        let r = roster(vec![agent("a", "x", Tool::Claude, true), agent("b", "y", Tool::Claude, true)]);
-        assert!(matches!(r.validate(), Err(ModelError::TwoDefaults(Tool::Claude))));
+        let r = roster(vec![
+            agent("a", "x", Tool::Claude, true),
+            agent("b", "y", Tool::Claude, true),
+        ]);
+        assert!(matches!(
+            r.validate(),
+            Err(ModelError::TwoDefaults(Tool::Claude))
+        ));
     }
 
     #[test]
@@ -319,7 +353,10 @@ mod tests {
         let (_d, p) = tmp();
         std::fs::create_dir_all(&p.config_dir).unwrap();
         std::fs::write(p.roster_file(), "version = 2\n").unwrap();
-        assert!(matches!(Roster::load(&p), Err(ModelError::UnsupportedVersion(2))));
+        assert!(matches!(
+            Roster::load(&p),
+            Err(ModelError::UnsupportedVersion(2))
+        ));
     }
 
     #[test]
@@ -331,7 +368,9 @@ mod tests {
     #[test]
     fn toml_uses_spec_layout() {
         let (_d, p) = tmp();
-        roster(vec![agent("a1b2c3", "boss", Tool::Codex, false)]).save(&p).unwrap();
+        roster(vec![agent("a1b2c3", "boss", Tool::Codex, false)])
+            .save(&p)
+            .unwrap();
         let text = std::fs::read_to_string(p.roster_file()).unwrap();
         assert!(text.contains("version = 1"));
         assert!(text.contains("[[agent]]"));

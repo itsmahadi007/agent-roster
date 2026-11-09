@@ -55,7 +55,9 @@ fn mtime(p: &Path) -> i64 {
 }
 
 fn sorted_children(dir: &Path) -> Vec<PathBuf> {
-    let mut v: Vec<PathBuf> = std::fs::read_dir(dir).map(|r| r.flatten().map(|e| e.path()).collect()).unwrap_or_default();
+    let mut v: Vec<PathBuf> = std::fs::read_dir(dir)
+        .map(|r| r.flatten().map(|e| e.path()).collect())
+        .unwrap_or_default();
     v.sort_unstable_by(|a, b| b.cmp(a));
     v
 }
@@ -86,7 +88,11 @@ fn recent_session_files(codex_home: &Path) -> Vec<PathBuf> {
         .filter(|p| p.extension().is_some_and(|e| e == "jsonl"))
         .collect();
     // Flat layouts (older Codex versions) keep files directly in sessions/.
-    files.extend(sorted_children(&root).into_iter().filter(|p| p.extension().is_some_and(|e| e == "jsonl")));
+    files.extend(
+        sorted_children(&root)
+            .into_iter()
+            .filter(|p| p.extension().is_some_and(|e| e == "jsonl")),
+    );
     files.sort_by_key(|f| std::cmp::Reverse(mtime(f)));
     files
 }
@@ -126,7 +132,10 @@ fn limits_from_line(line: &str) -> Option<(Option<String>, Vec<LimitWindow>)> {
         }
     }
     windows.sort_by_key(|w| if w.label == "week" { 1 } else { 0 });
-    let plan = rl.get("plan_type").and_then(|x| x.as_str()).map(String::from);
+    let plan = rl
+        .get("plan_type")
+        .and_then(|x| x.as_str())
+        .map(String::from);
     Some((plan, windows))
 }
 
@@ -134,11 +143,20 @@ fn limits_from_line(line: &str) -> Option<(Option<String>, Vec<LimitWindow>)> {
 pub fn read_codex_limits(codex_home: &Path) -> Option<AgentLimits> {
     for file in recent_session_files(codex_home).into_iter().take(5) {
         for max in [256 * 1024, u64::MAX] {
-            let Some(text) = tail_text(&file, max) else { break };
+            let Some(text) = tail_text(&file, max) else {
+                break;
+            };
             if let Some((plan, windows)) = text.lines().rev().find_map(limits_from_line) {
-                return Some(AgentLimits { as_of: mtime(&file), plan, windows });
+                return Some(AgentLimits {
+                    as_of: mtime(&file),
+                    plan,
+                    windows,
+                });
             }
-            if std::fs::metadata(&file).map(|m| m.len() <= max).unwrap_or(true) {
+            if std::fs::metadata(&file)
+                .map(|m| m.len() <= max)
+                .unwrap_or(true)
+            {
                 break;
             }
         }
@@ -154,11 +172,18 @@ pub fn read_claude_limits(p: &RosterPaths, agent_id: &str) -> Option<AgentLimits
     serde_json::from_str(&std::fs::read_to_string(claude_limits_path(p, agent_id)).ok()?).ok()
 }
 
-pub fn write_claude_limits(p: &RosterPaths, agent_id: &str, l: &AgentLimits) -> std::io::Result<()> {
+pub fn write_claude_limits(
+    p: &RosterPaths,
+    agent_id: &str,
+    l: &AgentLimits,
+) -> std::io::Result<()> {
     std::fs::create_dir_all(p.limits_dir())?;
     let path = claude_limits_path(p, agent_id);
     let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, serde_json::to_string(l).map_err(std::io::Error::other)?)?;
+    std::fs::write(
+        &tmp,
+        serde_json::to_string(l).map_err(std::io::Error::other)?,
+    )?;
     std::fs::rename(tmp, path)
 }
 
@@ -172,7 +197,9 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let day = d.path().join("sessions/2026/11/09");
         std::fs::create_dir_all(&day).unwrap();
-        let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(name);
+        let src = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures")
+            .join(name);
         std::fs::copy(src, day.join("rollout-2026-11-09T13-09-44-x.jsonl")).unwrap();
         let home = d.path().to_path_buf();
         (d, home)
@@ -182,7 +209,14 @@ mod tests {
     fn codex_last_token_count_wins() {
         let (_d, h) = home_with_fixture("codex-rollout.jsonl");
         let l = read_codex_limits(&h).unwrap();
-        assert_eq!(l.windows, vec![LimitWindow { label: "week".into(), used_percent: 93.0, resets_at: 1794287948 }]);
+        assert_eq!(
+            l.windows,
+            vec![LimitWindow {
+                label: "week".into(),
+                used_percent: 93.0,
+                resets_at: 1794287948
+            }]
+        );
         assert_eq!(l.plan.as_deref(), Some("pro"));
         assert!(l.as_of > 0);
     }
@@ -223,7 +257,15 @@ mod tests {
     fn claude_limits_file_round_trip() {
         let d = tempfile::tempdir().unwrap();
         let p = RosterPaths::for_home(d.path(), Platform::Mac, &|_| None);
-        let l = AgentLimits { as_of: 5, plan: None, windows: vec![LimitWindow { label: "week".into(), used_percent: 61.0, resets_at: 1794528000 }] };
+        let l = AgentLimits {
+            as_of: 5,
+            plan: None,
+            windows: vec![LimitWindow {
+                label: "week".into(),
+                used_percent: 61.0,
+                resets_at: 1794528000,
+            }],
+        };
         write_claude_limits(&p, "a1", &l).unwrap();
         assert_eq!(read_claude_limits(&p, "a1"), Some(l));
         assert_eq!(read_claude_limits(&p, "nobody"), None);

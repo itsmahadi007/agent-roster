@@ -13,18 +13,30 @@ pub const RC_END: &str = "# <<< agent-roster <<<";
 /// File suffix and content for each launcher file of one agent.
 pub fn shim_text(platform: Platform, id: &str, roster_bin: &Path) -> Vec<(String, String)> {
     let bin = roster_bin.to_string_lossy();
-    let sh = |b: &str| format!("#!/bin/sh\n# {LAUNCHER_MARKER} id={id}\nexec \"{b}\" run {id} -- \"$@\"\n");
+    let sh = |b: &str| {
+        format!("#!/bin/sh\n# {LAUNCHER_MARKER} id={id}\nexec \"{b}\" run {id} -- \"$@\"\n")
+    };
     match platform {
         Platform::Mac | Platform::Linux => vec![(String::new(), sh(&bin))],
         Platform::Windows => vec![
-            (".cmd".to_string(), format!("@echo off\r\nrem {LAUNCHER_MARKER} id={id}\r\n\"{bin}\" run {id} -- %*\r\n")),
+            (
+                ".cmd".to_string(),
+                format!(
+                    "@echo off\r\nrem {LAUNCHER_MARKER} id={id}\r\n\"{bin}\" run {id} -- %*\r\n"
+                ),
+            ),
             (String::new(), sh(&bin.replace('\\', "/"))),
         ],
     }
 }
 
 /// Writes one launcher per agent and removes launchers for agents that no longer exist.
-pub fn write_launchers(txn: &mut Txn, r: &Roster, p: &RosterPaths, roster_bin: &Path) -> Result<(), JournalError> {
+pub fn write_launchers(
+    txn: &mut Txn,
+    r: &Roster,
+    p: &RosterPaths,
+    roster_bin: &Path,
+) -> Result<(), JournalError> {
     let dir = p.bin_dir();
     txn.ensure_dir(&dir)?;
     let mut keep = HashSet::new();
@@ -87,7 +99,11 @@ pub fn default_shell_rcs(p: &RosterPaths) -> Vec<PathBuf> {
     v
 }
 
-pub fn path_setup_needed(p: &RosterPaths, path_var: &str, shell_rcs: &[PathBuf]) -> Option<PathSetup> {
+pub fn path_setup_needed(
+    p: &RosterPaths,
+    path_var: &str,
+    shell_rcs: &[PathBuf],
+) -> Option<PathSetup> {
     if path_has_bin(p, path_var) {
         return None;
     }
@@ -97,15 +113,33 @@ pub fn path_setup_needed(p: &RosterPaths, path_var: &str, shell_rcs: &[PathBuf])
             return None;
         }
         let bin = p.bin_dir().to_string_lossy().to_string();
-        let value = if current.trim().is_empty() { bin } else { format!("{};{}", current.trim_end_matches(';'), bin) };
-        return Some(PathSetup { rc_files: vec![], windows_user_path: Some(value) });
+        let value = if current.trim().is_empty() {
+            bin
+        } else {
+            format!("{};{}", current.trim_end_matches(';'), bin)
+        };
+        return Some(PathSetup {
+            rc_files: vec![],
+            windows_user_path: Some(value),
+        });
     }
     let missing: Vec<PathBuf> = shell_rcs
         .iter()
-        .filter(|rc| !std::fs::read_to_string(rc).map(|t| t.contains(RC_BEGIN)).unwrap_or(false))
+        .filter(|rc| {
+            !std::fs::read_to_string(rc)
+                .map(|t| t.contains(RC_BEGIN))
+                .unwrap_or(false)
+        })
         .cloned()
         .collect();
-    if missing.is_empty() { None } else { Some(PathSetup { rc_files: missing, windows_user_path: None }) }
+    if missing.is_empty() {
+        None
+    } else {
+        Some(PathSetup {
+            rc_files: missing,
+            windows_user_path: None,
+        })
+    }
 }
 
 fn rc_block(p: &RosterPaths, rc: &Path) -> String {
@@ -127,7 +161,11 @@ pub fn upsert_rc(existing: &str, block: &str) -> String {
         return format!("{}{}{}", &existing[..s], block, &existing[end..]);
     }
     let t = existing.trim_end();
-    if t.is_empty() { block.to_string() } else { format!("{t}\n\n{block}") }
+    if t.is_empty() {
+        block.to_string()
+    } else {
+        format!("{t}\n\n{block}")
+    }
 }
 
 pub fn remove_rc(existing: &str) -> String {
@@ -147,7 +185,11 @@ pub fn remove_rc(existing: &str) -> String {
     existing.to_string()
 }
 
-pub fn apply_path_setup(txn: &mut Txn, setup: &PathSetup, p: &RosterPaths) -> Result<(), JournalError> {
+pub fn apply_path_setup(
+    txn: &mut Txn,
+    setup: &PathSetup,
+    p: &RosterPaths,
+) -> Result<(), JournalError> {
     for rc in &setup.rc_files {
         txn.replace_link_with_copy(rc).ok();
         let existing = std::fs::read_to_string(rc).unwrap_or_default();
@@ -161,7 +203,9 @@ pub fn apply_path_setup(txn: &mut Txn, setup: &PathSetup, p: &RosterPaths) -> Re
 
 #[cfg(windows)]
 fn windows_user_path() -> Option<String> {
-    let env = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER).open_subkey("Environment").ok()?;
+    let env = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER)
+        .open_subkey("Environment")
+        .ok()?;
     env.get_value::<String, _>("Path").ok()
 }
 #[cfg(not(windows))]
@@ -172,10 +216,20 @@ fn windows_user_path() -> Option<String> {
 /// Tells running programs on Windows that environment variables changed.
 #[cfg(windows)]
 pub fn broadcast_env_change() {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{HWND_BROADCAST, SMTO_ABORTIFHUNG, SendMessageTimeoutW, WM_SETTINGCHANGE};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        HWND_BROADCAST, SMTO_ABORTIFHUNG, SendMessageTimeoutW, WM_SETTINGCHANGE,
+    };
     let name: Vec<u16> = "Environment\0".encode_utf16().collect();
     unsafe {
-        SendMessageTimeoutW(HWND_BROADCAST, WM_SETTINGCHANGE, 0, name.as_ptr() as isize, SMTO_ABORTIFHUNG, 2000, std::ptr::null_mut());
+        SendMessageTimeoutW(
+            HWND_BROADCAST,
+            WM_SETTINGCHANGE,
+            0,
+            name.as_ptr() as isize,
+            SMTO_ABORTIFHUNG,
+            2000,
+            std::ptr::null_mut(),
+        );
     }
 }
 #[cfg(not(windows))]
@@ -194,7 +248,12 @@ mod tests {
     #[test]
     fn unix_shim_exact() {
         assert_eq!(
-            shim_text(Platform::Mac, "a1b2c3", Path::new("/opt/homebrew/bin/roster"))[0].1,
+            shim_text(
+                Platform::Mac,
+                "a1b2c3",
+                Path::new("/opt/homebrew/bin/roster")
+            )[0]
+            .1,
             "#!/bin/sh\n# generated-by-agent-roster id=a1b2c3\nexec \"/opt/homebrew/bin/roster\" run a1b2c3 -- \"$@\"\n"
         );
     }
@@ -204,7 +263,10 @@ mod tests {
         let s = shim_text(Platform::Windows, "x", Path::new(r"C:\r.exe"));
         assert_eq!(s.len(), 2);
         let cmd = s.iter().find(|(suf, _)| suf == ".cmd").unwrap();
-        assert_eq!(cmd.1, "@echo off\r\nrem generated-by-agent-roster id=x\r\n\"C:\\r.exe\" run x -- %*\r\n");
+        assert_eq!(
+            cmd.1,
+            "@echo off\r\nrem generated-by-agent-roster id=x\r\n\"C:\\r.exe\" run x -- %*\r\n"
+        );
         let sh = s.iter().find(|(suf, _)| suf.is_empty()).unwrap();
         assert!(sh.1.contains("exec \"C:/r.exe\" run x"));
     }
@@ -218,17 +280,26 @@ mod tests {
     #[test]
     fn writes_one_launcher_per_agent() {
         let (_d, p) = setup();
-        let r = Roster { version: 1, agents: vec![agent("a1", "boss", Tool::Claude, "~/.claude", None)], statusline: vec![] };
+        let r = Roster {
+            version: 1,
+            agents: vec![agent("a1", "boss", Tool::Claude, "~/.claude", None)],
+            statusline: vec![],
+        };
         let mut j = Journal::open(&p).unwrap();
         let mut t = j.begin("launchers");
         write_launchers(&mut t, &r, &p, Path::new("/usr/local/bin/roster")).unwrap();
         t.commit().unwrap();
-        let shim = p.bin_dir().join(if cfg!(windows) { "boss.cmd" } else { "boss" });
+        let shim = p
+            .bin_dir()
+            .join(if cfg!(windows) { "boss.cmd" } else { "boss" });
         assert!(fs::read_to_string(&shim).unwrap().contains("run a1 --"));
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            assert_eq!(fs::metadata(&shim).unwrap().permissions().mode() & 0o777, 0o755);
+            assert_eq!(
+                fs::metadata(&shim).unwrap().permissions().mode() & 0o777,
+                0o755
+            );
         }
     }
 
@@ -236,7 +307,11 @@ mod tests {
     fn stale_launcher_removed_foreign_file_kept() {
         let (_d, p) = setup();
         fs::create_dir_all(p.bin_dir()).unwrap();
-        fs::write(p.bin_dir().join("old"), "#!/bin/sh\n# generated-by-agent-roster id=zz\n").unwrap();
+        fs::write(
+            p.bin_dir().join("old"),
+            "#!/bin/sh\n# generated-by-agent-roster id=zz\n",
+        )
+        .unwrap();
         fs::write(p.bin_dir().join("mine"), "#!/bin/sh\necho mine\n").unwrap();
         let r = Roster::default();
         let mut j = Journal::open(&p).unwrap();
@@ -252,7 +327,10 @@ mod tests {
         let (d, p) = setup();
         let rc = d.path().join(".zshrc");
         fs::write(&rc, "export EDITOR=vim\n").unwrap();
-        let setup = PathSetup { rc_files: vec![rc.clone()], windows_user_path: None };
+        let setup = PathSetup {
+            rc_files: vec![rc.clone()],
+            windows_user_path: None,
+        };
         let mut j = Journal::open(&p).unwrap();
         for _ in 0..2 {
             let mut t = j.begin("path");
@@ -269,19 +347,32 @@ mod tests {
     fn fish_uses_fish_add_path() {
         let (d, p) = setup();
         let fish = d.path().join(".config/fish/conf.d/agent-roster.fish");
-        let setup = PathSetup { rc_files: vec![fish.clone()], windows_user_path: None };
+        let setup = PathSetup {
+            rc_files: vec![fish.clone()],
+            windows_user_path: None,
+        };
         let mut j = Journal::open(&p).unwrap();
         let mut t = j.begin("path");
         apply_path_setup(&mut t, &setup, &p).unwrap();
         t.commit().unwrap();
-        assert!(fs::read_to_string(&fish).unwrap().contains("fish_add_path --append $HOME/.agent-roster/bin"));
+        assert!(
+            fs::read_to_string(&fish)
+                .unwrap()
+                .contains("fish_add_path --append $HOME/.agent-roster/bin")
+        );
     }
 
     #[test]
     fn no_setup_when_on_path() {
         let (d, p) = setup();
         let path_var = std::env::join_paths([p.bin_dir(), d.path().join("other")]).unwrap();
-        assert!(path_setup_needed(&p, &path_var.to_string_lossy(), &[d.path().join(".zshrc")]).is_none());
-        assert!(path_setup_needed(&p, "/usr/bin", &[d.path().join(".zshrc")]).is_some() || cfg!(windows));
+        assert!(
+            path_setup_needed(&p, &path_var.to_string_lossy(), &[d.path().join(".zshrc")])
+                .is_none()
+        );
+        assert!(
+            path_setup_needed(&p, "/usr/bin", &[d.path().join(".zshrc")]).is_some()
+                || cfg!(windows)
+        );
     }
 }

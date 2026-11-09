@@ -15,25 +15,41 @@ pub fn settings_real_path(a: &Agent, r: &Roster, p: &RosterPaths) -> PathBuf {
         .unwrap_or(path)
 }
 
-fn resolve<'a>(r: &'a Roster, p: &RosterPaths, env: &dyn Fn(&str) -> Option<String>) -> Option<&'a Agent> {
-    if let Some(a) = env("ROSTER_AGENT").and_then(|id| r.by_id(&id).filter(|a| a.tool == Tool::Claude)) {
+fn resolve<'a>(
+    r: &'a Roster,
+    p: &RosterPaths,
+    env: &dyn Fn(&str) -> Option<String>,
+) -> Option<&'a Agent> {
+    if let Some(a) =
+        env("ROSTER_AGENT").and_then(|id| r.by_id(&id).filter(|a| a.tool == Tool::Claude))
+    {
         return Some(a);
     }
     if let Some(dir) = env("CLAUDE_CONFIG_DIR").filter(|d| !d.is_empty()) {
         let want = std::fs::canonicalize(&dir).unwrap_or_else(|_| PathBuf::from(&dir));
-        if let Some(a) = r.agents.iter().filter(|a| a.tool == Tool::Claude).find(|a| {
-            let d = r.config_dir_of(a, p);
-            std::fs::canonicalize(&d).unwrap_or(d) == want
-        }) {
+        if let Some(a) = r
+            .agents
+            .iter()
+            .filter(|a| a.tool == Tool::Claude)
+            .find(|a| {
+                let d = r.config_dir_of(a, p);
+                std::fs::canonicalize(&d).unwrap_or(d) == want
+            })
+        {
             return Some(a);
         }
     }
     let standard = expand_tilde(Tool::Claude.standard_dir(), &p.home);
-    r.agents.iter().find(|a| a.tool == Tool::Claude && r.config_dir_of(a, p) == standard)
+    r.agents
+        .iter()
+        .find(|a| a.tool == Tool::Claude && r.config_dir_of(a, p) == standard)
 }
 
 fn now() -> i64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
 }
 
 fn windows_from(stdin_json: &str) -> Option<Vec<LimitWindow>> {
@@ -60,12 +76,27 @@ pub fn handle_statusline(
     p: &RosterPaths,
     shell: &dyn Fn(&str, &str) -> String,
 ) -> String {
-    let Some(agent) = resolve(r, p, env) else { return String::new() };
+    let Some(agent) = resolve(r, p, env) else {
+        return String::new();
+    };
     if let Some(windows) = windows_from(stdin_json) {
-        let _ = write_claude_limits(p, &agent.id, &AgentLimits { as_of: now(), plan: None, windows });
+        let _ = write_claude_limits(
+            p,
+            &agent.id,
+            &AgentLimits {
+                as_of: now(),
+                plan: None,
+                windows,
+            },
+        );
     }
     let real = settings_real_path(agent, r, p).display().to_string();
-    match r.statusline.iter().find(|s| s.settings == real).and_then(|s| s.chain.as_deref()) {
+    match r
+        .statusline
+        .iter()
+        .find(|s| s.settings == real)
+        .and_then(|s| s.chain.as_deref())
+    {
         Some(cmd) => shell(cmd, stdin_json),
         None => agent.name.clone(),
     }
@@ -84,11 +115,19 @@ pub fn real_shell(cmd: &str, stdin: &str) -> String {
         c.args(["-c", cmd]);
         c
     };
-    let Ok(mut child) = c.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn() else {
+    let Ok(mut child) = c
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+    else {
         return String::new();
     };
     if let Some(mut s) = child.stdin.take() {
         let _ = s.write_all(stdin.as_bytes());
     }
-    child.wait_with_output().map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default()
+    child
+        .wait_with_output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+        .unwrap_or_default()
 }
