@@ -2,7 +2,7 @@
 
 **Date:** 2026-11-09
 **Status:** APPROVED 2026-11-09 (v3)
-**Domain:** roster.mahadihassan.com (free subdomain of the owner's domain, DNS on Cloudflare; replaces roster.mahadihassan.com, which costs money)
+**Domain:** agentroster.mahadihassan.com (free subdomain of the owner's domain, DNS on Cloudflare; replaces agentroster.mahadihassan.com, which costs money)
 **Owner:** Mahadi Hassan
 **Mockups:** `docs/mockups/app-window.html`, `docs/mockups/terminal.html` (PNG copies alongside)
 **Working prototype:** `prototype/agent-roster` (bash, macOS, installed and tested on the owner's Mac)
@@ -313,11 +313,11 @@ The owner is on macOS and his boss is on Windows. The owner added Linux to the f
 No Apple Developer ID and no Windows certificate until real usage justifies it. The distribution
 is chosen so unsigned builds still install cleanly:
 - **macOS:** builds are ad-hoc signed (required on Apple Silicon, free). The primary install is a
-  one-line script: `curl -fsSL roster.mahadihassan.com | sh`. Files fetched by `curl` carry no quarantine
+  one-line script: `curl -fsSL agentroster.mahadihassan.com | sh`. Files fetched by `curl` carry no quarantine
   flag, so Gatekeeper does not block the app. The script installs the `roster` CLI and puts
   `Agent Roster.app` in `~/Applications`. A Homebrew **formula** for the CLI goes in the owner's tap
   (formulas are not quarantined). The Homebrew **cask** waits for signing.
-- **Windows:** primary install is `irm roster.mahadihassan.com/install.ps1 | iex` (PowerShell downloads carry no
+- **Windows:** primary install is `irm agentroster.mahadihassan.com/install.ps1 | iex` (PowerShell downloads carry no
   Mark-of-the-Web, so SmartScreen does not interrupt). Also an own **Scoop** bucket, which accepts
   unsigned apps. The NSIS `.exe` on GitHub Releases works but shows a one-time SmartScreen warning,
   documented with screenshots. **winget** is attempted; if unsigned submissions are flagged, it
@@ -325,7 +325,7 @@ is chosen so unsigned builds still install cleanly:
 - A manual `.dmg` download is documented with the one-time "Open anyway" step in System Settings.
 - When signing arrives: notarize in CI, then add the Homebrew cask and winget.
 
-- **Linux:** `curl -fsSL roster.mahadihassan.com | sh` detects the distro and whether a desktop is
+- **Linux:** `curl -fsSL agentroster.mahadihassan.com | sh` detects the distro and whether a desktop is
   present. With a desktop it installs CLI + app (`.deb` / `.rpm`, or AppImage elsewhere). Without
   one (a server, an SSH box) it installs the **CLI only**, which has no WebKitGTK or GUI
   dependency. `.deb`/`.rpm`/AppImage also on GitHub Releases; AUR later.
@@ -398,9 +398,9 @@ Pass = all seven on macOS, Windows and Linux. Any failure shrinks scope before t
 2. **Boss's OS is Windows, owner's is macOS:** v0.1 ships both, and Linux too (see §7.1).
 3. **Non-GUI for SSH:** v0.1 CLI works fully headless; full-screen terminal UI in v0.2 (§6.8).
 4. **Name and domain:** keep "Agent Roster". No paid domain: the owner has no budget, so the
-   project uses `roster.mahadihassan.com`, a free Cloudflare subdomain of his existing domain,
+   project uses `agentroster.mahadihassan.com`, a free Cloudflare subdomain of his existing domain,
    serving the install scripts and a small landing page. The install line is
-   `curl -fsSL roster.mahadihassan.com | sh`. Known name clash: agentroster.dev is a live, different product
+   `curl -fsSL agentroster.mahadihassan.com | sh`. Known name clash: agentroster.dev is a live, different product
    (role prompts for coding agents); accepted by the owner.
 
 ## 14. Calls made after the builder check (owner to skim)
