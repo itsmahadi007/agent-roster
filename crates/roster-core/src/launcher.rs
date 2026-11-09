@@ -322,6 +322,7 @@ mod tests {
         assert!(p.bin_dir().join("mine").exists());
     }
 
+    #[cfg(unix)] // shell startup files are a macOS/Linux thing; Windows uses the registry
     #[test]
     fn rc_block_appended_once() {
         let (d, p) = setup();
@@ -343,6 +344,7 @@ mod tests {
         assert!(text.contains("export PATH=\"$PATH:$HOME/.agent-roster/bin\""));
     }
 
+    #[cfg(unix)] // shell startup files are a macOS/Linux thing; Windows uses the registry
     #[test]
     fn fish_uses_fish_add_path() {
         let (d, p) = setup();

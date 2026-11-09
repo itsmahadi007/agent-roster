@@ -294,7 +294,14 @@ mod tests {
             false,
         )
         .unwrap();
-        assert_eq!(plan.program, tools.join("claude"));
+        assert_eq!(
+            plan.program,
+            tools.join(if cfg!(windows) {
+                "claude.exe"
+            } else {
+                "claude"
+            })
+        );
         assert_eq!(plan.args, vec!["-p".to_string(), "write tests".to_string()]);
         assert!(
             plan.env
