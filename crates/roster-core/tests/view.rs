@@ -47,7 +47,7 @@ fn status(a: Agent, state: AgentState, windows: Vec<LimitWindow>) -> AgentStatus
             email: signed_in.then(|| "you@example.com".to_string()),
             plan: None,
         },
-        limits: (!windows.is_empty()).then(|| AgentLimits {
+        limits: (!windows.is_empty()).then_some(AgentLimits {
             as_of: NOW - 240,
             plan: None,
             windows,
