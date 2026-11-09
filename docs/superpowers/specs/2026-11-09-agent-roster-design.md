@@ -2,7 +2,7 @@
 
 **Date:** 2026-11-09
 **Status:** APPROVED 2026-11-09 (v3)
-**Domain:** agentroster.sh (owner chose 2026-11-09; not yet purchased, owner buys it)
+**Domain:** roster.mahadihassan.com (free subdomain of the owner's domain, DNS on Cloudflare; replaces roster.mahadihassan.com, which costs money)
 **Owner:** Mahadi Hassan
 **Mockups:** `docs/mockups/app-window.html`, `docs/mockups/terminal.html` (PNG copies alongside)
 **Working prototype:** `prototype/agent-roster` (bash, macOS, installed and tested on the owner's Mac)
@@ -221,7 +221,9 @@ One toggle, labelled **"Share my skills"** (the mockup's "skills and settings" l
 
 ### 6.1 First run
 Detect `claude` and `codex` on PATH and their versions, and whether each default folder is signed
-in. Show them as the first agents with suggested names, offer rename, change nothing until
+in. Claude: `claude auth status --json` gives `loggedIn`, `email`, `subscriptionType`, `planTier`
+(verified 2026-11-09). Codex: `codex login status` prints "Logged in using ChatGPT" or similar and
+gives no email, so Codex rows show the plan from limits data instead. Show them as the first agents with suggested names, offer rename, change nothing until
 **Continue**.
 
 **Read boundary (Claude's call).** Allowed: running each tool's own status command
@@ -248,9 +250,9 @@ Name typed large in its color, color swatches, tool choice, share toggle (off), 
 [--color] [--role] [--share] [--yes]`.
 
 ### 6.3 Sign in
-The app opens the user's terminal with that agent's login running (Codex: `<name> login`;
-Claude: start `<name>` and run `/login`, or `claude auth login` if available in the installed
-version; builder to confirm). macOS: Terminal or the user's chosen app; Windows: Windows Terminal,
+The app opens the user's terminal with that agent's login running: Claude `claude auth login`,
+Codex `codex login` (both run through `roster run` so the right folder is used). Over SSH, Codex
+uses `codex login --device-auth`; Claude's flow prints a link to open elsewhere (spike confirms). macOS: Terminal or the user's chosen app; Windows: Windows Terminal,
 falling back to `cmd`; Linux: `$TERMINAL`, then `x-terminal-emulator`, gnome-terminal, konsole.
 Status flips to "ready" when the login is detected.
 
@@ -311,11 +313,11 @@ The owner is on macOS and his boss is on Windows. The owner added Linux to the f
 No Apple Developer ID and no Windows certificate until real usage justifies it. The distribution
 is chosen so unsigned builds still install cleanly:
 - **macOS:** builds are ad-hoc signed (required on Apple Silicon, free). The primary install is a
-  one-line script: `curl -fsSL agentroster.sh | sh`. Files fetched by `curl` carry no quarantine
+  one-line script: `curl -fsSL roster.mahadihassan.com | sh`. Files fetched by `curl` carry no quarantine
   flag, so Gatekeeper does not block the app. The script installs the `roster` CLI and puts
   `Agent Roster.app` in `~/Applications`. A Homebrew **formula** for the CLI goes in the owner's tap
   (formulas are not quarantined). The Homebrew **cask** waits for signing.
-- **Windows:** primary install is `irm agentroster.sh/install.ps1 | iex` (PowerShell downloads carry no
+- **Windows:** primary install is `irm roster.mahadihassan.com/install.ps1 | iex` (PowerShell downloads carry no
   Mark-of-the-Web, so SmartScreen does not interrupt). Also an own **Scoop** bucket, which accepts
   unsigned apps. The NSIS `.exe` on GitHub Releases works but shows a one-time SmartScreen warning,
   documented with screenshots. **winget** is attempted; if unsigned submissions are flagged, it
@@ -323,7 +325,7 @@ is chosen so unsigned builds still install cleanly:
 - A manual `.dmg` download is documented with the one-time "Open anyway" step in System Settings.
 - When signing arrives: notarize in CI, then add the Homebrew cask and winget.
 
-- **Linux:** `curl -fsSL agentroster.sh | sh` detects the distro and whether a desktop is
+- **Linux:** `curl -fsSL roster.mahadihassan.com | sh` detects the distro and whether a desktop is
   present. With a desktop it installs CLI + app (`.deb` / `.rpm`, or AppImage elsewhere). Without
   one (a server, an SSH box) it installs the **CLI only**, which has no WebKitGTK or GUI
   dependency. `.deb`/`.rpm`/AppImage also on GitHub Releases; AUR later.
@@ -390,14 +392,15 @@ Pass = all seven on macOS, Windows and Linux. Any failure shrinks scope before t
 - Svelte component structure and state management.
 - Exact copy beyond what the mockups show, following their voice: plain verbs, sentence case.
 - How to detect "signed in" per tool without reading secrets (file/Keychain-entry presence).
-- Claude sign-in command for the installed version (`/login` inside a session vs. a CLI subcommand).
 
 ## 13. Owner decisions after the builder check (2026-11-09)
 1. **Code signing:** none for now; add certificates if real usage appears (see §7.2).
 2. **Boss's OS is Windows, owner's is macOS:** v0.1 ships both, and Linux too (see §7.1).
 3. **Non-GUI for SSH:** v0.1 CLI works fully headless; full-screen terminal UI in v0.2 (§6.8).
-4. **Name and domain:** keep "Agent Roster"; domain agentroster.sh, so the install line is
-   `curl -fsSL agentroster.sh | sh`. Known name clash: agentroster.dev is a live, different product
+4. **Name and domain:** keep "Agent Roster". No paid domain: the owner has no budget, so the
+   project uses `roster.mahadihassan.com`, a free Cloudflare subdomain of his existing domain,
+   serving the install scripts and a small landing page. The install line is
+   `curl -fsSL roster.mahadihassan.com | sh`. Known name clash: agentroster.dev is a live, different product
    (role prompts for coding agents); accepted by the owner.
 
 ## 14. Calls made after the builder check (owner to skim)
