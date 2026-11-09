@@ -59,6 +59,7 @@ export interface OverviewView {
   warnings: WarningView[];
   limits_updated: string | null;
   palette: ColorView[];
+  next_color: string;
 }
 
 export interface CandidateView {

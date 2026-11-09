@@ -92,6 +92,8 @@ pub struct OverviewView {
     pub warnings: Vec<WarningView>,
     pub limits_updated: Option<String>,
     pub palette: Vec<ColorView>,
+    /// The color `roster add` picks when none is given.
+    pub next_color: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -312,7 +314,12 @@ pub fn overview_view(o: &Overview, home: &Path, now: i64) -> OverviewView {
         .filter_map(|s| s.limits.as_ref().map(|l| l.as_of))
         .max()
         .map(|t| format!("Last update {}.", age(now - t)));
+    let roster = Roster {
+        agents: o.agents.iter().map(|s| s.agent.clone()).collect(),
+        ..Roster::default()
+    };
     OverviewView {
+        next_color: roster.next_color().label().into(),
         headline: headline(o.agents.len()),
         agents,
         calls,

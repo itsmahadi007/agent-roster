@@ -459,3 +459,13 @@ fn fixtures_match() {
         }
     }
 }
+
+#[test]
+fn next_color_is_the_one_add_would_pick() {
+    let mut o = sample();
+    let v = overview_view(&o, Path::new(HOME), NOW);
+    assert_eq!(v.next_color, "coral");
+    o.agents.truncate(1);
+    let v = overview_view(&o, Path::new(HOME), NOW);
+    assert_eq!(v.next_color, "marigold");
+}
