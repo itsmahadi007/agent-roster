@@ -162,6 +162,8 @@ impl Backend {
 
     pub fn preview(&self, req: OpRequest) -> Result<PlanView, String> {
         self.roster_bin()?;
+        // Hash before reading: a change made while planning must make this preview stale.
+        let roster_sha = self.roster_sha();
         let r = self.roster()?;
         let ctx = self.ctx();
         let p = &self.p;
@@ -205,7 +207,6 @@ impl Backend {
                 })
                 .collect(),
         };
-        let roster_sha = self.roster_sha();
         let mut pending = self.pending.lock().map_err(|e| e.to_string())?;
         pending.insert(token, Pending { plan, roster_sha });
         Ok(view)

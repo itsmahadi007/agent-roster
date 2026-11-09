@@ -227,3 +227,39 @@ fn open_terminal_as_runs_the_agent() {
         assert!(text.ends_with(&format!("run {id}")), "{text}");
     }
 }
+
+/// A lookup that writes roster.toml the first time it is asked, like the CLI saving a
+/// change while the app is still planning.
+struct WritesRosterMidPlan {
+    file: PathBuf,
+    done: std::sync::atomic::AtomicBool,
+}
+impl CommandLookup for WritesRosterMidPlan {
+    fn find(&self, _: &str) -> Option<PathBuf> {
+        if !self.done.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            std::fs::create_dir_all(self.file.parent().unwrap()).unwrap();
+            std::fs::write(&self.file, "version = 1\n").unwrap();
+        }
+        None
+    }
+}
+
+#[test]
+fn preview_taken_while_roster_changes_is_stale() {
+    let d = tempfile::tempdir().unwrap();
+    let p = RosterPaths::for_home(d.path(), Platform::current(), &|_| None);
+    let b = Backend::new(BackendConfig {
+        path_var: p.bin_dir().display().to_string(),
+        lookup: Box::new(WritesRosterMidPlan {
+            file: p.roster_file(),
+            done: Default::default(),
+        }),
+        p,
+        roster_bin: Some(PathBuf::from("/usr/local/bin/roster")),
+        scratch: d.path().join("scratch"),
+        env: Box::new(|_| None),
+        opener: Box::new(|_| Ok(())),
+    });
+    let plan = b.preview(add_req("boss")).unwrap();
+    assert_eq!(b.apply(plan.token).unwrap_err(), STALE);
+}
