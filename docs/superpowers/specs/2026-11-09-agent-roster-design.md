@@ -1,7 +1,7 @@
 # Agent Roster — Design
 
 **Date:** 2026-11-09
-**Status:** Draft v2 (builder check done, owner decisions in), awaiting approval
+**Status:** Draft v3 (Linux in v0.1, headless/SSH added), awaiting approval
 **Owner:** Mahadi Hassan
 **Mockups:** `docs/mockups/app-window.html`, `docs/mockups/terminal.html` (PNG copies alongside)
 **Working prototype:** `prototype/agent-roster` (bash, macOS, installed and tested on the owner's Mac)
@@ -56,9 +56,13 @@ The owner wants it for himself and his boss today, and as a public open-source p
   Scoop bucket, and later .deb/.rpm/AppImage; CLI also via `cargo install agent-roster`.
   Homebrew cask and winget wait for code signing (§7.2).
 - G11. Import the owner's existing bash-prototype roster on first run.
+- G12. **Works fully without a GUI.** Every action is available from the `roster` CLI, so a
+  headless Linux server or any machine reached over SSH can add agents, sign in, see limits and
+  undo, with no app installed. (A full-screen terminal UI for SSH follows in v0.2, §6.8.)
 
 ### Non-goals (v1)
 - Gemini CLI or other tools (designed for, built later; the UI shows "Gemini · soon").
+- The full-screen terminal UI (v0.2). v0.1 covers SSH with plain CLI commands.
 - Syncing rosters or logins between computers. Logins stay per machine, always.
 - Auto-update inside the app (package managers handle updates).
 - Any team/server/cloud component.
@@ -276,6 +280,17 @@ markers), `run` (internal). Colors respect `NO_COLOR` and non-TTY output. `--jso
   satisfies both.)
 - Both: show "as of <time>"; numbers update when an agent is used. 90% or more is coral.
 
+### 6.8 Without a GUI: SSH and servers
+- **v0.1:** the CLI is complete on its own (G12). On a machine with no display, `roster ui` says
+  "no desktop here, use the commands" instead of failing. Sign-in over SSH uses each tool's
+  terminal flow: the tool prints a link or a device code to open on any other device (builder to
+  confirm the exact flag per tool version, e.g. a device-code option for Codex). Live calls
+  ("cable") show in `roster` output as text lines.
+- **v0.2: full-screen terminal UI.** `roster` opens an interactive screen (ratatui) that mirrors
+  the app: patch-bay rows in agent colors, limit bars, live calls, keys for add / rename / sign in
+  / undo. It is option B from the first mockup round, built on the same `roster-core`, so it adds
+  no new logic. `roster --plain` keeps today's printed overview for scripts.
+
 ### 6.7 Menu bar / tray
 List agents with color dot and week %, "Open a terminal as …", "Add agent", "Open Agent Roster".
 Built with Tauri's tray support.
@@ -283,12 +298,12 @@ Built with Tauri's tray support.
 ## 7. Platforms, releases and distribution
 
 ### 7.1 Release order (owner decided 2026-11-09)
-The owner is on macOS and his boss is on Windows, so both are in the first release.
+The owner is on macOS and his boss is on Windows. The owner added Linux to the first release too.
 
 | Release | Platforms | What ships |
 |---|---|---|
-| **v0.1** | macOS (Apple Silicon + Intel) and Windows 10/11 | CLI + app window + tray; replaces the bash prototype on the owner's Mac; boss installs on Windows |
-| **v0.2** | Linux | .deb, .rpm, AppImage, `install.sh` support |
+| **v0.1** | macOS (Apple Silicon + Intel), Windows 10/11, Linux (x86_64 + arm64) | CLI + app window + tray on all three; CLI-only install for headless/SSH machines; replaces the bash prototype on the owner's Mac; boss installs on Windows |
+| **v0.2** | all | Full-screen terminal UI for SSH (§6.8) |
 | **v1.0** | all | Package-manager channels polished, docs, public announcement |
 
 ### 7.2 No code signing for now (owner decided 2026-11-09)
@@ -307,15 +322,23 @@ is chosen so unsigned builds still install cleanly:
 - A manual `.dmg` download is documented with the one-time "Open anyway" step in System Settings.
 - When signing arrives: notarize in CI, then add the Homebrew cask and winget.
 
+- **Linux:** `curl -fsSL <url>/install.sh | sh` detects the distro and whether a desktop is
+  present. With a desktop it installs CLI + app (`.deb` / `.rpm`, or AppImage elsewhere). Without
+  one (a server, an SSH box) it installs the **CLI only**, which has no WebKitGTK or GUI
+  dependency. `.deb`/`.rpm`/AppImage also on GitHub Releases; AUR later.
+
 ### 7.3 Builds
 GitHub Actions with `tauri-action`: macOS universal `.app` (zipped for the script) and `.dmg`,
-Windows NSIS `.exe` and portable zip, later Linux `.deb`, `.rpm`, `.AppImage`. CLI-only archives
-per target. `cargo install agent-roster` for Rust users.
+Windows NSIS `.exe` and portable zip, Linux `.deb`, `.rpm`, `.AppImage` (x86_64 and arm64).
+**CLI-only archives per target** (static where possible, musl on Linux) for headless machines.
+`cargo install agent-roster` for Rust users.
 
 ### 7.4 Windows test access
 The owner has no Windows machine. Spike and release testing use a **Windows 11 ARM VM in UTM**
 on the owner's Mac (free evaluation image) plus GitHub's Windows runners for automated tests.
 Final sign-off is a 15-minute check on the boss's PC before v0.1 is announced to him.
+Linux uses an **Ubuntu desktop VM in UTM** for the app and tray, plus Docker containers (Ubuntu,
+Fedora, Debian) for headless CLI installs and SSH use.
 
 ## 8. Solo-AI feasibility (playbook Gate 1, folded in)
 | Surface | Load | Note |
@@ -337,6 +360,7 @@ Final sign-off is a 15-minute check on the boss's PC before v0.1 is announced to
 | D5 | Never shadow bare `claude`/`codex` by default | Cheap | Revisit if users ask |
 | D6 | Claude limits via opt-in status line | Cheap | Revisit if Claude exposes limits another way |
 | D7 | Own Homebrew tap before official cask | Cheap | Revisit at notability |
+| D8 | CLI ships as its own package with no GUI dependency; the app depends on the CLI, never the reverse | Medium | Lock after spike |
 
 ## 10. De-risking spike (playbook Gate 2, folded in) — before the real build
 Throwaway, one to two days, proves the riskiest assumptions on **every** OS:
@@ -350,8 +374,9 @@ Throwaway, one to two days, proves the riskiest assumptions on **every** OS:
 5. **Codex limits** readable from session files on each OS.
 6. **Unsigned install path:** the `curl | sh` app install opens without a Gatekeeper block on
    macOS, and the `irm | iex` install runs without SmartScreen on Windows.
-Pass = all six on macOS and Windows (Linux checks run but do not block v0.1). Any failure on
-macOS or Windows shrinks scope before the real build.
+7. **Headless:** the CLI-only build installs and fully works in a Linux container over SSH,
+   including a sign-in flow with no browser on that machine.
+Pass = all seven on macOS, Windows and Linux. Any failure shrinks scope before the real build.
 
 ## 11. What exists today
 - Bash prototype installed on the owner's Mac (`agent1..4`, roster note in `~/.claude/CLAUDE.md`
@@ -368,7 +393,8 @@ macOS or Windows shrinks scope before the real build.
 
 ## 13. Owner decisions after the builder check (2026-11-09)
 1. **Code signing:** none for now; add certificates if real usage appears (see §7.2).
-2. **Boss's OS is Windows, owner's is macOS:** v0.1 ships both; Linux follows in v0.2 (see §7.1).
+2. **Boss's OS is Windows, owner's is macOS:** v0.1 ships both, and Linux too (see §7.1).
+3. **Non-GUI for SSH:** v0.1 CLI works fully headless; full-screen terminal UI in v0.2 (§6.8).
 
 ## 14. Calls made after the builder check (owner to skim)
 - Sharing is one "Share my skills" toggle; settings and hooks only via an explicit Advanced link.
