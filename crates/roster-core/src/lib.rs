@@ -1,3 +1,4 @@
+pub mod desktop;
 pub mod detect;
 pub mod import;
 pub mod journal;
@@ -13,3 +14,4 @@ pub mod session;
 pub mod share;
 pub mod status;
 pub mod statusline;
+pub mod view;

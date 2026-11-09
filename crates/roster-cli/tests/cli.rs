@@ -301,3 +301,52 @@ fn launchers_use_the_path_roster_was_started_from() {
         "{shim}"
     );
 }
+
+#[test]
+fn ui_without_app_keeps_fallback_message() {
+    let h = Home::new(true);
+    h.roster()
+        .arg("ui")
+        .env("DISPLAY", ":0")
+        .assert()
+        .success()
+        .stdout(
+            "The app window isn't installed. Everything works from these commands; run `roster --help` to see them.\n",
+        );
+}
+
+#[test]
+fn ui_opens_the_app_from_roster_app() {
+    let h = Home::new(true);
+    let app = h.d.path().join("fake-app");
+    fs::write(&app, "#!/bin/sh\ntouch \"$HOME/opened\"\n").unwrap();
+    fs::set_permissions(&app, fs::Permissions::from_mode(0o755)).unwrap();
+    h.roster()
+        .arg("ui")
+        .env("DISPLAY", ":0")
+        .env("ROSTER_APP", &app)
+        .assert()
+        .success()
+        .stdout(contains("Opening Agent Roster."));
+    let opened = h.d.path().join("opened");
+    for _ in 0..40 {
+        if opened.exists() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    assert!(opened.exists(), "the app was not started");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn ui_without_display_says_no_desktop() {
+    let h = Home::new(true);
+    h.roster()
+        .arg("ui")
+        .assert()
+        .success()
+        .stdout(
+            "There's no desktop here. Everything works from these commands; run `roster --help` to see them.\n",
+        );
+}

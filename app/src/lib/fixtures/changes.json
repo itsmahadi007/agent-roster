@@ -1,0 +1,23 @@
+[
+  {
+    "id": 3,
+    "summary": "Turned on Claude limits for agent1",
+    "at": 1799999580,
+    "undone": false,
+    "color": null
+  },
+  {
+    "id": 2,
+    "summary": "Added boss (Codex)",
+    "at": 1799999520,
+    "undone": false,
+    "color": "#c06bf0"
+  },
+  {
+    "id": 1,
+    "summary": "Added agent1 (existing Claude Code login)",
+    "at": 1799999460,
+    "undone": true,
+    "color": null
+  }
+]

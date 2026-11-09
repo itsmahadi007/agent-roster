@@ -270,9 +270,31 @@ fn show_overview(app: &App, json: bool) -> Result<u8, String> {
 }
 
 fn headless() -> bool {
-    cfg!(target_os = "linux")
-        && env_var("DISPLAY").is_none()
-        && env_var("WAYLAND_DISPLAY").is_none()
+    !roster_core::desktop::has_desktop(Platform::current(), &env_var)
+}
+
+const NO_APP: &str = "The app window isn't installed. Everything works from these commands; run `roster --help` to see them.";
+const NO_DESKTOP: &str = "There's no desktop here. Everything works from these commands; run `roster --help` to see them.";
+
+fn open_ui(app: &App) -> Result<u8, String> {
+    if headless() {
+        println!("{NO_DESKTOP}");
+        return Ok(0);
+    }
+    let Some(found) = roster_core::desktop::find_app(&app.p, &env_var) else {
+        println!("{NO_APP}");
+        return Ok(0);
+    };
+    let cmd = roster_core::desktop::app_launch_command(app.p.platform, &found);
+    std::process::Command::new(&cmd[0])
+        .args(&cmd[1..])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|e| format!("Couldn't open {}: {e}", found.display()))?;
+    println!("Opening Agent Roster.");
+    Ok(0)
 }
 
 fn run_agent(app: &App, id: &str, args: Vec<String>) -> Result<u8, String> {
@@ -613,12 +635,7 @@ fn real() -> Result<u8, String> {
         Some(Cmd::Undo { op, last, all, yes }) => undo(&app, op, last, all, yes),
         Some(Cmd::Import { yes }) => app.run_plan(plan_import(&app.roster()?, &app.p, &ctx), yes),
         Some(Cmd::Doctor) => doctor(&app),
-        Some(Cmd::Ui) => {
-            println!(
-                "The app window isn't installed. Everything works from these commands; run `roster --help` to see them."
-            );
-            Ok(0)
-        }
+        Some(Cmd::Ui) => open_ui(&app),
         Some(Cmd::Uninstall {
             delete_login_folders,
             yes,

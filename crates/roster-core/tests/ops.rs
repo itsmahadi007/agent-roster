@@ -3,8 +3,8 @@ use roster_core::journal::Journal;
 use roster_core::model::{AgentColor, Roster, Tool};
 use roster_core::names::CommandLookup;
 use roster_core::ops::{
-    AddRequest, Ctx, apply, plan_add, plan_adopt, plan_remove, plan_rename, plan_set_default,
-    plan_set_share,
+    AddRequest, Ctx, apply, plan_add, plan_adopt, plan_adopt_all, plan_remove, plan_rename,
+    plan_set_default, plan_set_share,
 };
 use roster_core::paths::{Platform, RosterPaths};
 use std::fs;
@@ -334,4 +334,60 @@ fn dotfile_links_are_written_through_not_replaced() {
             .unwrap()
             .contains("You are `agent1`")
     );
+}
+
+#[test]
+fn adopt_all_is_one_change_and_one_undo() {
+    let mut w = World::new();
+    let ctx = w.ctx();
+    let picks = vec![
+        (Tool::Claude, "claude1".to_string()),
+        (Tool::Codex, "codex1".to_string()),
+    ];
+    let plan = plan_adopt_all(&w.roster(), &w.p, &ctx, &picks).unwrap();
+    assert_eq!(plan.summary, "Added claude1 and codex1 (existing logins)");
+    let id = apply(plan, &w.p, &mut w.j, &ctx).unwrap().unwrap();
+    let names: Vec<String> = w.roster().agents.iter().map(|a| a.name.clone()).collect();
+    assert_eq!(names, ["claude1", "codex1"]);
+    assert_eq!(w.j.ops().len(), 1);
+    w.j.undo(id).unwrap();
+    assert!(w.roster().agents.is_empty());
+}
+
+#[test]
+fn adopt_all_lists_path_step_once() {
+    let w = World::new();
+    let mut ctx = w.ctx();
+    ctx.path_var = String::new();
+    let picks = vec![
+        (Tool::Claude, "claude1".to_string()),
+        (Tool::Codex, "codex1".to_string()),
+    ];
+    let plan = plan_adopt_all(&w.roster(), &w.p, &ctx, &picks).unwrap();
+    let texts: Vec<&str> = plan.steps.iter().map(|s| s.text.as_str()).collect();
+    assert_eq!(
+        texts.iter().filter(|t| t.contains("PATH")).count(),
+        1,
+        "{texts:?}"
+    );
+    assert_eq!(
+        texts
+            .iter()
+            .filter(|t| **t == "Nothing else on your computer changes.")
+            .count(),
+        1
+    );
+    assert_eq!(
+        *texts.last().unwrap(),
+        "Nothing else on your computer changes."
+    );
+    assert!(texts.contains(&"Adds a claude1 command for every terminal."));
+    assert!(texts.contains(&"Adds a codex1 command for every terminal."));
+}
+
+#[test]
+fn adopt_all_needs_a_pick() {
+    let w = World::new();
+    let err = plan_adopt_all(&w.roster(), &w.p, &w.ctx(), &[]).unwrap_err();
+    assert_eq!(err.to_string(), "Pick at least one login to add.");
 }

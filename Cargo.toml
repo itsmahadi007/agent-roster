@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/roster-core", "crates/roster-cli"]
+members = ["crates/roster-core", "crates/roster-cli", "app/src-tauri"]
 
 [workspace.package]
 version = "0.1.0"
@@ -28,3 +28,5 @@ predicates = "3.1.4"
 winreg = "0.56.0"
 windows-sys = { version = "0.61.2", features = ["Win32_UI_WindowsAndMessaging", "Win32_System_Console", "Win32_Foundation", "Win32_System_Threading"] }
 roster-core = { path = "crates/roster-core" }
+tauri = { version = "2.12.5", features = ["tray-icon", "image-png"] }
+tauri-build = { version = "2.7.4", features = [] }

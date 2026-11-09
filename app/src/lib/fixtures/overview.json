@@ -1,0 +1,156 @@
+{
+  "headline": "Four accounts, one quota each. Type a name in any terminal to start it.",
+  "agents": [
+    {
+      "id": "a1",
+      "name": "agent1",
+      "tool": "claude",
+      "tool_label": "Claude Code",
+      "color": "#4d7cff",
+      "email": "you@example.com",
+      "plan": null,
+      "default_label": "default for claude",
+      "state": "working",
+      "status_text": "calling agent3",
+      "windows": [
+        {
+          "label": "5 hr",
+          "used_percent": 22,
+          "hot": false
+        },
+        {
+          "label": "week",
+          "used_percent": 61,
+          "hot": false
+        }
+      ],
+      "reset_text": "week resets in 3d 16h",
+      "reset_hot": false,
+      "limits_note": null,
+      "claude_limits": true,
+      "live": true,
+      "tray_text": "61% week",
+      "tray_hot": false
+    },
+    {
+      "id": "a2",
+      "name": "agent2",
+      "tool": "claude",
+      "tool_label": "Claude Code",
+      "color": "#f0b429",
+      "email": null,
+      "plan": null,
+      "default_label": null,
+      "state": "sign-in",
+      "status_text": "sign in",
+      "windows": [],
+      "reset_text": null,
+      "reset_hot": false,
+      "limits_note": "limits appear after sign in",
+      "claude_limits": false,
+      "live": false,
+      "tray_text": "sign in",
+      "tray_hot": false
+    },
+    {
+      "id": "a3",
+      "name": "agent3",
+      "tool": "codex",
+      "tool_label": "Codex",
+      "color": "#2fbf8f",
+      "email": "you@example.com",
+      "plan": null,
+      "default_label": null,
+      "state": "working",
+      "status_text": "working",
+      "windows": [
+        {
+          "label": "week",
+          "used_percent": 93,
+          "hot": true
+        }
+      ],
+      "reset_text": "resets in 21h 52m",
+      "reset_hot": true,
+      "limits_note": null,
+      "claude_limits": null,
+      "live": true,
+      "tray_text": "93% week",
+      "tray_hot": true
+    },
+    {
+      "id": "a4",
+      "name": "boss",
+      "tool": "codex",
+      "tool_label": "Codex",
+      "color": "#c06bf0",
+      "email": "you@example.com",
+      "plan": null,
+      "default_label": null,
+      "state": "ready",
+      "status_text": "ready",
+      "windows": [
+        {
+          "label": "5 hr",
+          "used_percent": 8,
+          "hot": false
+        },
+        {
+          "label": "week",
+          "used_percent": 24,
+          "hot": false
+        }
+      ],
+      "reset_text": "week resets in 5d 2h",
+      "reset_hot": false,
+      "limits_note": null,
+      "claude_limits": null,
+      "live": false,
+      "tray_text": "24% week",
+      "tray_hot": false
+    }
+  ],
+  "calls": [
+    {
+      "from_id": "a1",
+      "from_name": "agent1",
+      "from_color": "#4d7cff",
+      "to_id": "a3",
+      "to_name": "agent3",
+      "to_color": "#2fbf8f",
+      "task": "Write tests for the login page and run them.",
+      "detail": "started 2m ago in ~/projects/portfolio"
+    }
+  ],
+  "warnings": [
+    {
+      "name": "agent3",
+      "color": "#2fbf8f",
+      "text": "has used 93% of its week. It resets in 21h 52m."
+    }
+  ],
+  "limits_updated": "Last update 4m ago.",
+  "palette": [
+    {
+      "label": "cobalt",
+      "hex": "#4d7cff"
+    },
+    {
+      "label": "marigold",
+      "hex": "#f0b429"
+    },
+    {
+      "label": "jade",
+      "hex": "#2fbf8f"
+    },
+    {
+      "label": "orchid",
+      "hex": "#c06bf0"
+    },
+    {
+      "label": "coral",
+      "hex": "#ff7a6b"
+    }
+  ],
+  "next_color": "coral"
+}
