@@ -231,6 +231,50 @@ pub fn plan_adopt(
     ))
 }
 
+/// Puts several existing logins on the roster as one change (the app's first run).
+pub fn plan_adopt_all(
+    r: &Roster,
+    p: &RosterPaths,
+    ctx: &Ctx,
+    picks: &[(Tool, String)],
+) -> Result<Plan, OpError> {
+    if picks.is_empty() {
+        return Err(OpError::Refused("Pick at least one login to add.".into()));
+    }
+    let mut roster = r.clone();
+    let mut steps: Vec<Step> = vec![];
+    let mut actions: Vec<Action> = vec![];
+    for (tool, name) in picks {
+        let plan = plan_adopt(&roster, p, ctx, *tool, name)?;
+        for s in plan.steps {
+            if s.text != NOTHING_ELSE && !steps.contains(&s) {
+                steps.push(s);
+            }
+        }
+        for a in plan.actions {
+            let dup_path = matches!(a, Action::PathSetup(_))
+                && actions.iter().any(|x| matches!(x, Action::PathSetup(_)));
+            if !dup_path {
+                actions.push(a);
+            }
+        }
+        roster = plan.roster_after;
+    }
+    steps.push(step(StepKind::Note, NOTHING_ELSE));
+    let names: Vec<&str> = picks.iter().map(|(_, n)| n.as_str()).collect();
+    let summary = match names.as_slice() {
+        [one] => format!("Added {one} (existing login)"),
+        [init @ .., last] => format!("Added {} and {last} (existing logins)", init.join(", ")),
+        [] => unreachable!("checked above"),
+    };
+    Ok(Plan {
+        summary,
+        steps,
+        roster_after: roster,
+        actions,
+    })
+}
+
 pub fn plan_add(r: &Roster, p: &RosterPaths, ctx: &Ctx, req: AddRequest) -> Result<Plan, OpError> {
     validate_name(&req.name, r, ctx.lookup, None)?;
     let id = unique_id(r);
