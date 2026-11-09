@@ -1,0 +1,25 @@
+[package]
+name = "agent-roster"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Name your Claude Code and Codex accounts, use them from any terminal, and let agents call each other by name"
+
+[[bin]]
+name = "roster"
+path = "src/main.rs"
+
+[dependencies]
+roster-core.workspace = true
+clap.workspace = true
+anstream.workspace = true
+anstyle.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+assert_cmd.workspace = true
+predicates.workspace = true
+tempfile.workspace = true
