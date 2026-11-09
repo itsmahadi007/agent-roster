@@ -155,15 +155,17 @@ pub fn terminal_command(
         Platform::Linux => {
             // gnome-terminal takes `--` before the command; every other terminal takes `-e`.
             let flag_for = |cmd: &str| {
-                if Path::new(cmd).file_name().is_some_and(|n| n == "gnome-terminal") {
+                if Path::new(cmd)
+                    .file_name()
+                    .is_some_and(|n| n == "gnome-terminal")
+                {
                     "--"
                 } else {
                     "-e"
                 }
             };
-            let mut term: Option<(String, &str)> = env("TERMINAL")
-                .filter(|t| !t.trim().is_empty())
-                .map(|t| {
+            let mut term: Option<(String, &str)> =
+                env("TERMINAL").filter(|t| !t.trim().is_empty()).map(|t| {
                     let flag = flag_for(&t);
                     (t, flag)
                 });

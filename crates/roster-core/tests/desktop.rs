@@ -218,6 +218,12 @@ fn terminal_env_naming_gnome_terminal_gets_its_own_flag() {
     let cmd = terminal_command(Platform::Linux, &env, &none(), &argv, d.path()).unwrap();
     assert_eq!(
         cmd,
-        s(&["/usr/bin/gnome-terminal", "--", "/usr/bin/roster", "login", "agent2"])
+        s(&[
+            "/usr/bin/gnome-terminal",
+            "--",
+            "/usr/bin/roster",
+            "login",
+            "agent2"
+        ])
     );
 }

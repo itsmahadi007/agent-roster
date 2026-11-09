@@ -99,6 +99,12 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>, v: &OverviewView) -> tauri::Re
     Menu::with_items(app, &items)
 }
 
+/// Closing the window keeps the app in the menu bar / tray where a tray is always shown.
+/// Linux desktops may show no tray (stock GNOME), so there closing quits.
+pub fn hides_on_close(platform: roster_core::paths::Platform) -> bool {
+    platform != roster_core::paths::Platform::Linux
+}
+
 pub fn show_main<R: Runtime>(app: &AppHandle<R>) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
@@ -198,6 +204,15 @@ mod tests {
         let mut v = fixture();
         v.agents[3].tray_text.clear();
         assert_eq!(tray_entries(&v)[3].text, "boss");
+    }
+
+    #[test]
+    fn closing_hides_only_where_a_tray_is_always_there() {
+        use roster_core::paths::Platform;
+        assert!(hides_on_close(Platform::Mac));
+        assert!(hides_on_close(Platform::Windows));
+        // Stock GNOME shows no tray icons, so a hidden window could not be brought back.
+        assert!(!hides_on_close(Platform::Linux));
     }
 
     #[test]

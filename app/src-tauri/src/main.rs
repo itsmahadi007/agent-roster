@@ -61,14 +61,20 @@ fn main() {
     #[cfg(unix)]
     use_login_path();
     let app = tauri::Builder::default()
+        // A second launch (`roster ui`, Start menu, app menu) shows the running window instead.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            tray::show_main(app);
+        }))
         .manage(Arc::new(backend()))
         .setup(|app| {
             tray::setup(app.handle())?;
             Ok(())
         })
         .on_window_event(|window, event| {
-            // Closing the window keeps Agent Roster in the menu bar / tray.
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+            // Closing the window keeps Agent Roster in the menu bar / tray (not on Linux).
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event
+                && tray::hides_on_close(roster_core::paths::Platform::current())
+            {
                 let _ = window.hide();
                 api.prevent_close();
             }
