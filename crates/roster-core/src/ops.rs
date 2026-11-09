@@ -34,18 +34,19 @@ pub struct Step {
     pub text: String,
 }
 
-fn step(kind: StepKind, text: impl Into<String>) -> Step {
+pub(crate) fn step(kind: StepKind, text: impl Into<String>) -> Step {
     Step { kind, text: text.into() }
 }
 
 #[derive(Debug, Clone)]
-enum Action {
+pub(crate) enum Action {
     EnsureDir(PathBuf),
     StripNote(PathBuf),
     MoveToBackup(PathBuf),
     PathSetup(PathSetup),
     DefaultFn { tool: Tool, target: Option<String> },
     WriteFile { path: PathBuf, content: String },
+    RemoveFile(PathBuf),
 }
 
 #[derive(Debug, Clone)]
@@ -92,9 +93,9 @@ impl From<JournalError> for OpError {
     }
 }
 
-const NOTHING_ELSE: &str = "Nothing else on your computer changes.";
+pub(crate) const NOTHING_ELSE: &str = "Nothing else on your computer changes.";
 
-fn finish(summary: String, mut steps: Vec<Step>, roster_after: Roster, mut actions: Vec<Action>, p: &RosterPaths, ctx: &Ctx) -> Plan {
+pub(crate) fn finish(summary: String, mut steps: Vec<Step>, roster_after: Roster, mut actions: Vec<Action>, p: &RosterPaths, ctx: &Ctx) -> Plan {
     if !roster_after.agents.is_empty() {
         if let Some(setup) = path_setup_needed(p, &ctx.path_var, &default_shell_rcs(p)) {
             let text = if setup.windows_user_path.is_some() {
@@ -115,7 +116,7 @@ fn find<'a>(r: &'a Roster, name: &str) -> Result<&'a Agent, OpError> {
     r.by_name(name).ok_or_else(|| OpError::NotFound(name.to_string()))
 }
 
-fn unique_id(r: &Roster) -> String {
+pub(crate) fn unique_id(r: &Roster) -> String {
     loop {
         let id = new_id();
         if r.by_id(&id).is_none() {
@@ -132,7 +133,7 @@ pub struct AddRequest {
     pub share: bool,
 }
 
-fn default_limits(tool: Tool) -> LimitsSource {
+pub(crate) fn default_limits(tool: Tool) -> LimitsSource {
     match tool {
         Tool::Codex => LimitsSource::CodexSessions,
         Tool::Claude => LimitsSource::Off,
@@ -384,6 +385,7 @@ pub fn apply(plan: Plan, p: &RosterPaths, journal: &mut Journal, ctx: &Ctx) -> R
             Action::PathSetup(s) => apply_path_setup(&mut t, s, p)?,
             Action::DefaultFn { tool, target } => apply_default_fn(&mut t, p, *tool, target.as_deref())?,
             Action::WriteFile { path, content } => t.write_file(path, content.as_bytes())?,
+            Action::RemoveFile(path) => t.remove_file(path)?,
         }
     }
     t.write_file(&p.roster_file(), toml.as_bytes())?;

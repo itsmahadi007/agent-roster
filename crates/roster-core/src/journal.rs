@@ -156,8 +156,19 @@ impl Journal {
             return Err(UndoError::AlreadyUndone(op_id));
         }
         let changes = self.ops[idx].changes.clone();
+        // Files this undo deletes before it reaches older changes to the same path.
+        let mut freed: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
         for c in changes.iter().rev() {
-            check_undo(c)?;
+            check_undo(c, &freed)?;
+            match c {
+                Change::Created { path, .. } | Change::LinkReplaced { path, .. } => {
+                    freed.insert(path.clone());
+                }
+                Change::Linked { link, .. } => {
+                    freed.insert(link.clone());
+                }
+                _ => {}
+            }
         }
         for c in changes.iter().rev() {
             apply_undo(c).map_err(|e| UndoError::Io(e.to_string()))?;
@@ -180,7 +191,7 @@ impl Journal {
     }
 }
 
-fn check_undo(c: &Change) -> Result<(), UndoError> {
+fn check_undo(c: &Change, freed: &std::collections::HashSet<PathBuf>) -> Result<(), UndoError> {
     let conflict = |p: &Path| Err(UndoError::Conflict { path: p.to_path_buf() });
     match c {
         Change::Created { path, after_sha256 }
@@ -193,14 +204,14 @@ fn check_undo(c: &Change) -> Result<(), UndoError> {
             }
         }
         Change::Removed { path, .. } | Change::LinkRemoved { path, .. } => {
-            if path.exists() || is_link(path) { conflict(path) } else { Ok(()) }
+            if (path.exists() || is_link(path)) && !freed.contains(path) { conflict(path) } else { Ok(()) }
         }
         Change::Linked { link, .. } => {
             if link.exists() && !is_link(link) && !is_junction(link) { conflict(link) } else { Ok(()) }
         }
         Change::DirCreated { .. } | Change::UserPath { .. } => Ok(()),
         Change::DirMoved { from, .. } => {
-            if from.exists() { conflict(from) } else { Ok(()) }
+            if from.exists() && !freed.contains(from) { conflict(from) } else { Ok(()) }
         }
     }
 }
@@ -603,5 +614,26 @@ mod tests {
         let j2 = Journal::open(&p).unwrap();
         assert_eq!(j2.ops().len(), 1);
         assert_eq!(j2.ops()[0].summary, "persist");
+    }
+}
+
+#[cfg(test)]
+mod more_tests {
+    use super::*;
+    use crate::paths::{Platform, RosterPaths};
+
+    #[test]
+    fn undo_remove_then_recreate_in_one_op() {
+        let d = tempfile::tempdir().unwrap();
+        let p = RosterPaths::for_home(d.path(), Platform::Mac, &|_| None);
+        let mut j = Journal::open(&p).unwrap();
+        let f = d.path().join("f");
+        std::fs::write(&f, "old").unwrap();
+        let mut t = j.begin("swap");
+        t.remove_file(&f).unwrap();
+        t.write_file(&f, b"new").unwrap();
+        let id = t.commit().unwrap();
+        j.undo(id).unwrap();
+        assert_eq!(std::fs::read_to_string(&f).unwrap(), "old");
     }
 }
