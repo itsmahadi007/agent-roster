@@ -7,6 +7,7 @@
   import Agents from "./screens/Agents.svelte";
   import AddAgent from "./screens/AddAgent.svelte";
   import FirstRun from "./screens/FirstRun.svelte";
+  import Changes from "./screens/Changes.svelte";
   import PlanSheet from "./components/PlanSheet.svelte";
 
   let view = $state<OverviewView | null>(null);
@@ -68,6 +69,8 @@
   <div class="pad"><p class="hello-s">Looking at your agents…</p></div>
 {:else if view.agents.length === 0 && screen === "agents"}
   <FirstRun palette={view.palette} onDone={() => navigate("agents")} />
+{:else if screen === "changes"}
+  <Changes onBack={() => navigate("agents")} />
 {:else if screen === "add"}
   <AddAgent
     palette={view.palette}
