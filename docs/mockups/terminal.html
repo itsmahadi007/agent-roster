@@ -1,0 +1,126 @@
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..900&family=JetBrains+Mono:wght@400;600;800&display=swap" rel="stylesheet">
+
+<h2>Agent Roster in the terminal</h2>
+<p class="subtitle">Same roster, same colors, for people who live in the terminal. Click any screen you have thoughts on.</p>
+
+<style>
+  .tm{--base:#0e151f;--bar:#0a1018;--line:#232f3d;--txt:#dfe6ef;--mut:#7d8a9d;--dim:#4f5c70;
+      --cobalt:#5b87ff;--marigold:#f0b429;--jade:#2fbf8f;--orchid:#c578f2;--coral:#ff7a6b}
+  .tm *{box-sizing:border-box}
+  .tm .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(640px,1fr));gap:22px}
+  .tm .w{background:var(--base);border:1px solid #29364a;border-radius:12px;overflow:hidden;box-shadow:0 26px 60px rgba(0,0,0,.5)}
+  .tm .bar{display:flex;align-items:center;gap:7px;padding:10px 13px;background:var(--bar);border-bottom:1px solid var(--line)}
+  .tm .bar i{width:11px;height:11px;border-radius:50%;display:block}
+  .tm .bar span{flex:1;text-align:center;font:12px/1 "Archivo",system-ui,sans-serif;color:var(--dim);margin-right:44px}
+  .tm .bar span b{font-variation-settings:"wdth" 125;font-weight:800}
+  .tm pre{margin:0;padding:16px 18px 18px;font:13px/1.62 "JetBrains Mono",ui-monospace,monospace;color:var(--txt);white-space:pre;overflow-x:auto}
+  .tm .ps{color:var(--dim)} .tm .cmd{color:#fff;font-weight:600}
+  .tm .m{color:var(--mut)} .tm .d{color:var(--dim)}
+  .tm .c1{color:var(--cobalt);font-weight:800} .tm .c2{color:var(--marigold);font-weight:800}
+  .tm .c3{color:var(--jade);font-weight:800}   .tm .c4{color:var(--orchid);font-weight:800}
+  .tm .ok{color:var(--jade)} .tm .wn{color:var(--marigold)} .tm .add{color:var(--jade)} .tm .chg{color:var(--marigold)}
+  .tm .hd{color:#fff;font-weight:800}
+  .tm .cable{background:linear-gradient(90deg,var(--cobalt),var(--jade));-webkit-background-clip:text;background-clip:text;color:transparent;font-weight:800}
+  .tm .bn{display:inline-block;padding:0 6px;border-radius:4px;font-weight:800;color:#0e151f}
+  .tm .cc{color:#d9d9d9} .tm .tool{color:#9fb3c8}
+  .tm .cap{color:#a3acb9;font-size:13px;margin:11px 2px 0;font-family:-apple-system,system-ui,sans-serif}
+  .tm .cap b{color:#eef1f5}
+  .tm .wide{grid-column:1/-1}
+</style>
+
+<div class="tm"><div class="grid">
+
+<!-- 1. roster -->
+<div data-choice="overview" onclick="toggleSelect(this)" style="cursor:pointer">
+<div class="w"><div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i><span>~ zsh</span></div>
+<pre><span class="ps">~ $</span> <span class="cmd">roster</span>
+
+ <span class="hd">Agent Roster</span>  <span class="m">4 agents</span>                                   <span class="d">limits as of 4m ago</span>
+
+  <span class="c1">agent1</span>  Claude Code  <span class="ok">● ready</span>     5 hr <span class="c1">██</span><span class="d">░░░░░░░░</span>  22%
+                                  week <span class="c1">██████</span><span class="d">░░░░</span>  61%  <span class="m">resets in 3d 16h</span>
+  <span class="c2">agent2</span>  Claude Code  <span class="wn">● sign in</span>   <span class="d">limits appear after sign in</span>
+  <span class="c3">agent3</span>  Codex        <span class="ok">● working</span>   week <span style="color:var(--coral)">█████████</span><span class="d">░</span>  <span style="color:var(--coral)">93%  resets in 21h 52m</span>
+  <span class="c4">boss</span>    Codex        <span class="d">● idle</span>      5 hr <span class="c4">█</span><span class="d">░░░░░░░░░</span>   8%
+                                  week <span class="c4">██</span><span class="d">░░░░░░░░</span>  24%  <span class="m">resets in 5d 2h</span>
+
+  <span class="c1">agent1</span> <span class="cable">━━━━━━━━━━━━━━━▶</span> <span class="c3">agent3</span>   <span class="m">"Write tests for the login page"</span>  <span class="d">2m</span>
+
+  <span class="d">roster add &lt;name&gt;    roster limits    roster ui    roster changes</span></pre></div>
+<p class="cap"><b>roster.</b> Every agent, its login, its limits and reset times, and any agent working for another right now. 90% or more turns coral.</p>
+</div>
+
+<!-- 2. roster add -->
+<div data-choice="add" onclick="toggleSelect(this)" style="cursor:pointer">
+<div class="w"><div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i><span>~ zsh</span></div>
+<pre><span class="ps">~ $</span> <span class="cmd">roster add boss --codex --color purple</span>
+
+ <span class="hd">Adding</span> <span class="c4">boss</span> <span class="m">(Codex)</span>
+
+  <span class="add">+</span> command   <span class="c4">boss</span>
+  <span class="add">+</span> folder    <span class="m">~/.agent-roster/accounts/boss</span>
+  <span class="chg">~</span> roster note in Claude and Codex <span class="d">(its own section only)</span>
+    <span class="d">nothing else changes</span>
+
+  Share your skills and settings with boss? <span class="d">[y/N]</span> <span class="cmd">n</span>
+  Add boss? <span class="d">[Y/n]</span> <span class="cmd">y</span>
+
+ <span class="ok">✓</span> <span class="c4">boss</span> added. Sign in now with: <span class="cmd">boss login</span></pre></div>
+<p class="cap"><b>roster add.</b> Shows the plan, asks before sharing anything, then does it. <code>--yes</code> skips the questions for scripts.</p>
+</div>
+
+<!-- 3. launching an agent -->
+<div data-choice="launch" onclick="toggleSelect(this)" style="cursor:pointer">
+<div class="w"><div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i><span><b style="color:#c578f2">boss</b> &nbsp;Codex</span></div>
+<pre><span class="ps">~/projects/portfolio $</span> <span class="cmd">boss</span>
+<span class="bn" style="background:var(--orchid)"> boss </span> <span class="tool">Codex</span>  <span class="m">boss@example.com</span>  <span class="d">week 24%, resets in 5d 2h</span>
+
+<span class="cc">╭──────────────────────────────────────────────╮
+│ &gt;_ OpenAI Codex                               │
+│                                              │
+│ model:     gpt-5.5        /model to change   │
+│ directory: ~/projects/portfolio              │
+╰──────────────────────────────────────────────╯</span>
+
+<span class="m">  To get started, describe a task</span>
+<span class="cmd">›</span> <span class="d">_</span></pre></div>
+<p class="cap"><b>Starting an agent.</b> Type its name. One colored line says who you are, the tab is renamed, then the normal Codex or Claude screen opens untouched.</p>
+</div>
+
+<!-- 4. changes / undo -->
+<div data-choice="changes" onclick="toggleSelect(this)" style="cursor:pointer">
+<div class="w"><div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i><span>~ zsh</span></div>
+<pre><span class="ps">~ $</span> <span class="cmd">roster changes</span>
+
+ <span class="hd">What Agent Roster changed</span>
+
+  <span class="d">3</span>  <span class="m">13:42</span>  <span class="add">+</span> added the <span class="c4">boss</span> command
+  <span class="d">2</span>  <span class="m">13:42</span>  <span class="add">+</span> created a private folder for <span class="c4">boss</span>
+  <span class="d">1</span>  <span class="m">13:42</span>  <span class="chg">~</span> updated the roster note <span class="d">(own section, backup kept)</span>
+
+  <span class="ok">hooks added to your tools: none</span>
+
+<span class="ps">~ $</span> <span class="cmd">roster undo 3</span>
+ <span class="ok">✓</span> removed the <span class="c4">boss</span> command. Folder kept. <span class="d">Undo all: roster undo --all</span></pre></div>
+<p class="cap"><b>roster changes and undo.</b> The same history as the app window, with the same undo.</p>
+</div>
+
+<!-- 5. agent calls agent -->
+<div class="wide" data-choice="delegate" onclick="toggleSelect(this)" style="cursor:pointer">
+<div class="w"><div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i><span><b style="color:#5b87ff">agent1</b> &nbsp;Claude Code</span></div>
+<pre><span class="cc">&gt;</span> <span class="cmd">run this with agent3: write tests for the login page and run them</span>
+
+<span class="cc">⏺</span> Handing this to <span class="c3">agent3</span> <span class="m">(Codex, its own account and quota).</span>
+
+<span class="cc">⏺</span> <span class="cmd">Bash</span><span class="m">(</span><span class="c3">agent3</span> <span class="m">exec --full-auto "Write Playwright tests for src/pages/login.astro, run them, report results")</span>
+  <span class="d">⎿</span>  <span class="bn" style="background:var(--jade)"> agent3 </span> <span class="m">working in ~/projects/portfolio</span>
+     <span class="m">wrote tests/login.spec.ts</span>
+     <span class="ok">6 passed</span> <span class="m">in 4.1s</span>
+
+<span class="cc">⏺</span> <span class="c3">agent3</span> finished. It added 6 tests in tests/login.spec.ts and all of them pass.
+   Want me to review the tests, or hand the next step to <span class="c4">boss</span>?</pre></div>
+<p class="cap"><b>One agent calling another.</b> You talk to agent1 normally. It knows the roster, runs agent3 on its own account, and reports back. The app window draws the cable while this runs.</p>
+</div>
+
+</div></div>

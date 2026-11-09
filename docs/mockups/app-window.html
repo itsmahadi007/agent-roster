@@ -1,0 +1,239 @@
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+
+<h2>Agent Roster: limits on every agent</h2>
+<p class="subtitle">Each agent now shows how much of its limit is used and when it resets. Click any screen you have thoughts on.</p>
+
+<style>
+  .pb{--base:#111925;--raise:#18222f;--well:#0c131c;--line:#26323f;--txt:#e6ebf2;--mut:#8592a5;--dim:#56637a;
+      --cobalt:#4d7cff;--marigold:#f0b429;--jade:#2fbf8f;--orchid:#c06bf0;--coral:#ff7a6b;
+      font-family:"Archivo",system-ui,sans-serif;font-variation-settings:"wdth" 100;color:var(--txt)}
+  .pb *{box-sizing:border-box}
+  .pb .win{background:var(--base);border:1px solid #2b3746;border-radius:14px;overflow:hidden;box-shadow:0 30px 70px rgba(0,0,0,.55),0 0 0 1px rgba(255,255,255,.02) inset}
+  .pb .bar{display:flex;align-items:center;gap:7px;padding:11px 14px;background:var(--well);border-bottom:1px solid var(--line)}
+  .pb .dt{width:11px;height:11px;border-radius:50%;background:#2c3848}
+  .pb .bar .ttl{flex:1;text-align:center;font-size:12px;color:var(--dim);margin-right:44px;letter-spacing:.01em}
+  .pb .mono{font-family:"JetBrains Mono",ui-monospace,monospace}
+  .pb .btn{display:inline-flex;align-items:center;gap:7px;border-radius:9px;padding:8px 14px;font-size:13px;font-weight:600;border:1px solid var(--line);background:var(--raise);color:var(--txt)}
+  .pb .btn.pri{background:var(--txt);color:var(--base);border-color:var(--txt)}
+  .pb .cap{color:#a3acb9;font-size:13px;margin:12px 2px 0;font-family:-apple-system,system-ui,sans-serif}
+  .pb .cap b{color:#eef1f5}
+
+  /* main */
+  .pb .main{display:grid;grid-template-columns:1fr 330px}
+  .pb .bay{padding:22px 0 18px 26px;position:relative}
+  .pb .head{display:flex;align-items:flex-end;justify-content:space-between;padding-right:26px;margin-bottom:18px}
+  .pb .head h3{margin:0;font-size:22px;font-weight:700;letter-spacing:-.01em}
+  .pb .head p{margin:3px 0 0;color:var(--mut);font-size:13px}
+  .pb .rows{position:relative}
+  .pb .ag{display:grid;grid-template-columns:6px 1fr 210px 128px 44px;align-items:center;gap:16px;height:76px;margin-bottom:8px;background:var(--raise);border:1px solid var(--line);border-right:0;border-radius:12px 0 0 12px;padding-left:0}
+  .pb .ag .stripe{height:100%;border-radius:12px 0 0 12px}
+  .pb .ag .nm{font-variation-settings:"wdth" 125;font-weight:800;font-size:30px;letter-spacing:-.01em;line-height:1}
+  .pb .ag .sub{display:flex;gap:10px;margin-top:6px;font-size:12.5px;color:var(--mut)}
+  .pb .ag .tool{color:var(--txt);font-weight:600}
+  .pb .st{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;padding-right:6px}
+  .pb .st i{width:8px;height:8px;border-radius:50%;display:block}
+  .pb .jack{height:100%;display:flex;align-items:center;justify-content:center;background:var(--well);border-left:1px solid var(--line)}
+  .pb .jack b{width:16px;height:16px;border-radius:50%;border:2px solid #3a4758;background:#0a1017;display:block}
+  .pb .jack b.live{border-color:currentColor;box-shadow:0 0 0 4px rgba(255,255,255,.04)}
+  .pb svg.cable{position:absolute;right:-60px;top:0;overflow:visible;pointer-events:none}
+  .pb .pulse{stroke-dasharray:6 220;animation:run 2.4s linear infinite}
+  @keyframes run{from{stroke-dashoffset:226}to{stroke-dashoffset:0}}
+  @media (prefers-reduced-motion:reduce){.pb .pulse{animation:none;opacity:0}}
+
+  .pb .side{background:var(--well);border-left:1px solid var(--line);padding:22px 22px 18px 68px;display:flex;flex-direction:column;gap:18px}
+  .pb .call{border-left:2px solid var(--cobalt);padding:2px 0 2px 14px}
+  .pb .call .who{font-size:13px;color:var(--mut)}
+  .pb .call .who b{font-variation-settings:"wdth" 125;font-weight:800;font-size:14px}
+  .pb .call .what{font-size:15px;line-height:1.4;margin:6px 0 8px}
+  .pb .call .t{font-size:12px;color:var(--dim)}
+  .pb .side h4{margin:0 0 8px;font-size:13px;color:var(--mut);font-weight:600}
+  .pb .cmds{display:flex;flex-wrap:wrap;gap:6px}
+  .pb .cmds span{font-size:12.5px;padding:5px 9px;border-radius:7px;background:var(--raise);border:1px solid var(--line)}
+  .pb .safe{margin-top:auto;font-size:12.5px;color:var(--mut);line-height:1.5}
+  .pb .safe b{color:var(--jade);font-weight:600}
+
+
+  .pb .use{display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--mut)}
+  .pb .ul{display:grid;grid-template-columns:38px 1fr 34px;align-items:center;gap:8px}
+  .pb .ul b{height:6px;border-radius:9px;background:#0b1119;border:1px solid var(--line);overflow:hidden;display:block}
+  .pb .ul b i{display:block;height:100%;border-radius:9px}
+  .pb .ul em{font-style:normal;text-align:right;color:var(--txt);font-weight:600}
+  .pb .rs{font-size:11.5px;color:var(--dim);padding-left:46px}
+  .pb .hot{color:var(--coral)!important}
+  /* lower row */
+  .pb .lower{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:22px;margin-top:26px;align-items:start}
+  .pb .pad{padding:22px}
+  .pb .big-in{font-variation-settings:"wdth" 125;font-weight:800;font-size:46px;line-height:1;letter-spacing:-.015em;padding:18px 0 14px;border-bottom:2px solid var(--line);display:flex;align-items:center;gap:2px}
+  .pb .caret{width:3px;height:40px;background:var(--orchid);animation:blink 1s steps(1) infinite}
+  @keyframes blink{50%{opacity:0}}
+  @media (prefers-reduced-motion:reduce){.pb .caret{animation:none}}
+  .pb .lbl{font-size:12.5px;color:var(--mut);margin:16px 0 8px}
+  .pb .sw{display:flex;gap:9px}
+  .pb .sw i{width:26px;height:26px;border-radius:50%;display:block;border:2px solid transparent}
+  .pb .sw i.on{box-shadow:0 0 0 2px var(--base),0 0 0 4px var(--txt)}
+  .pb .seg{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}
+  .pb .seg span{text-align:center;padding:10px 6px;border-radius:9px;border:1px solid var(--line);background:var(--raise);font-size:13px;font-weight:600}
+  .pb .seg span.on{border-color:var(--txt);box-shadow:inset 0 0 0 1px var(--txt)}
+  .pb .seg span.off{color:var(--dim)}
+  .pb .will{margin-top:16px;background:var(--well);border:1px solid var(--line);border-radius:10px;padding:12px 14px;font-size:12.5px;line-height:1.75;color:var(--mut)}
+  .pb .will b{color:var(--txt);font-weight:600}
+  .pb .tg{display:flex;align-items:center;gap:12px;margin-top:14px;font-size:13px}
+  .pb .tg .k{width:34px;height:20px;border-radius:999px;background:#2a3646;position:relative;flex:none}
+  .pb .tg .k:after{content:"";position:absolute;left:3px;top:3px;width:14px;height:14px;border-radius:50%;background:#8592a5}
+  .pb .tg small{display:block;color:var(--dim);font-size:12px}
+  .pb .foot{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
+
+  .pb .found{display:flex;align-items:center;gap:14px;padding:14px 0;border-bottom:1px solid var(--line)}
+  .pb .found:last-of-type{border-bottom:0}
+  .pb .found .nm2{font-variation-settings:"wdth" 125;font-weight:800;font-size:22px}
+  .pb .found .meta{flex:1;font-size:12.5px;color:var(--mut)}
+  .pb .hello{font-size:26px;font-weight:700;line-height:1.15;letter-spacing:-.015em;margin:4px 0 6px}
+  .pb .hello-s{color:var(--mut);font-size:13.5px;margin:0 0 10px;line-height:1.5}
+
+  .pb .menu{background:rgba(24,34,47,.96);border:1px solid #33414f;border-radius:12px;padding:6px;box-shadow:0 24px 50px rgba(0,0,0,.6)}
+  .pb .mrow{display:flex;align-items:center;gap:11px;padding:9px 10px;border-radius:8px;font-size:13.5px}
+  .pb .mrow.hl{background:#24303f}
+  .pb .mrow i{width:9px;height:9px;border-radius:50%;display:block}
+  .pb .mrow .n{font-variation-settings:"wdth" 125;font-weight:800;font-size:15px;flex:1}
+  .pb .mrow small{color:var(--dim);font-size:12px}
+  .pb .msep{height:1px;background:var(--line);margin:5px 8px}
+  .pb .mbar{display:flex;justify-content:flex-end;gap:16px;align-items:center;padding:6px 12px;font-size:12px;color:#c9d1dc;background:#1d2633;border-radius:8px 8px 0 0;margin-bottom:6px}
+  .pb .mbar .icon{display:inline-flex;gap:2px;padding:3px 6px;border-radius:5px;background:#33414f}
+  .pb .mbar .icon i{width:5px;height:5px;border-radius:50%;display:block}
+</style>
+
+<div class="pb">
+
+  <!-- MAIN WINDOW -->
+  <div data-choice="main" onclick="toggleSelect(this)" style="cursor:pointer">
+    <div class="win">
+      <div class="bar"><span class="dt" style="background:#ff5f57"></span><span class="dt" style="background:#febc2e"></span><span class="dt" style="background:#28c840"></span><span class="ttl">Agent Roster</span></div>
+      <div class="main">
+        <div class="bay">
+          <div class="head">
+            <div><h3>Your agents</h3><p>Four accounts, one quota each. Type a name in any terminal to start it.</p></div>
+            <span class="btn pri">Add agent</span>
+          </div>
+          <div class="rows">
+            <div class="ag"><span class="stripe" style="background:var(--cobalt)"></span>
+              <div><div class="nm" style="color:var(--cobalt)">agent1</div><div class="sub"><span class="tool">Claude Code</span><span>you@example.com</span><span>default for claude</span></div></div>
+              <div class="use"><div class="ul"><span>5 hr</span><b><i style="width:22%;background:var(--cobalt)"></i></b><em class="">22%</em></div><div class="ul"><span>week</span><b><i style="width:61%;background:var(--cobalt)"></i></b><em class="">61%</em></div><div class="rs">week resets in 3d 16h</div></div>
+              <div class="st" style="color:var(--cobalt)"><i style="background:var(--cobalt)"></i>calling agent3</div>
+              <div class="jack" style="color:var(--cobalt)"><b class="live"></b></div></div>
+            <div class="ag"><span class="stripe" style="background:var(--marigold)"></span>
+              <div><div class="nm" style="color:var(--marigold)">agent2</div><div class="sub"><span class="tool">Claude Code</span><span>not signed in yet</span></div></div>
+              <div class="use"><div class="rs" style="padding-left:0">limits appear after sign in</div></div>
+              <div class="st"><span class="btn" style="padding:6px 12px;border-color:var(--marigold);color:var(--marigold)">Sign in</span></div>
+              <div class="jack"><b></b></div></div>
+            <div class="ag"><span class="stripe" style="background:var(--jade)"></span>
+              <div><div class="nm" style="color:var(--jade)">agent3</div><div class="sub"><span class="tool">Codex</span><span>you@example.com</span><span>default for codex</span></div></div>
+              <div class="use"><div class="ul"><span>week</span><b><i style="width:93%;background:var(--coral)"></i></b><em class="hot">93%</em></div><div class="rs"><span class="hot">resets in 21h 52m</span></div></div>
+              <div class="st" style="color:var(--jade)"><i style="background:var(--jade)"></i>working</div>
+              <div class="jack" style="color:var(--jade)"><b class="live"></b></div></div>
+            <div class="ag"><span class="stripe" style="background:var(--orchid)"></span>
+              <div><div class="nm" style="color:var(--orchid)">boss</div><div class="sub"><span class="tool">Codex</span><span>boss@example.com</span></div></div>
+              <div class="use"><div class="ul"><span>5 hr</span><b><i style="width:8%;background:var(--orchid)"></i></b><em class="">8%</em></div><div class="ul"><span>week</span><b><i style="width:24%;background:var(--orchid)"></i></b><em class="">24%</em></div><div class="rs">week resets in 5d 2h</div></div>
+              <div class="st" style="color:var(--mut)"><i style="background:#3a4758"></i>idle</div>
+              <div class="jack"><b></b></div></div>
+
+            <svg class="cable" width="80" height="330" viewBox="0 0 80 330">
+              <defs><linearGradient id="cg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4d7cff"/><stop offset="1" stop-color="#2fbf8f"/></linearGradient></defs>
+              <path d="M0 38 C 66 38, 66 206, 0 206" fill="none" stroke="url(#cg)" stroke-width="4" stroke-linecap="round"/>
+              <path class="pulse" d="M0 38 C 66 38, 66 206, 0 206" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round"/>
+            </svg>
+          </div>
+        </div>
+
+        <div class="side">
+          <div>
+            <h4>On the line now</h4>
+            <div class="call">
+              <div class="who"><b style="color:var(--cobalt)">agent1</b> asked <b style="color:var(--jade)">agent3</b></div>
+              <div class="what">Write tests for the login page and run them.</div>
+              <div class="t">started 2 minutes ago in projects/portfolio</div>
+            </div>
+          </div>
+          <div>
+            <h4>Type these in any terminal</h4>
+            <div class="cmds mono"><span style="color:var(--cobalt)">agent1</span><span style="color:var(--marigold)">agent2</span><span style="color:var(--jade)">agent3</span><span style="color:var(--orchid)">boss</span></div>
+          </div>
+          <div><h4>Limits</h4><div style="font-size:13px;line-height:1.5;color:var(--txt)"><b class="hot" style="font-variation-settings:\"wdth\" 125">agent3</b> has used 93% of its week. It resets tomorrow at 11:59.</div><div style="font-size:12px;color:var(--dim);margin-top:6px">Updated each time an agent is used. Last update 4 minutes ago.</div></div>
+          <div class="safe">Your original Claude and Codex setup is untouched. <b>No hooks added.</b> Every change can be undone.</div>
+        </div>
+      </div>
+    </div>
+    <p class="cap"><b>Your agents.</b> Each row shows its limits and when they reset. Anything at 90% or more turns coral. The cable still shows one agent working for another.</p>
+  </div>
+
+  <div class="lower">
+
+    <!-- ADD AGENT -->
+    <div data-choice="add" onclick="toggleSelect(this)" style="cursor:pointer">
+      <div class="win">
+        <div class="bar"><span class="dt" style="background:#ff5f57"></span><span class="dt" style="background:#febc2e"></span><span class="dt" style="background:#28c840"></span><span class="ttl">Add agent</span></div>
+        <div class="pad">
+          <div class="big-in" style="color:var(--orchid)">boss<span class="caret"></span></div>
+          <div class="lbl">Color</div>
+          <div class="sw"><i style="background:#4d7cff"></i><i style="background:#f0b429"></i><i style="background:#2fbf8f"></i><i class="on" style="background:#c06bf0"></i><i style="background:#ff7a6b"></i></div>
+          <div class="lbl">Tool</div>
+          <div class="seg"><span>Claude Code</span><span class="on">Codex</span><span class="off">Gemini soon</span></div>
+          <div class="tg"><span class="k"></span><div>Share my skills and settings<small>Off. This account starts fully separate.</small></div></div>
+          <div class="will">Adds a <b>boss</b> command for every terminal.<br>Creates a private folder for this account.<br>Tells your other agents that <b>boss</b> exists.<br>Nothing else on your computer changes.</div>
+          <div class="foot"><span class="btn">Cancel</span><span class="btn pri">Add and sign in</span></div>
+        </div>
+      </div>
+      <p class="cap"><b>Add agent.</b> You type the name big, in its own color, and see exactly what will happen.</p>
+    </div>
+
+    <!-- FIRST RUN -->
+    <div data-choice="first-run" onclick="toggleSelect(this)" style="cursor:pointer">
+      <div class="win">
+        <div class="bar"><span class="dt" style="background:#ff5f57"></span><span class="dt" style="background:#febc2e"></span><span class="dt" style="background:#28c840"></span><span class="ttl">Agent Roster</span></div>
+        <div class="pad">
+          <div class="hello">You already have two agents.</div>
+          <p class="hello-s">We found these signed in on this computer. Give them names, or keep ours. Nothing changes until you continue.</p>
+          <div class="found"><span class="nm2" style="color:var(--cobalt)">agent1</span><span class="meta">Claude Code 2.1<br>you@example.com</span><span class="btn" style="padding:5px 10px">Rename</span></div>
+          <div class="found"><span class="nm2" style="color:var(--jade)">agent3</span><span class="meta">Codex 0.167<br>you@example.com</span><span class="btn" style="padding:5px 10px">Rename</span></div>
+          <div class="found" style="opacity:.5"><span class="nm2" style="color:var(--mut)">Gemini</span><span class="meta">not installed</span></div>
+          <div class="foot"><span class="btn pri">Continue</span></div>
+        </div>
+      </div>
+      <p class="cap"><b>First run.</b> Starts from what you already have instead of an empty form.</p>
+    </div>
+
+    <!-- WHAT CHANGED -->
+    <div data-choice="changes" onclick="toggleSelect(this)" style="cursor:pointer">
+      <div class="win">
+        <div class="bar"><span class="dt" style="background:#ff5f57"></span><span class="dt" style="background:#febc2e"></span><span class="dt" style="background:#28c840"></span><span class="ttl">What changed</span></div>
+        <div class="pad">
+          <div class="hello" style="font-size:22px">Everything Agent Roster did</div>
+          <p class="hello-s">Each change has a backup. Undo one, or undo all of them.</p>
+          <div class="found"><span style="width:10px;height:10px;border-radius:50%;background:var(--orchid);flex:none"></span><span class="meta" style="color:var(--txt)">Added the <b style="color:var(--orchid)">boss</b> command<br><span style="color:var(--dim)">today at 13:42</span></span><span class="btn" style="padding:5px 10px">Undo</span></div>
+          <div class="found"><span style="width:10px;height:10px;border-radius:50%;background:var(--orchid);flex:none"></span><span class="meta" style="color:var(--txt)">Created a private folder for <b style="color:var(--orchid)">boss</b><br><span style="color:var(--dim)">today at 13:42</span></span><span class="btn" style="padding:5px 10px">Undo</span></div>
+          <div class="found"><span style="width:10px;height:10px;border-radius:50%;background:var(--mut);flex:none"></span><span class="meta" style="color:var(--txt)">Updated the roster note for Claude and Codex<br><span style="color:var(--dim)">only inside its own marked section, backup kept</span></span><span class="btn" style="padding:5px 10px">Undo</span></div>
+          <div class="found"><span style="width:10px;height:10px;border-radius:50%;background:var(--jade);flex:none"></span><span class="meta" style="color:var(--txt)">Hooks added to your tools<br><span style="color:var(--jade)">none, ever</span></span></div>
+          <div class="foot" style="justify-content:space-between;align-items:center"><span style="font-size:12.5px;color:var(--mut)">Uninstalling restores all of this.</span><span class="btn">Undo everything</span></div>
+        </div>
+      </div>
+      <p class="cap"><b>What changed.</b> The "never break anything" promise, kept from the first round.</p>
+    </div>
+
+    <!-- MENU BAR -->
+    <div data-choice="menubar" onclick="toggleSelect(this)" style="cursor:pointer">
+      <div class="mbar"><span>Wi-Fi</span><span class="icon"><i style="background:#4d7cff"></i><i style="background:#2fbf8f"></i><i style="background:#c06bf0"></i></span><span>Mon 13:42</span></div>
+      <div class="menu">
+        <div class="mrow hl"><i style="background:var(--cobalt)"></i><span class="n" style="color:var(--cobalt)">agent1</span><small>61% week</small></div>
+        <div class="mrow"><i style="background:var(--marigold)"></i><span class="n" style="color:var(--marigold)">agent2</span><small>sign in</small></div>
+        <div class="mrow"><i style="background:var(--jade)"></i><span class="n" style="color:var(--jade)">agent3</span><small class="hot">93% week</small></div>
+        <div class="mrow"><i style="background:var(--orchid)"></i><span class="n" style="color:var(--orchid)">boss</span><small>24% week</small></div>
+        <div class="msep"></div>
+        <div class="mrow">Open a terminal as…</div>
+        <div class="mrow">Add agent</div>
+        <div class="mrow">Open Agent Roster</div>
+      </div>
+      <p class="cap"><b>Menu bar and tray.</b> One click to open a terminal as any agent. Same on the Windows tray and Linux.</p>
+    </div>
+
+  </div>
+</div>

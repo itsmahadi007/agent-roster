@@ -1,0 +1,172 @@
+#!/usr/bin/env bash
+# agent-roster — named launchers for several Claude Code / Codex accounts on one Mac.
+#
+#   agent-roster install   # (re)generate launchers + AI-facing roster blocks from the roster file
+#   agent-roster list      # show the roster
+#   agent-roster edit      # open the roster file in $EDITOR
+#
+# Roster file: ~/.config/agent-roster/roster.conf  — one line per account:
+#   <name>  <claude|codex>  <config-dir>  [# note]
+# Rename a line and re-run `agent-roster install`. Old launchers made by this tool are removed.
+set -euo pipefail
+
+ROSTER_DIR="$HOME/.config/agent-roster"
+ROSTER="$ROSTER_DIR/roster.conf"
+BIN="$HOME/.local/bin"
+MARK="# generated-by-agent-roster"
+BEGIN="<!-- agent-roster:begin -->"
+END="<!-- agent-roster:end -->"
+
+expand_home() { local p="$1"; printf '%s' "${p/#\~/$HOME}"; }
+
+default_roster() {
+  cat <<'R'
+# name     tool    config-dir       note
+agent1     claude  ~/.claude        # default `claude`
+agent2     claude  ~/.claude-2
+agent3     codex   ~/.codex         # default `codex`
+agent4     codex   ~/.codex-2
+R
+}
+
+read_roster() {  # prints: name tool dir note
+  grep -v -E '^[[:space:]]*(#|$)' "$ROSTER" | while read -r name tool dir rest; do
+    note="${rest#\#}"; note="${note# }"
+    printf '%s\t%s\t%s\t%s\n' "$name" "$tool" "$(expand_home "$dir")" "$note"
+  done
+}
+
+ensure_roster() {
+  mkdir -p "$ROSTER_DIR" "$BIN"
+  [ -f "$ROSTER" ] || { default_roster > "$ROSTER"; echo "created $ROSTER"; }
+}
+
+validate() {
+  local ok=1
+  while IFS=$'\t' read -r name tool dir note; do
+    [[ "$name" =~ ^[A-Za-z_][A-Za-z0-9_-]*$ ]] || { echo "bad name: $name (letters, digits, - _ ; must not start with a digit)"; ok=0; }
+    [[ "$tool" == claude || "$tool" == codex ]] || { echo "bad tool for $name: $tool (claude|codex)"; ok=0; }
+    if command -v "$name" >/dev/null 2>&1 && ! is_launcher "$(command -v "$name")"; then
+      echo "name clashes with an existing command: $name ($(command -v "$name"))"; ok=0
+    fi
+  done < <(read_roster)
+  [ "$ok" = 1 ] || { echo "fix $ROSTER and re-run"; exit 1; }
+}
+
+is_launcher() {  # true only for files this tool generated (marker on line 2, exact match)
+  [ -f "$1" ] && [ "$(sed -n 2p "$1" 2>/dev/null)" = "$MARK" ]
+}
+
+remove_old_launchers() {
+  for f in "$BIN"/*; do
+    if is_launcher "$f"; then rm -f "$f"; fi
+  done
+}
+
+write_launcher() {  # name tool dir
+  local name="$1" tool="$2" dir="$3" f="$BIN/$1"
+  {
+    echo '#!/usr/bin/env bash'
+    echo "$MARK"
+    echo "# $name -> $tool using $dir"
+    if [ "$tool" = claude ]; then
+      echo 'unset CLAUDECODE'   # allow launching from inside another Claude Code session
+      if [ "$dir" = "$HOME/.claude" ]; then echo 'unset CLAUDE_CONFIG_DIR'
+      else echo "export CLAUDE_CONFIG_DIR=\"$dir\""; fi
+      echo 'exec claude "$@"'
+    else
+      if [ "$dir" = "$HOME/.codex" ]; then echo 'unset CODEX_HOME'
+      else echo "export CODEX_HOME=\"$dir\""; fi
+      echo 'exec codex "$@"'
+    fi
+  } > "$f"
+  chmod +x "$f"
+}
+
+link_shared() {  # tool dir — a secondary config dir shares skills/settings with the primary via symlinks
+  local tool="$1" dir="$2" src
+  mkdir -p "$dir"
+  if [ "$tool" = claude ]; then
+    src="$HOME/.claude"; [ "$dir" = "$src" ] && return
+    for item in skills agents commands hooks CLAUDE.md settings.json; do
+      if [ -e "$src/$item" ] && [ ! -e "$dir/$item" ]; then ln -s "$src/$item" "$dir/$item"; echo "  linked $dir/$item"; fi
+    done
+  else
+    src="$HOME/.codex"; [ "$dir" = "$src" ] && return
+    for item in config.toml AGENTS.md skills; do
+      if [ -e "$src/$item" ] && [ ! -e "$dir/$item" ]; then ln -s "$src/$item" "$dir/$item"; echo "  linked $dir/$item"; fi
+    done
+  fi
+  true
+}
+
+roster_block() {
+  local first_claude="" first_codex=""
+  echo "$BEGIN"
+  echo "## Agent roster (several accounts on this Mac)"
+  echo
+  echo "Named launchers exist on PATH. Each is one account with its own quota and login."
+  echo
+  echo "| Name | Tool | Config dir | Note |"
+  echo "|---|---|---|---|"
+  while IFS=$'\t' read -r name tool dir note; do
+    echo "| \`$name\` | $tool | \`${dir/#$HOME/~}\` | $note |"
+    [ "$tool" = claude ] && [ -z "$first_claude" ] && first_claude="$name"
+    [ "$tool" = codex ] && [ -z "$first_codex" ] && first_codex="$name"
+  done < <(read_roster)
+  echo
+  echo "Rules:"
+  echo "- When the user says \"run this with <name>\" / \"ask <name>\" / \"use <name>\", run that launcher from Bash in the current directory. Do not try to answer it yourself."
+  echo "- Claude launchers, non-interactive: \`<name> -p \"<task>\"\` for read-only work; add \`--permission-mode acceptEdits\` when it should edit files."
+  echo "- Codex launchers, non-interactive: \`<name> exec \"<task>\"\` for read-only work; \`<name> exec --full-auto \"<task>\"\` when it should edit files."
+  echo "- Pass the task as one self-contained prompt with the relevant file paths. Relay the launcher's output back to the user."
+  echo "- Never call bare \`claude\` or \`codex\` from inside a session: the environment is inherited and you would hit the wrong account. Always use a roster name."
+  [ -n "$first_claude" ] && echo "- Bare \`claude\` typed by the user in a fresh terminal = \`$first_claude\`."
+  [ -n "$first_codex" ] && echo "- Bare \`codex\` typed by the user in a fresh terminal = \`$first_codex\`."
+  echo "- Check which account you are: Claude \`/status\`, Codex \`codex login status\`."
+  echo "- Rename or add accounts in \`~/.config/agent-roster/roster.conf\` then run \`agent-roster install\`."
+  echo "$END"
+}
+
+upsert_block() {  # file
+  local f="$1" tmp; tmp="$(mktemp)"
+  touch "$f"
+  if grep -q "$BEGIN" "$f"; then
+    awk -v b="$BEGIN" -v e="$END" '$0==b{skip=1} !skip{print} $0==e{skip=0}' "$f" > "$tmp"
+  else
+    cp "$f" "$tmp"
+  fi
+  { cat "$tmp"; echo; roster_block; } > "$f"
+  rm -f "$tmp"
+  echo "roster block written to $f"
+}
+
+cmd_install() {
+  ensure_roster; validate
+  remove_old_launchers
+  while IFS=$'\t' read -r name tool dir note; do
+    write_launcher "$name" "$tool" "$dir"
+    echo "launcher: $BIN/$name -> $tool @ ${dir/#$HOME/~}"
+    link_shared "$tool" "$dir"
+  done < <(read_roster)
+  # AI-facing roster: Claude reads ~/.claude/CLAUDE.md, Codex reads ~/.codex/AGENTS.md (secondary dirs symlink to these)
+  upsert_block "$HOME/.claude/CLAUDE.md"
+  mkdir -p "$HOME/.codex"; upsert_block "$HOME/.codex/AGENTS.md"
+  case ":$PATH:" in *":$BIN:"*) ;; *) echo "NOTE: add to ~/.zshrc:  export PATH=\"\$PATH:$BIN\"";; esac
+  echo
+  echo "Next: open a NEW terminal, run each secondary launcher once to log in:"
+  while IFS=$'\t' read -r name tool dir note; do
+    if [ "$tool" = claude ] && [ "$dir" != "$HOME/.claude" ]; then echo "  $name          # then /login"; fi
+    if [ "$tool" = codex ]  && [ "$dir" != "$HOME/.codex" ];  then echo "  $name login"; fi
+  done < <(read_roster)
+}
+
+cmd_list() { ensure_roster; printf '%-12s %-7s %s\n' NAME TOOL CONFIG-DIR; while IFS=$'\t' read -r n t d x; do printf '%-12s %-7s %s  %s\n' "$n" "$t" "${d/#$HOME/~}" "$x"; done < <(read_roster); }
+cmd_edit() { ensure_roster; "${EDITOR:-nano}" "$ROSTER"; }
+
+case "${1:-}" in
+  install) cmd_install ;;
+  list) cmd_list ;;
+  edit) cmd_edit ;;
+  *) sed -n '2,12p' "$0"; exit 1 ;;
+esac
