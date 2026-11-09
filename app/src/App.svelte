@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { listen } from "@tauri-apps/api/event";
-  import type { OverviewView, PlanView, Screen } from "./lib/types";
+  import type { OpRequest, OverviewView, PlanView, Screen } from "./lib/types";
   import { message, overview, preview } from "./lib/api";
   import { startPoll } from "./lib/poll";
   import Agents from "./screens/Agents.svelte";
@@ -14,7 +14,7 @@
   let screen = $state<Screen>("agents");
   let error = $state<string | null>(null);
   let notice = $state<string | null>(null);
-  let sheet = $state<{ plan: PlanView; label: string } | null>(null);
+  let sheet = $state<{ plan: PlanView; req: OpRequest; label: string } | null>(null);
 
   async function refresh() {
     try {
@@ -34,8 +34,8 @@
   async function limits(name: string, on: boolean) {
     notice = null;
     try {
-      const plan = await preview(on ? { op: "enable-limits", name } : { op: "disable-limits", name });
-      sheet = { plan, label: on ? "Turn on" : "Turn off" };
+      const req: OpRequest = on ? { op: "enable-limits", name } : { op: "disable-limits", name };
+      sheet = { plan: await preview(req), req, label: on ? "Turn on" : "Turn off" };
     } catch (e) {
       notice = message(e);
     }
@@ -83,7 +83,7 @@
 {/if}
 
 {#if sheet}
-  <PlanSheet plan={sheet.plan} confirmLabel={sheet.label} onDone={sheetDone} onCancel={() => (sheet = null)} />
+  <PlanSheet plan={sheet.plan} req={sheet.req} confirmLabel={sheet.label} onDone={sheetDone} onCancel={() => (sheet = null)} />
 {/if}
 
 <style>

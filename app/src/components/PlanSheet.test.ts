@@ -49,3 +49,30 @@ describe("PlanSheet", () => {
     expect(invoke).not.toHaveBeenCalled();
   });
 });
+
+describe("PlanSheet stale preview", () => {
+  it("fetches a new preview when the roster changed and applies that one", async () => {
+    const stale = "Your roster changed since this preview. Look at the new preview before applying.";
+    const fresh: PlanView = { token: 8, summary: plan.summary, steps: [{ kind: "change", text: "The new step." }] };
+    let applies = 0;
+    invoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "apply") {
+        applies += 1;
+        if (applies === 1) throw stale;
+        return 11;
+      }
+      if (cmd === "preview") return fresh;
+      throw new Error(cmd);
+    });
+    const onDone = vi.fn();
+    const req = { op: "enable-limits" as const, name: "agent1" };
+    render(PlanSheet, { plan, req, confirmLabel: "Turn on", onDone, onCancel: () => {} });
+    await userEvent.click(screen.getByRole("button", { name: "Turn on" }));
+    expect(await screen.findByText("The new step.")).toBeInTheDocument();
+    expect(screen.getByText(stale)).toBeInTheDocument();
+    expect(invoke).toHaveBeenCalledWith("preview", { req });
+    await userEvent.click(screen.getByRole("button", { name: "Turn on" }));
+    expect(invoke).toHaveBeenLastCalledWith("apply", { token: 8 });
+    expect(onDone).toHaveBeenCalledWith(11);
+  });
+});

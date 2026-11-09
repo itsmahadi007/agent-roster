@@ -27,6 +27,8 @@
   let plan = $state<PlanView | null>(null);
   let error = $state<string | null>(null);
   let busy = $state(false);
+  let applyError = $state<string | null>(null);
+  let retry = $state(0);
 
   const color = $derived(picked || nextColor);
   const hex = $derived(palette.find((c) => c.label === color)?.hex ?? "var(--txt)");
@@ -42,6 +44,7 @@
       role: role.trim() || null,
       share,
     };
+    void retry;
     const mine = ++seq;
     plan = null;
     error = null;
@@ -60,12 +63,15 @@
   async function add() {
     if (!plan) return;
     busy = true;
+    applyError = null;
     const added = name.trim();
     try {
       await apply(plan.token);
     } catch (e) {
-      error = message(e);
+      // The preview is used up or stale: show why and look again.
+      applyError = message(e);
       busy = false;
+      retry += 1;
       return;
     }
     try {
@@ -124,6 +130,7 @@
     <input bind:value={role} placeholder="what others should ask it for" spellcheck="false" />
   </label>
 
+  {#if applyError}<p class="error">{applyError}</p>{/if}
   <div class="will" aria-live="polite">
     {#if error}
       <p class="error">{error}</p>

@@ -95,3 +95,32 @@ describe("AddAgent", () => {
     expect(screen.getByText("On. Uses the skills of your main Claude Code account.")).toBeInTheDocument();
   });
 });
+
+describe("AddAgent stale preview", () => {
+  it("looks again after a stale apply and the next click uses the new preview", async () => {
+    const stale = "Your roster changed since this preview. Look at the new preview before applying.";
+    let previews = 0;
+    let applies = 0;
+    backend({
+      preview: () => ({ ...plan, token: 100 + ++previews }),
+      apply: () => {
+        applies += 1;
+        if (applies === 1) throw stale;
+        return 5;
+      },
+      sign_in: () => null,
+    });
+    const onDone = vi.fn();
+    render(AddAgent, props({ onDone }));
+    await userEvent.type(screen.getByLabelText("Name"), "boss");
+    await screen.findByText(plan.steps[0].text);
+    const first = previews;
+    await userEvent.click(screen.getByRole("button", { name: "Add and sign in" }));
+    expect(await screen.findByText(stale)).toBeInTheDocument();
+    await waitFor(() => expect(previews).toBe(first + 1));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Add and sign in" })).toBeEnabled());
+    await userEvent.click(screen.getByRole("button", { name: "Add and sign in" }));
+    await waitFor(() => expect(onDone).toHaveBeenCalled());
+    expect(invoke).toHaveBeenCalledWith("apply", { token: 100 + first + 1 });
+  });
+});

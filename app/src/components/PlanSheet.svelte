@@ -1,14 +1,17 @@
 <script lang="ts">
-  import type { PlanView } from "../lib/types";
-  import { apply, message } from "../lib/api";
+  import type { OpRequest, PlanView } from "../lib/types";
+  import { apply, message, preview } from "../lib/api";
 
   let {
     plan,
+    req,
     confirmLabel,
     onDone,
     onCancel,
   }: {
     plan: PlanView;
+    /** When given, a failed apply fetches a fresh preview of the same change. */
+    req?: OpRequest;
     confirmLabel: string;
     onDone: (opId: number | null) => void;
     onCancel: () => void;
@@ -17,14 +20,24 @@
   const MARK = { add: "+", change: "~", remove: "-", note: " " } as const;
   let busy = $state(false);
   let error = $state<string | null>(null);
+  let fresh = $state<PlanView | null>(null);
+  const shown = $derived(fresh ?? plan);
 
   async function confirm() {
     busy = true;
     error = null;
     try {
-      onDone(await apply(plan.token));
+      onDone(await apply(shown.token));
     } catch (e) {
       error = message(e);
+      // The backend drops a preview once it is used or stale; show the current one.
+      if (req) {
+        try {
+          fresh = await preview(req);
+        } catch (e2) {
+          error = message(e2);
+        }
+      }
     } finally {
       busy = false;
     }
@@ -32,10 +45,10 @@
 </script>
 
 <div class="backdrop">
-  <div class="sheet" role="dialog" aria-modal="true" aria-label={plan.summary}>
-    <h4>{plan.summary}</h4>
+  <div class="sheet" role="dialog" aria-modal="true" aria-label={shown.summary}>
+    <h4>{shown.summary}</h4>
     <ul>
-      {#each plan.steps as s, i (i)}
+      {#each shown.steps as s, i (i)}
         <li data-kind={s.kind}><span class="mark mono">{MARK[s.kind]}</span><span>{s.text}</span></li>
       {/each}
     </ul>

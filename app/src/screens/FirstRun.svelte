@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import type { ColorView, FirstRunView, PlanView, Tool } from "../lib/types";
+  import type { ColorView, FirstRunView, OpRequest, PlanView, Tool } from "../lib/types";
   import { firstRun, message, preview } from "../lib/api";
   import PlanSheet from "../components/PlanSheet.svelte";
 
@@ -12,7 +12,7 @@
   let names = $state<Record<string, string>>({});
   let editing = $state<Record<string, boolean>>({});
   let error = $state<string | null>(null);
-  let sheet = $state<{ plan: PlanView; label: string } | null>(null);
+  let sheet = $state<{ plan: PlanView; req: OpRequest; label: string } | null>(null);
 
   const installed = $derived(fr ? fr.candidates.filter((c) => c.installed) : []);
   const title = $derived(
@@ -30,10 +30,10 @@
     }
   });
 
-  async function open(req: Parameters<typeof preview>[0], label: string) {
+  async function open(req: OpRequest, label: string) {
     error = null;
     try {
-      sheet = { plan: await preview(req), label };
+      sheet = { plan: await preview(req), req, label };
     } catch (e) {
       error = message(e);
     }
@@ -105,7 +105,7 @@
 </div>
 
 {#if sheet}
-  <PlanSheet plan={sheet.plan} confirmLabel={sheet.label} onDone={() => onDone()} onCancel={() => (sheet = null)} />
+  <PlanSheet plan={sheet.plan} req={sheet.req} confirmLabel={sheet.label} onDone={() => onDone()} onCancel={() => (sheet = null)} />
 {/if}
 
 <style>
