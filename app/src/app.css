@@ -1,0 +1,146 @@
+/* Tokens copied from docs/mockups/app-window.html (.pb block). */
+:root {
+  --base: #111925;
+  --raise: #18222f;
+  --well: #0c131c;
+  --line: #26323f;
+  --txt: #e6ebf2;
+  --mut: #8592a5;
+  --dim: #56637a;
+  --coral: #ff7a6b;
+  --jade: #2fbf8f;
+  --wide: "wdth" 125;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--base);
+  color: var(--txt);
+  font-family: "Archivo Variable", "Archivo", system-ui, sans-serif;
+  font-variation-settings: "wdth" 100;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  cursor: default;
+}
+
+#app {
+  height: 100%;
+}
+
+.mono {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+}
+
+.wide {
+  font-variation-settings: var(--wide);
+  font-weight: 800;
+}
+
+.hot {
+  color: var(--coral) !important;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border-radius: 9px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px solid var(--line);
+  background: var(--raise);
+  color: var(--txt);
+}
+.btn:hover:not(:disabled) {
+  border-color: #3a4758;
+}
+.btn.pri {
+  background: var(--txt);
+  color: var(--base);
+  border-color: var(--txt);
+}
+.btn.sm {
+  padding: 5px 10px;
+}
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.btn:focus-visible,
+.link:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--txt);
+  outline-offset: 2px;
+}
+
+.link {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--mut);
+  font-size: 11.5px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.link:hover {
+  color: var(--txt);
+}
+
+.error {
+  color: var(--coral);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.pad {
+  padding: 26px 30px;
+  max-width: 560px;
+}
+
+.hello {
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.015em;
+  margin: 4px 0 6px;
+}
+
+.hello-s {
+  color: var(--mut);
+  font-size: 13.5px;
+  margin: 0 0 10px;
+  line-height: 1.5;
+}
+
+.foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.back {
+  margin-bottom: 14px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
