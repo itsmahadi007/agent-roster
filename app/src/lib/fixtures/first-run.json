@@ -1,0 +1,23 @@
+{
+  "candidates": [
+    {
+      "tool": "claude",
+      "tool_label": "Claude Code",
+      "installed": true,
+      "version": "2.1.0",
+      "email": "you@example.com",
+      "signed_in": true,
+      "suggested_name": "claude1"
+    },
+    {
+      "tool": "codex",
+      "tool_label": "Codex",
+      "installed": true,
+      "version": "0.167.0",
+      "email": null,
+      "signed_in": true,
+      "suggested_name": "codex1"
+    }
+  ],
+  "prototype": false
+}

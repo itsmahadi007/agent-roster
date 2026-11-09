@@ -4,25 +4,7 @@ use roster_core::model::AgentColor;
 use roster_core::status::{AgentState, Overview};
 use std::fmt::Write;
 
-pub fn now() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
-}
-
-pub fn age(secs: i64) -> String {
-    let s = secs.max(0);
-    if s < 60 {
-        "just now".into()
-    } else if s < 3600 {
-        format!("{}m ago", s / 60)
-    } else if s < 86_400 {
-        format!("{}h ago", s / 3600)
-    } else {
-        format!("{}d ago", s / 86_400)
-    }
-}
+pub use roster_core::view::{age, now};
 
 fn rgb(c: AgentColor) -> Color {
     let (r, g, b) = c.rgb();

@@ -13,3 +13,4 @@ pub mod session;
 pub mod share;
 pub mod status;
 pub mod statusline;
+pub mod view;
