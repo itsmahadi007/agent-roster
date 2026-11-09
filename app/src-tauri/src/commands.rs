@@ -3,7 +3,7 @@
 use crate::backend::{Backend, OpRequest, PlanView};
 use roster_core::view::{ChangeView, FirstRunView, OverviewView};
 use std::sync::Arc;
-use tauri::State;
+use tauri::{AppHandle, State};
 
 async fn blocking<T, F>(b: &State<'_, Arc<Backend>>, f: F) -> Result<T, String>
 where
@@ -17,8 +17,10 @@ where
 }
 
 #[tauri::command]
-pub async fn overview(b: State<'_, Arc<Backend>>) -> Result<OverviewView, String> {
-    blocking(&b, |b| b.overview()).await
+pub async fn overview(app: AppHandle, b: State<'_, Arc<Backend>>) -> Result<OverviewView, String> {
+    let v = blocking(&b, |b| b.overview()).await?;
+    crate::tray::update(&app, &v);
+    Ok(v)
 }
 
 #[tauri::command]

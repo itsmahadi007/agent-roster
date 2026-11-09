@@ -3,6 +3,7 @@
 mod backend;
 mod commands;
 mod env;
+mod tray;
 
 use backend::{Backend, BackendConfig};
 use roster_core::desktop::find_roster_bin;
@@ -59,8 +60,19 @@ fn backend() -> Backend {
 fn main() {
     #[cfg(unix)]
     use_login_path();
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .manage(Arc::new(backend()))
+        .setup(|app| {
+            tray::setup(app.handle())?;
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            // Closing the window keeps Agent Roster in the menu bar / tray.
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let _ = window.hide();
+                api.prevent_close();
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             commands::overview,
             commands::first_run,
@@ -72,6 +84,13 @@ fn main() {
             commands::sign_in,
             commands::open_terminal_as,
         ])
-        .run(tauri::generate_context!())
+        .build(tauri::generate_context!())
         .expect("Agent Roster could not start");
+    app.run(|handle, event| {
+        #[cfg(target_os = "macos")]
+        if let tauri::RunEvent::Reopen { .. } = event {
+            tray::show_main(handle);
+        }
+        let _ = (handle, event);
+    });
 }

@@ -7,7 +7,7 @@ use crate::limits::{LimitWindow, format_reset};
 use crate::model::{Agent, AgentColor, LimitsSource, Roster, Tool};
 use crate::paths::{RosterPaths, collapse_tilde, expand_tilde};
 use crate::status::{AgentState, AgentStatus, Overview};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 pub fn now() -> i64 {
@@ -30,14 +30,14 @@ pub fn age(secs: i64) -> String {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WindowView {
     pub label: String,
     pub used_percent: u32,
     pub hot: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AgentView {
     pub id: String,
     pub name: String,
@@ -59,7 +59,7 @@ pub struct AgentView {
     pub tray_hot: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CallView {
     pub from_id: String,
     pub from_name: String,
@@ -71,20 +71,20 @@ pub struct CallView {
     pub detail: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WarningView {
     pub name: String,
     pub color: String,
     pub text: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ColorView {
     pub label: String,
     pub hex: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OverviewView {
     pub headline: String,
     pub agents: Vec<AgentView>,
@@ -96,7 +96,7 @@ pub struct OverviewView {
     pub next_color: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CandidateView {
     pub tool: Tool,
     pub tool_label: String,
@@ -107,13 +107,13 @@ pub struct CandidateView {
     pub suggested_name: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FirstRunView {
     pub candidates: Vec<CandidateView>,
     pub prototype: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ChangeView {
     pub id: u64,
     pub summary: String,
