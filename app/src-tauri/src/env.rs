@@ -19,7 +19,9 @@ pub fn login_path(shell: &str) -> Option<String> {
     let runner = RealRunner {
         timeout: std::time::Duration::from_secs(3),
     };
-    let script = format!("printf '%s%s%s' '{MARK}' \"$PATH\" '{MARK}'");
+    // `printenv` prints the exported, colon-joined PATH whatever the shell (fish keeps
+    // PATH as a list and would join "$PATH" with spaces).
+    let script = format!("echo {MARK}; printenv PATH; echo {MARK}");
     let out = runner
         .run(std::path::Path::new(shell), &["-ilc", &script], &[])
         .ok()?;
@@ -40,5 +42,24 @@ mod tests {
         );
         assert_eq!(parse_marked("no markers here"), None);
         assert_eq!(parse_marked(&format!("{MARK}{MARK}")), None);
+    }
+
+    /// fish expands "$PATH" as its list joined by spaces; the script must not rely on it.
+    #[cfg(unix)]
+    #[test]
+    fn login_path_works_for_fish() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = tempfile::tempdir().unwrap();
+        let fish = d.path().join("fish");
+        std::fs::write(
+            &fish,
+            "#!/bin/sh\nexport PATH=/opt/a/bin:/usr/bin:/bin\nscript=$(printf '%s' \"$2\" | sed 's|\"\\$PATH\"|/opt/a/bin /usr/bin /bin|g')\necho 'Welcome to fish'\neval \"$script\"\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&fish, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(
+            login_path(&fish.display().to_string()).as_deref(),
+            Some("/opt/a/bin:/usr/bin:/bin")
+        );
     }
 }
