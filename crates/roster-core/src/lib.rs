@@ -1,3 +1,4 @@
+pub mod desktop;
 pub mod detect;
 pub mod import;
 pub mod journal;
