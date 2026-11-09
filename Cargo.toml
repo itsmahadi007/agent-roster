@@ -26,5 +26,5 @@ tempfile = "3.27.0"
 assert_cmd = "2.2.2"
 predicates = "3.1.4"
 winreg = "0.56.0"
-windows-sys = { version = "0.61.2", features = ["Win32_UI_WindowsAndMessaging", "Win32_System_Console", "Win32_Foundation"] }
+windows-sys = { version = "0.61.2", features = ["Win32_UI_WindowsAndMessaging", "Win32_System_Console", "Win32_Foundation", "Win32_System_Threading"] }
 roster-core = { path = "crates/roster-core" }
