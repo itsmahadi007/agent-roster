@@ -209,3 +209,15 @@ fn linux_without_display_has_no_desktop() {
     assert!(has_desktop(Platform::Mac, &no_env));
     assert!(has_desktop(Platform::Windows, &no_env));
 }
+
+#[test]
+fn terminal_env_naming_gnome_terminal_gets_its_own_flag() {
+    let d = tempfile::tempdir().unwrap();
+    let argv = s(&["/usr/bin/roster", "login", "agent2"]);
+    let env = |k: &str| (k == "TERMINAL").then(|| "/usr/bin/gnome-terminal".to_string());
+    let cmd = terminal_command(Platform::Linux, &env, &none(), &argv, d.path()).unwrap();
+    assert_eq!(
+        cmd,
+        s(&["/usr/bin/gnome-terminal", "--", "/usr/bin/roster", "login", "agent2"])
+    );
+}
