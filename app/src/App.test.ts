@@ -75,3 +75,33 @@ describe("App history", () => {
     expect(await screen.findByRole("heading", { name: "Your agents" })).toBeInTheDocument();
   });
 });
+
+describe("App rename and help", () => {
+  it("renaming from a row refreshes and says how to start it", async () => {
+    invoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "overview") return overview;
+      if (cmd === "preview") return { token: 2, summary: "Renamed agent1 to lead", steps: [{ kind: "change", text: "Renames the agent1 command to lead." }] };
+      if (cmd === "apply") return 7;
+      throw new Error(cmd);
+    });
+    render(App);
+    await userEvent.click(await screen.findByRole("button", { name: "Rename agent1" }));
+    const input = screen.getByLabelText("New name");
+    await userEvent.clear(input);
+    await userEvent.type(input, "lead");
+    await screen.findByText("Renames the agent1 command to lead.");
+    await userEvent.click(screen.getByRole("button", { name: "Rename" }));
+    expect(await screen.findByText("agent1 is now lead. Type lead in any terminal to start it.")).toBeInTheDocument();
+  });
+
+  it("how it works explains the app and goes back", async () => {
+    invoke.mockImplementation(async (cmd: string) => (cmd === "overview" ? overview : null));
+    render(App);
+    await userEvent.click(await screen.findByRole("button", { name: "How it works" }));
+    expect(await screen.findByRole("heading", { name: "How Agent Roster works" })).toBeInTheDocument();
+    expect(screen.getByText(/Type its name in any terminal/)).toBeInTheDocument();
+    expect(screen.getByText(/Click an agent's name to rename it/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Back to your agents" }));
+    expect(await screen.findByRole("heading", { name: "Your agents" })).toBeInTheDocument();
+  });
+});

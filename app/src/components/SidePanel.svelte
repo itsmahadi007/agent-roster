@@ -17,11 +17,13 @@
         <div class="t">{c.detail}</div>
       </div>
     {:else}
-      <p class="quiet">Nobody is on the line</p>
+      <p class="warn">Nobody is on the line</p>
+      <p class="quiet">When one agent asks another for help, the call shows here</p>
     {/each}
   </section>
   <section>
     <h4>Type these in any terminal</h4>
+    <p class="quiet hint">Each name opens its own account. Inside a session, ask for another agent by name to hand it work.</p>
     <div class="cmds mono">
       {#each view.agents as a (a.id)}<span style:color={a.color}>{a.name}</span>{/each}
     </div>
@@ -108,6 +110,9 @@
   .warn + .warn,
   .warn + .quiet {
     margin-top: 4px;
+  }
+  .hint {
+    margin-bottom: 8px !important;
   }
   .quiet {
     font-size: 12px;

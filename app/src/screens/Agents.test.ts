@@ -33,6 +33,12 @@ describe("Agents", () => {
   it("nobody on the line when there are no calls", () => {
     render(Agents, { view: { ...view, calls: [] }, onNavigate: () => {}, onLimits: () => {} });
     expect(screen.getByText("Nobody is on the line")).toBeInTheDocument();
+    expect(screen.getByText("When one agent asks another for help, the call shows here")).toBeInTheDocument();
+  });
+
+  it("tells a new user how to rename and where help is", () => {
+    render(Agents, { view, onNavigate: () => {}, onLimits: () => {} });
+    expect(screen.getByText("Click a name to rename it. Hover a bar, a status or a jack to see what it means.")).toBeInTheDocument();
   });
 
   it("header buttons navigate", async () => {

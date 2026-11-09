@@ -8,10 +8,12 @@
     view,
     onNavigate,
     onLimits,
+    onRename = () => {},
   }: {
     view: OverviewView;
     onNavigate: (s: Screen) => void;
     onLimits: (name: string, on: boolean) => void;
+    onRename?: (name: string) => void;
   } = $props();
 
   const order = $derived(view.agents.map((a) => a.id));
@@ -25,16 +27,18 @@
         <p>{view.headline}</p>
       </div>
       <div class="actions">
+        <button class="link" onclick={() => onNavigate("help")}>How it works</button>
         <button class="btn" onclick={() => onNavigate("changes")}>What changed</button>
         <button class="btn pri" onclick={() => onNavigate("add")}>Add agent</button>
       </div>
     </div>
     <div class="rows">
       {#each view.agents as agent (agent.id)}
-        <AgentRow {agent} {onLimits} />
+        <AgentRow {agent} {onLimits} {onRename} />
       {/each}
       <Cable calls={view.calls} {order} />
     </div>
+    <p class="tip">Click a name to rename it. Hover a bar, a status or a jack to see what it means.</p>
   </div>
   <SidePanel {view} />
 </div>
@@ -71,10 +75,20 @@
   }
   .actions {
     display: flex;
+    align-items: center;
     gap: 8px;
     flex: none;
   }
+  .actions .link {
+    margin-right: 8px;
+  }
   .rows {
     position: relative;
+  }
+  .tip {
+    margin: 16px 0 0;
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--dim);
   }
 </style>

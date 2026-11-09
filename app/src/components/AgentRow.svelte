@@ -5,7 +5,15 @@
   let {
     agent,
     onLimits = () => {},
-  }: { agent: AgentView; onLimits?: (name: string, on: boolean) => void } = $props();
+    onRename = () => {},
+  }: {
+    agent: AgentView;
+    onLimits?: (name: string, on: boolean) => void;
+    onRename?: (name: string) => void;
+  } = $props();
+
+  /** "5 hr" reads as "5-hour", "week" as "weekly". */
+  const limitName = (label: string) => (label === "week" ? "weekly" : label.replace(/ hr$/, "-hour"));
 
   let error = $state<string | null>(null);
 
@@ -24,7 +32,7 @@
 <div class="ag" data-agent={agent.name}>
   <span class="stripe" style:background={agent.color}></span>
   <div class="who">
-    <div class="nm wide" style:color={agent.color}>{agent.name}</div>
+    <button class="nm wide" style:color={agent.color} aria-label="Rename {agent.name}" title="Click to rename" onclick={() => onRename(agent.name)}>{agent.name}</button>
     <div class="sub">
       <span class="tool">{agent.tool_label}</span>
       {#if agent.email}
@@ -34,19 +42,19 @@
       {:else if agent.plan}
         <span>{agent.plan}</span>
       {/if}
-      {#if agent.default_label}<span>{agent.default_label}</span>{/if}
+      {#if agent.default_label}<span title="A plain {agent.tool} command opens this account in new terminals">{agent.default_label}</span>{/if}
     </div>
   </div>
   <div class="use">
     {#each agent.windows as w (w.label)}
-      <div class="ul" data-window={w.label}>
+      <div class="ul" data-window={w.label} title="{w.used_percent}% of the {limitName(w.label)} limit used">
         <span>{w.label}</span>
         <b><i class:hot={w.hot} style:width="{w.used_percent}%" style:background={w.hot ? "var(--coral)" : agent.color}></i></b>
         <em class="num" class:hot={w.hot}>{w.used_percent}%</em>
       </div>
     {/each}
     {#if agent.reset_text}
-      <div class="rs">
+      <div class="rs" title="When the limit starts again from 0%">
         <span class="num" class:hot={agent.reset_hot}>{agent.reset_text}</span>
       </div>
     {/if}
@@ -54,25 +62,27 @@
       <div class="rs note">
         {agent.limits_note}
         {#if agent.claude_limits === false && agent.state !== "sign-in" && agent.state !== "not-installed"}
-          <button class="link" onclick={() => onLimits(agent.name, true)}>Turn on limits</button>
+          <button class="link" title="Shows this account's 5-hour and weekly use here. You see a preview first." onclick={() => onLimits(agent.name, true)}>Turn on limits</button>
         {/if}
       </div>
     {/if}
   </div>
   <div class="st">
     {#if agent.state === "sign-in"}
-      <button class="btn sm" style:border-color={agent.color} style:color={agent.color} onclick={doSignIn}>Sign in</button>
+      <button class="btn sm" style:border-color={agent.color} style:color={agent.color} title="Opens a terminal with {agent.tool_label}'s own sign-in for this account" onclick={doSignIn}>Sign in</button>
     {:else}
       <span class="state" style:color={active ? agent.color : agent.state === "not-installed" ? "var(--dim)" : "var(--mut)"}>
         <i style:background={active ? agent.color : "var(--line-2)"}></i>{agent.status_text}
       </span>
     {/if}
     {#if agent.claude_limits === true}
-      <button class="link off" onclick={() => onLimits(agent.name, false)}>Turn off limits</button>
+      <button class="link off" title="Stops reading this account's limits and puts your old status line back" onclick={() => onLimits(agent.name, false)}>Turn off limits</button>
     {/if}
     {#if error}<span class="error" title={error}>{error}</span>{/if}
   </div>
-  <div class="jack" style:color={agent.color}><b class:live={agent.live}></b></div>
+  <div class="jack" style:color={agent.color} title={agent.live ? "On a call with another agent" : "Not on a call. Lights up when this agent calls or is called by another."}>
+    <b class:live={agent.live}></b>
+  </div>
 </div>
 
 <style>
@@ -100,12 +110,32 @@
     min-width: 0;
   }
   .nm {
+    display: block;
+    max-width: 100%;
+    background: none;
+    border: 0;
+    padding: 0;
+    font-family: inherit;
+    font-weight: 800;
+    font-variation-settings: var(--wide);
+    text-align: left;
+    cursor: text;
     font-size: 30px;
     letter-spacing: -0.01em;
     line-height: 32px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .nm:hover {
+    text-decoration: underline dotted;
+    text-decoration-thickness: 2px;
+    text-underline-offset: 6px;
+  }
+  .nm:focus-visible {
+    outline: 2px solid var(--txt);
+    outline-offset: 2px;
+    border-radius: 4px;
   }
   .sub {
     display: flex;

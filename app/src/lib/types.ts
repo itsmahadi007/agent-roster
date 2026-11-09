@@ -101,6 +101,7 @@ export type OpRequest =
   | { op: "adopt-all"; picks: [Tool, string][] }
   | { op: "import" }
   | { op: "enable-limits"; name: string }
-  | { op: "disable-limits"; name: string };
+  | { op: "disable-limits"; name: string }
+  | { op: "rename"; name: string; new_name: string };
 
-export type Screen = "agents" | "add" | "changes" | "first-run";
+export type Screen = "agents" | "add" | "changes" | "first-run" | "help";

@@ -46,6 +46,10 @@ pub enum OpRequest {
     DisableLimits {
         name: String,
     },
+    Rename {
+        name: String,
+        new_name: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -191,6 +195,9 @@ impl Backend {
             OpRequest::EnableLimits { name } => ops::plan_enable_claude_limits(&r, p, &ctx, &name),
             OpRequest::DisableLimits { name } => {
                 ops::plan_disable_claude_limits(&r, p, &ctx, &name)
+            }
+            OpRequest::Rename { name, new_name } => {
+                ops::plan_rename(&r, p, &ctx, &name, new_name.trim())
             }
         }
         .map_err(|e| e.to_string())?;

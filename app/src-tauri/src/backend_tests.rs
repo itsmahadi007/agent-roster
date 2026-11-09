@@ -263,3 +263,24 @@ fn preview_taken_while_roster_changes_is_stale() {
     let plan = b.preview(add_req("boss")).unwrap();
     assert_eq!(b.apply(plan.token).unwrap_err(), STALE);
 }
+
+#[test]
+fn rename_previews_then_applies_and_keeps_the_login() {
+    let r: OpRequest =
+        serde_json::from_str(r#"{"op":"rename","name":"boss","new_name":"lead"}"#).unwrap();
+    assert!(
+        matches!(r, OpRequest::Rename { ref name, ref new_name } if name == "boss" && new_name == "lead")
+    );
+    let w = world();
+    w.add("boss");
+    let dir_before = Roster::load(&w.b.p).unwrap().agents[0].config_dir.clone();
+    let plan = w.b.preview(r).unwrap();
+    assert_eq!(plan.summary, "Renamed boss to lead");
+    assert_eq!(plan.steps[0].kind, "change");
+    w.b.apply(plan.token).unwrap();
+    assert_eq!(w.names(), ["lead"]);
+    assert_eq!(
+        Roster::load(&w.b.p).unwrap().agents[0].config_dir,
+        dir_before
+    );
+}

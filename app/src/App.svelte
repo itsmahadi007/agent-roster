@@ -9,12 +9,15 @@
   import FirstRun from "./screens/FirstRun.svelte";
   import Changes from "./screens/Changes.svelte";
   import PlanSheet from "./components/PlanSheet.svelte";
+  import RenameSheet from "./components/RenameSheet.svelte";
+  import Help from "./screens/Help.svelte";
 
   let view = $state<OverviewView | null>(null);
   let screen = $state<Screen>("agents");
   let error = $state<string | null>(null);
   let notice = $state<string | null>(null);
   let sheet = $state<{ plan: PlanView; req: OpRequest; label: string } | null>(null);
+  let renaming = $state<{ name: string; color: string } | null>(null);
 
   async function refresh() {
     try {
@@ -39,6 +42,19 @@
     } catch (e) {
       notice = message(e);
     }
+  }
+
+  function rename(name: string) {
+    notice = null;
+    const a = view?.agents.find((x) => x.name === name);
+    renaming = { name, color: a?.color ?? "var(--txt)" };
+  }
+
+  function renamed(newName: string) {
+    const old = renaming?.name;
+    renaming = null;
+    notice = `${old} is now ${newName}. Type ${newName} in any terminal to start it.`;
+    refresh();
   }
 
   function sheetDone() {
@@ -69,6 +85,8 @@
   <div class="page"><p class="lede">Looking at your agents…</p></div>
 {:else if view.agents.length === 0 && screen === "agents"}
   <FirstRun palette={view.palette} onDone={() => navigate("agents")} />
+{:else if screen === "help"}
+  <Help {view} onBack={() => navigate("agents")} />
 {:else if screen === "changes"}
   <Changes onBack={() => navigate("agents")} />
 {:else if screen === "add"}
@@ -79,7 +97,11 @@
     onCancel={() => navigate("agents")}
   />
 {:else}
-  <Agents {view} onNavigate={(s) => navigate(s)} onLimits={limits} />
+  <Agents {view} onNavigate={(s) => navigate(s)} onLimits={limits} onRename={rename} />
+{/if}
+
+{#if renaming}
+  <RenameSheet name={renaming.name} color={renaming.color} onDone={renamed} onCancel={() => (renaming = null)} />
 {/if}
 
 {#if sheet}

@@ -10,6 +10,21 @@ const view = overview as OverviewView;
 const agent = (name: string) => view.agents.find((a) => a.name === name)!;
 
 describe("AgentRow", () => {
+  it("clicking the name asks to rename it", async () => {
+    let asked = "";
+    render(AgentRow, { agent: agent("agent1"), onRename: (n: string) => (asked = n) });
+    await userEvent.click(screen.getByRole("button", { name: "Rename agent1" }));
+    expect(asked).toBe("agent1");
+  });
+
+  it("explains limits, status and the jack on hover", () => {
+    const { container } = render(AgentRow, { agent: agent("agent1") });
+    expect(container.querySelector('[data-window="5 hr"]')).toHaveAttribute("title", "22% of the 5-hour limit used");
+    expect(container.querySelector('[data-window="week"]')).toHaveAttribute("title", "61% of the weekly limit used");
+    expect(container.querySelector(".jack")).toHaveAttribute("title", "On a call with another agent");
+    expect(screen.getByText("default for claude")).toHaveAttribute("title", "A plain claude command opens this account in new terminals");
+  });
+
   it("renders_name_in_agent_color", () => {
     render(AgentRow, { agent: agent("agent1") });
     expect(screen.getByText("agent1")).toHaveStyle({ color: "#4d7cff" });

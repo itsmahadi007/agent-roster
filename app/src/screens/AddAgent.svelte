@@ -100,6 +100,7 @@
       />
 
       <div class="lbl">Color</div>
+      <p class="hint">Its row, its name and its menu bar dot use this color</p>
       <div class="sw" role="radiogroup" aria-label="Color">
         {#each palette as c (c.label)}
           <button
@@ -114,6 +115,7 @@
       </div>
 
       <div class="lbl">Tool</div>
+      <p class="hint">The app this account signs in to. You sign in right after adding it.</p>
       <div class="seg">
         {#each TOOLS as t (t.tool)}
           <button class:on={tool === t.tool} aria-pressed={tool === t.tool} onclick={() => (tool = t.tool)}>{t.label}</button>
@@ -131,6 +133,7 @@
 
       <label class="lbl role">
         Role (optional)
+        <span class="hint">Other agents read this to decide what to hand it</span>
         <input bind:value={role} placeholder="what others should ask it for" spellcheck="false" />
       </label>
     </div>
@@ -193,6 +196,16 @@
     line-height: 20px;
     color: var(--mut);
     margin: 20px 0 8px;
+  }
+  .hint {
+    display: block;
+    margin: -4px 0 8px;
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--dim);
+  }
+  .role .hint {
+    margin: -4px 0 0;
   }
   .sw {
     display: flex;
