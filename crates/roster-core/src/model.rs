@@ -55,6 +55,16 @@ impl AgentColor {
     pub const ORDER: [AgentColor; 5] =
         [AgentColor::Cobalt, AgentColor::Marigold, AgentColor::Jade, AgentColor::Orchid, AgentColor::Coral];
 
+    pub fn label(&self) -> &'static str {
+        match self {
+            AgentColor::Cobalt => "cobalt",
+            AgentColor::Marigold => "marigold",
+            AgentColor::Jade => "jade",
+            AgentColor::Orchid => "orchid",
+            AgentColor::Coral => "coral",
+        }
+    }
+
     pub fn hex(&self) -> &'static str {
         match self {
             AgentColor::Cobalt => "#4d7cff",
@@ -191,6 +201,11 @@ impl Roster {
         std::fs::write(&tmp, text)?;
         std::fs::rename(&tmp, &path)?;
         Ok(())
+    }
+
+    pub fn to_toml_string(&self) -> Result<String, ModelError> {
+        self.validate()?;
+        toml::to_string_pretty(self).map_err(|e| ModelError::Parse(e.to_string()))
     }
 
     pub fn validate(&self) -> Result<(), ModelError> {

@@ -8,3 +8,5 @@ pub mod detect;
 pub mod run;
 pub mod limits;
 pub mod session;
+pub mod ops;
+pub mod share;

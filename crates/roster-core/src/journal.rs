@@ -19,6 +19,7 @@ pub enum Change {
     DirCreated { path: PathBuf },
     Linked { link: PathBuf, target: PathBuf },
     UserPath { before: Option<String>, after: String },
+    DirMoved { from: PathBuf, to: PathBuf },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -198,6 +199,9 @@ fn check_undo(c: &Change) -> Result<(), UndoError> {
             if link.exists() && !is_link(link) && !is_junction(link) { conflict(link) } else { Ok(()) }
         }
         Change::DirCreated { .. } | Change::UserPath { .. } => Ok(()),
+        Change::DirMoved { from, .. } => {
+            if from.exists() { conflict(from) } else { Ok(()) }
+        }
     }
 }
 
@@ -226,6 +230,7 @@ fn apply_undo(c: &Change) -> Result<(), JournalError> {
         }
         Change::Linked { link, .. } => remove_link(link)?,
         Change::UserPath { before, .. } => set_user_path(before.as_deref())?,
+        Change::DirMoved { from, to } => fs::rename(to, from)?,
     }
     Ok(())
 }
@@ -359,6 +364,20 @@ impl Txn<'_> {
         let before = get_user_path()?;
         set_user_path(Some(value))?;
         self.changes.push(Change::UserPath { before, after: value.to_string() });
+        Ok(())
+    }
+
+    /// Moves a whole folder into this change's backups, so deleting it can be undone.
+    pub fn move_dir_to_backup(&mut self, dir: &Path) -> Result<(), JournalError> {
+        if !dir.exists() {
+            return Ok(());
+        }
+        let backups = self.journal.backup_dir(self.id);
+        fs::create_dir_all(&backups)?;
+        self.backups += 1;
+        let to = backups.join(format!("dir-{}", self.backups));
+        fs::rename(dir, &to)?;
+        self.changes.push(Change::DirMoved { from: dir.to_path_buf(), to });
         Ok(())
     }
 
