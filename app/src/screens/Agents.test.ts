@@ -43,3 +43,12 @@ describe("Agents", () => {
     expect(onNavigate.mock.calls).toEqual([["add"], ["changes"]]);
   });
 });
+
+describe("Agents with repeated calls", () => {
+  it("two identical calls both show", () => {
+    const twice = { ...view, calls: [view.calls[0], view.calls[0]], warnings: [view.warnings[0], view.warnings[0]] };
+    render(Agents, { view: twice, onNavigate: () => {}, onLimits: () => {} });
+    expect(screen.getAllByText("Write tests for the login page and run them.")).toHaveLength(2);
+    expect(screen.getAllByText("has used 93% of its week. It resets in 21h 52m.")).toHaveLength(2);
+  });
+});

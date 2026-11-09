@@ -7,7 +7,7 @@
 <aside class="side">
   <section>
     <h4>On the line now</h4>
-    {#each view.calls as c (c.from_id + c.to_id)}
+    {#each view.calls as c, i (i)}
       <div class="call" style:border-color={c.from_color}>
         <div class="who">
           <b class="wide" style:color={c.from_color}>{c.from_name}</b> asked
@@ -28,7 +28,7 @@
   </section>
   <section>
     <h4>Limits</h4>
-    {#each view.warnings as w (w.name + w.text)}
+    {#each view.warnings as w, i (i)}
       <p class="warn"><b class="wide hot">{w.name}</b> {w.text}</p>
     {:else}
       <p class="warn">No agent is near its limit.</p>
