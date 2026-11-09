@@ -91,6 +91,7 @@ impl From<std::io::Error> for JournalError {
 #[derive(Debug)]
 pub enum UndoError {
     Conflict { path: PathBuf },
+    LaterChange { op: u64, path: PathBuf },
     AlreadyUndone(u64),
     NotFound(u64),
     Io(String),
@@ -103,6 +104,11 @@ impl fmt::Display for UndoError {
                 "{} changed after Agent Roster wrote it, so it was not overwritten. Look at the file, then undo by hand if you still want to.",
                 path.display()
             ),
+            UndoError::LaterChange { op, path } => write!(
+                f,
+                "Change {op} also changed {}. Undo change {op} first, or undo everything with `roster undo --all`.",
+                path.display()
+            ),
             UndoError::AlreadyUndone(id) => write!(f, "change {id} is already undone"),
             UndoError::NotFound(id) => write!(f, "there is no change {id}"),
             UndoError::Io(e) => write!(f, "{e}"),
@@ -110,6 +116,19 @@ impl fmt::Display for UndoError {
     }
 }
 impl std::error::Error for UndoError {}
+
+/// For files the user owns (shell rc, main instruction files): the real file behind a link,
+/// so writes go into a dotfiles repo instead of breaking its link.
+pub fn resolve_file_link(path: &Path) -> PathBuf {
+    if !is_link(path) {
+        return path.to_path_buf();
+    }
+    fs::canonicalize(path).unwrap_or_else(|_| match fs::read_link(path) {
+        Ok(t) if t.is_relative() => path.parent().map(|d| d.join(&t)).unwrap_or(t),
+        Ok(t) => t,
+        Err(_) => path.to_path_buf(),
+    })
+}
 
 pub fn sha256_hex(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
@@ -212,6 +231,19 @@ impl Journal {
             return Err(UndoError::AlreadyUndone(op_id));
         }
         let changes = self.ops[idx].changes.clone();
+        for later in self.ops[idx + 1..].iter().filter(|o| !o.undone) {
+            let touched: Vec<&PathBuf> = later.changes.iter().filter_map(change_path).collect();
+            if let Some(path) = changes
+                .iter()
+                .filter_map(change_path)
+                .find(|p| touched.contains(p))
+            {
+                return Err(UndoError::LaterChange {
+                    op: later.id,
+                    path: path.clone(),
+                });
+            }
+        }
         // Files this undo deletes before it reaches older changes to the same path.
         let mut freed: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
         for c in changes.iter().rev() {
@@ -226,8 +258,13 @@ impl Journal {
                 _ => {}
             }
         }
-        for c in changes.iter().rev() {
-            apply_undo(c).map_err(|e| UndoError::Io(e.to_string()))?;
+        for (i, c) in changes.iter().enumerate().rev() {
+            if let Err(e) = apply_undo(c) {
+                // Keep only the changes not undone yet, so a retry starts where this one stopped.
+                self.ops[idx].changes.truncate(i + 1);
+                let _ = self.save_all();
+                return Err(UndoError::Io(e.to_string()));
+            }
         }
         self.ops[idx].undone = true;
         self.save_all().map_err(|e| UndoError::Io(e.to_string()))?;
@@ -249,6 +286,19 @@ impl Journal {
             done.push(id);
         }
         Ok(done)
+    }
+}
+
+fn change_path(c: &Change) -> Option<&PathBuf> {
+    match c {
+        Change::Created { path, .. }
+        | Change::Modified { path, .. }
+        | Change::Removed { path, .. }
+        | Change::LinkRemoved { path, .. }
+        | Change::LinkReplaced { path, .. } => Some(path),
+        Change::Linked { link, .. } => Some(link),
+        Change::DirMoved { from, .. } => Some(from),
+        Change::DirCreated { .. } | Change::UserPath { .. } => None,
     }
 }
 
@@ -506,16 +556,17 @@ impl Txn<'_> {
     }
 
     pub fn commit(mut self) -> Result<u64, JournalError> {
-        self.committed = true;
         let op = Op {
             id: self.id,
             at: now(),
             summary: self.summary.clone(),
-            changes: std::mem::take(&mut self.changes),
+            changes: self.changes.clone(),
             undone: false,
         };
         let id = op.id;
+        // If recording fails, Drop rolls every change back: nothing stays applied without a record.
         self.journal.append(op)?;
+        self.committed = true;
         Ok(id)
     }
 }
@@ -576,6 +627,20 @@ fn remove_link(link: &Path) -> std::io::Result<()> {
     fs::remove_file(link).or_else(|_| fs::remove_dir(link))
 }
 
+/// User PATH is REG_EXPAND_SZ, so entries like %USERPROFILE% keep expanding.
+#[cfg(windows)]
+pub(crate) fn user_path_value(v: &str) -> winreg::RegValue<'static> {
+    let bytes: Vec<u8> = v
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .flat_map(|u| u.to_le_bytes())
+        .collect();
+    winreg::RegValue {
+        bytes: bytes.into(),
+        vtype: winreg::enums::RegType::REG_EXPAND_SZ,
+    }
+}
+
 #[cfg(windows)]
 fn get_user_path() -> Result<Option<String>, JournalError> {
     let env =
@@ -587,7 +652,7 @@ fn set_user_path(v: Option<&str>) -> Result<(), JournalError> {
     let (env, _) =
         winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER).create_subkey("Environment")?;
     match v {
-        Some(v) => env.set_value("Path", &v.to_string())?,
+        Some(v) => env.set_raw_value("Path", &user_path_value(v))?,
         None => {
             let _ = env.delete_value("Path");
         }
@@ -768,5 +833,90 @@ mod more_tests {
         let id = t.commit().unwrap();
         j.undo(id).unwrap();
         assert_eq!(std::fs::read_to_string(&f).unwrap(), "old");
+    }
+}
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+    use crate::paths::{Platform, RosterPaths};
+    use std::fs;
+
+    fn setup() -> (tempfile::TempDir, RosterPaths) {
+        let d = tempfile::tempdir().unwrap();
+        let p = RosterPaths::for_home(d.path(), Platform::Mac, &|_| None);
+        (d, p)
+    }
+
+    #[test]
+    fn failed_append_rolls_back_changes() {
+        let (d, p) = setup();
+        fs::create_dir_all(p.journal_dir().join("journal.jsonl")).unwrap(); // append will fail
+        let mut j = Journal::open(&p).unwrap();
+        let f = d.path().join("f");
+        fs::write(&f, "A").unwrap();
+        let mut t = j.begin("x");
+        t.write_file(&f, b"B").unwrap();
+        assert!(t.commit().is_err());
+        assert_eq!(
+            fs::read_to_string(&f).unwrap(),
+            "A",
+            "nothing stays applied without a record"
+        );
+    }
+
+    #[test]
+    fn undo_older_op_names_the_later_change() {
+        let (d, p) = setup();
+        let mut j = Journal::open(&p).unwrap();
+        let f = d.path().join("shared");
+        let mut t = j.begin("one");
+        t.write_file(&f, b"1").unwrap();
+        t.commit().unwrap();
+        let mut t = j.begin("two");
+        t.write_file(&f, b"2").unwrap();
+        t.commit().unwrap();
+        assert!(matches!(
+            j.undo(1),
+            Err(UndoError::LaterChange { op: 2, .. })
+        ));
+        j.undo(2).unwrap();
+        j.undo(1).unwrap();
+        assert!(!f.exists());
+    }
+
+    #[test]
+    fn partial_undo_failure_can_be_retried() {
+        let (d, p) = setup();
+        let mut j = Journal::open(&p).unwrap();
+        let (x, y) = (d.path().join("x"), d.path().join("y"));
+        fs::write(&x, "x0").unwrap();
+        fs::write(&y, "y0").unwrap();
+        let mut t = j.begin("two files");
+        t.write_file(&y, b"y1").unwrap();
+        t.write_file(&x, b"x1").unwrap();
+        let id = t.commit().unwrap();
+        let backup_y = match &j.ops()[0].changes[0] {
+            Change::Modified { backup, .. } => backup.clone(),
+            other => panic!("{other:?}"),
+        };
+        let saved = fs::read(&backup_y).unwrap();
+        fs::remove_file(&backup_y).unwrap();
+        assert!(j.undo(id).is_err(), "y's backup is missing");
+        assert_eq!(
+            fs::read_to_string(&x).unwrap(),
+            "x0",
+            "x was already restored"
+        );
+        fs::write(&backup_y, saved).unwrap();
+        j.undo(id).unwrap();
+        assert_eq!(fs::read_to_string(&y).unwrap(), "y0");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn user_path_keeps_expand_type() {
+        let v = user_path_value("%USERPROFILE%\\x");
+        assert_eq!(v.vtype, winreg::enums::RegType::REG_EXPAND_SZ);
     }
 }

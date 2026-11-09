@@ -16,7 +16,17 @@ pub trait CommandRunner {
     ) -> std::io::Result<Output>;
 }
 
-pub struct RealRunner;
+pub struct RealRunner {
+    pub timeout: std::time::Duration,
+}
+
+impl Default for RealRunner {
+    fn default() -> Self {
+        RealRunner {
+            timeout: std::time::Duration::from_secs(5),
+        }
+    }
+}
 
 impl CommandRunner for RealRunner {
     fn run(
@@ -25,15 +35,52 @@ impl CommandRunner for RealRunner {
         args: &[&str],
         env: &[(String, Option<String>)],
     ) -> std::io::Result<Output> {
+        // Runs with a time limit, so a stuck tool can't hang the overview.
+        use std::io::Read;
         let mut c = Command::new(prog);
-        c.args(args).stdin(Stdio::null());
+        c.args(args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
         for (k, v) in env {
             match v {
                 Some(v) => c.env(k, v),
                 None => c.env_remove(k),
             };
         }
-        c.output()
+        let mut child = c.spawn()?;
+        let mut out = child.stdout.take().expect("piped");
+        let mut err = child.stderr.take().expect("piped");
+        let out_reader = std::thread::spawn(move || {
+            let mut b = vec![];
+            let _ = out.read_to_end(&mut b);
+            b
+        });
+        let err_reader = std::thread::spawn(move || {
+            let mut b = vec![];
+            let _ = err.read_to_end(&mut b);
+            b
+        });
+        let deadline = std::time::Instant::now() + self.timeout;
+        let status = loop {
+            if let Some(st) = child.try_wait()? {
+                break st;
+            }
+            if std::time::Instant::now() >= deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    format!("{} did not answer in time", prog.display()),
+                ));
+            }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        };
+        Ok(Output {
+            status,
+            stdout: out_reader.join().unwrap_or_default(),
+            stderr: err_reader.join().unwrap_or_default(),
+        })
     }
 }
 
@@ -269,5 +316,25 @@ mod tests {
             .to_string();
         assert!(seen[0].contains(&("CLAUDE_CONFIG_DIR".to_string(), Some(dir))));
         assert!(seen[1].contains(&("CLAUDE_CONFIG_DIR".to_string(), None)));
+    }
+}
+
+#[cfg(all(test, unix))]
+mod timeout_tests {
+    use super::*;
+
+    #[test]
+    fn stuck_command_times_out() {
+        let d = tempfile::tempdir().unwrap();
+        let f = d.path().join("stuck");
+        std::fs::write(&f, "#!/bin/sh\nsleep 10\n").unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&f, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let runner = RealRunner {
+            timeout: std::time::Duration::from_millis(500),
+        };
+        let start = std::time::Instant::now();
+        assert!(runner.run(&f, &[], &[]).is_err());
+        assert!(start.elapsed() < std::time::Duration::from_secs(3));
     }
 }

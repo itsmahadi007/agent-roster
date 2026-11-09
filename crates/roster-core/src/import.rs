@@ -71,6 +71,7 @@ pub fn plan_import(r: &Roster, p: &RosterPaths, ctx: &Ctx) -> Result<Plan, OpErr
     let mut after = Roster::default();
     let mut actions = vec![];
     let mut kept_links = vec![];
+    let mut own_files: Vec<(String, String)> = vec![]; // (file, agent name)
     for (i, l) in lines.iter().enumerate() {
         validate_name(&l.name, &after, ctx.lookup, None)?;
         let dir = expand_tilde(&l.dir, &p.home);
@@ -113,6 +114,7 @@ pub fn plan_import(r: &Roster, p: &RosterPaths, ctx: &Ctx) -> Result<Plan, OpErr
             // A linked instruction file would make notes edit the main file; start this agent's own.
             if is_link(&dir.join(note)) {
                 actions.push(Action::RemoveFile(dir.join(note)));
+                own_files.push((collapse_tilde(&dir.join(note), &p.home), l.name.clone()));
             }
         }
         after.agents.push(agent);
@@ -173,6 +175,19 @@ pub fn plan_import(r: &Roster, p: &RosterPaths, ctx: &Ctx) -> Result<Plan, OpErr
                 old_cmds.join(", ")
             ),
         ));
+    }
+    for (file, name) in &own_files {
+        let shared = after.by_name(name).is_some_and(|a| a.share);
+        let text = if shared {
+            format!(
+                "Gives {file} its own file instead of a link. Your main rules still reach {name} through an import line."
+            )
+        } else {
+            format!(
+                "Gives {file} its own file instead of a link, without your main rules. Run `roster share {name} on` to bring them back through an import line."
+            )
+        };
+        steps.push(step(StepKind::Change, text));
     }
     steps.push(step(
         StepKind::Note,

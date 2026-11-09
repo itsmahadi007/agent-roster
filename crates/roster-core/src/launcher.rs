@@ -191,9 +191,9 @@ pub fn apply_path_setup(
     p: &RosterPaths,
 ) -> Result<(), JournalError> {
     for rc in &setup.rc_files {
-        txn.replace_link_with_copy(rc).ok();
-        let existing = std::fs::read_to_string(rc).unwrap_or_default();
-        txn.write_file(rc, upsert_rc(&existing, &rc_block(p, rc)).as_bytes())?;
+        let real = crate::journal::resolve_file_link(rc);
+        let existing = std::fs::read_to_string(&real).unwrap_or_default();
+        txn.write_file(&real, upsert_rc(&existing, &rc_block(p, rc)).as_bytes())?;
     }
     if let Some(v) = &setup.windows_user_path {
         txn.set_windows_user_path(v)?;

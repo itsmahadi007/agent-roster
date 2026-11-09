@@ -174,3 +174,15 @@ fn import_refused_when_roster_not_empty() {
     run_import(&p);
     assert!(plan_import(&Roster::load(&p).unwrap(), &p, &ctx(&p)).is_err());
 }
+
+#[test]
+fn preview_names_the_replaced_instruction_link() {
+    let (_d, p) = mahadi_home();
+    let plan = plan_import(&Roster::load(&p).unwrap(), &p, &ctx(&p)).unwrap();
+    let text: Vec<&str> = plan.steps.iter().map(|s| s.text.as_str()).collect();
+    assert!(
+        text.iter()
+            .any(|t| t.contains("~/.claude-2/CLAUDE.md") && t.contains("import")),
+        "{text:?}"
+    );
+}

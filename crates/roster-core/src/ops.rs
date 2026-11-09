@@ -359,7 +359,13 @@ pub fn plan_remove(
                 a.name
             ),
         ));
-        actions.push(Action::StripNote(note_file));
+        // The main folder's file is the user's own: strip the note through a dotfiles link.
+        let target = if adopted {
+            crate::journal::resolve_file_link(&note_file)
+        } else {
+            note_file
+        };
+        actions.push(Action::StripNote(target));
     }
     steps.push(step(
         StepKind::Note,
@@ -592,7 +598,7 @@ fn apply_default_fn(
         }
         let updated = upsert_marked(&existing, &begin, &end, block.as_deref());
         if updated != existing {
-            txn.replace_link_with_copy(&rc).ok();
+            let rc = crate::journal::resolve_file_link(&rc);
             txn.write_file(&rc, updated.as_bytes())?;
         }
     }

@@ -106,7 +106,14 @@ pub fn note_targets(r: &Roster, p: &RosterPaths) -> Vec<(String, PathBuf)> {
 pub fn write_notes(txn: &mut Txn, r: &Roster, p: &RosterPaths) -> Result<(), JournalError> {
     for (id, path) in note_targets(r, p) {
         let me = r.by_id(&id).expect("target comes from roster");
-        txn.replace_link_with_copy(&path)?;
+        // The main folder's file is the user's own: write through a dotfiles link.
+        // A second account's file that links elsewhere would edit another account: replace the link.
+        let path = if r.is_adopted_default(me, p) {
+            crate::journal::resolve_file_link(&path)
+        } else {
+            txn.replace_link_with_copy(&path)?;
+            path
+        };
         let existing = std::fs::read_to_string(&path).unwrap_or_default();
         let updated = upsert_block(&existing, &render_note(r, me));
         txn.write_file(&path, updated.as_bytes())?;
@@ -117,9 +124,11 @@ pub fn write_notes(txn: &mut Txn, r: &Roster, p: &RosterPaths) -> Result<(), Jou
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    #[cfg(unix)]
     use crate::journal::Journal;
     use crate::model::{Agent, AgentColor, LimitsSource, Roster, Tool};
     use crate::paths::{Platform, RosterPaths};
+    #[cfg(unix)]
     use std::fs;
 
     pub(crate) fn agent(id: &str, name: &str, tool: Tool, dir: &str, role: Option<&str>) -> Agent {

@@ -1,3 +1,4 @@
+#![cfg_attr(not(unix), allow(unused_imports))]
 use roster_core::journal::Journal;
 use roster_core::model::{AgentColor, Roster, Tool};
 use roster_core::names::CommandLookup;
@@ -295,4 +296,42 @@ fn default_secondary_writes_interactive_function_only() {
         .unwrap();
         assert!(!rc.contains("claude()"));
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn dotfile_links_are_written_through_not_replaced() {
+    let mut w = World::new();
+    let dot = w.home().join("dotfiles");
+    fs::create_dir_all(&dot).unwrap();
+    fs::write(dot.join("zshrc"), "# mine\n").unwrap();
+    std::os::unix::fs::symlink(dot.join("zshrc"), w.home().join(".zshrc")).unwrap();
+    fs::write(dot.join("bashrc"), "# mine\n").unwrap();
+    std::os::unix::fs::symlink(dot.join("bashrc"), w.home().join(".bashrc")).unwrap();
+    let main_md = w.home().join(".claude/CLAUDE.md");
+    fs::rename(&main_md, dot.join("CLAUDE.md")).unwrap();
+    std::os::unix::fs::symlink(dot.join("CLAUDE.md"), &main_md).unwrap();
+    let mut ctx = w.ctx();
+    ctx.path_var = "/usr/bin".into();
+    let plan = plan_adopt(&w.roster(), &w.p, &ctx, Tool::Claude, "agent1").unwrap();
+    apply(plan, &w.p, &mut w.j, &ctx).unwrap();
+    let is_link = |p: &Path| fs::symlink_metadata(p).unwrap().file_type().is_symlink();
+    let rc = if cfg!(target_os = "macos") {
+        ".zshrc"
+    } else {
+        ".bashrc"
+    };
+    assert!(is_link(&w.home().join(rc)), "rc link kept");
+    assert!(
+        fs::read_to_string(dot.join(&rc[1..]))
+            .unwrap()
+            .contains("agent-roster"),
+        "block written into the dotfile"
+    );
+    assert!(is_link(&main_md), "main CLAUDE.md link kept");
+    assert!(
+        fs::read_to_string(dot.join("CLAUDE.md"))
+            .unwrap()
+            .contains("You are `agent1`")
+    );
 }

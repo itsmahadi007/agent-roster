@@ -8,7 +8,7 @@ use roster_core::detect::RealRunner;
 use roster_core::import::{detect_prototype, plan_import};
 use roster_core::journal::Journal;
 use roster_core::model::{AgentColor, Roster, Tool};
-use roster_core::names::PathLookup;
+use roster_core::names::{CommandLookup, PathLookup};
 use roster_core::ops::{self, AddRequest, Ctx, Plan};
 use roster_core::paths::{Platform, RosterPaths, expand_tilde};
 use roster_core::status::overview;
@@ -256,7 +256,7 @@ fn show_overview(app: &App, json: bool) -> Result<u8, String> {
         &r,
         &app.p,
         &env_var("PATH").unwrap_or_default(),
-        &RealRunner,
+        &RealRunner::default(),
     );
     if json {
         println!(
@@ -471,12 +471,32 @@ fn uninstall(app: &App, delete_login_folders: bool, yes: Yes) -> Result<u8, Stri
     Ok(0)
 }
 
+/// The path `roster` was started from, not its resolved target: Homebrew's
+/// /opt/homebrew/bin/roster survives upgrades, the Cellar path behind it does not.
+fn roster_bin() -> Result<PathBuf, String> {
+    if let Some(arg0) = std::env::args_os().next().map(PathBuf::from) {
+        if arg0.components().count() > 1 {
+            let abs = if arg0.is_absolute() {
+                arg0
+            } else {
+                std::env::current_dir()
+                    .map_err(|e| e.to_string())?
+                    .join(arg0)
+            };
+            if abs.is_file() {
+                return Ok(abs);
+            }
+        } else if let Some(found) = (PathLookup { exclude: None }).find(&arg0.to_string_lossy()) {
+            return Ok(found);
+        }
+    }
+    std::env::current_exe().map_err(|e| e.to_string())
+}
+
 fn real() -> Result<u8, String> {
     let cli = Cli::parse();
     let p = RosterPaths::detect();
-    let roster_bin = std::env::current_exe()
-        .and_then(std::fs::canonicalize)
-        .map_err(|e| e.to_string())?;
+    let roster_bin = roster_bin()?;
     let app = App { p, roster_bin };
     let lookup = app.lookup();
     let ctx = app.ctx(&lookup);

@@ -275,3 +275,29 @@ fn bad_name_explains() {
         .code(1)
         .stderr(contains("Try a1"));
 }
+
+#[test]
+fn launchers_use_the_path_roster_was_started_from() {
+    let h = Home::new(true);
+    let linked = h.d.path().join("linkbin");
+    fs::create_dir_all(&linked).unwrap();
+    std::os::unix::fs::symlink(
+        assert_cmd::cargo::cargo_bin("roster"),
+        linked.join("roster"),
+    )
+    .unwrap();
+    let st = std::process::Command::new(linked.join("roster"))
+        .args(["init", "--yes"])
+        .env_clear()
+        .env("HOME", h.d.path())
+        .env("PATH", h.path_var())
+        .current_dir(h.d.path())
+        .status()
+        .unwrap();
+    assert!(st.success());
+    let shim = fs::read_to_string(h.bin().join("claude1")).unwrap();
+    assert!(
+        shim.contains(&linked.join("roster").display().to_string()),
+        "{shim}"
+    );
+}
