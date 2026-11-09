@@ -51,3 +51,16 @@ describe("App", () => {
     expect(screen.getByLabelText("Name")).toBeInTheDocument();
   });
 });
+
+describe("App first run", () => {
+  it("empty roster shows first run", async () => {
+    const empty = { ...(overview as OverviewView), agents: [], calls: [], warnings: [] };
+    invoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "overview") return empty;
+      if (cmd === "first_run") return { candidates: [], prototype: false };
+      throw new Error(cmd);
+    });
+    render(App);
+    expect(await screen.findByText("No Claude Code or Codex login was found.")).toBeInTheDocument();
+  });
+});
