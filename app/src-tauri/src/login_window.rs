@@ -12,6 +12,7 @@
 use crate::sign_in::{
     LoginUi, LoginWindowSpec, NEEDS_BROWSER, SignInUpdate, WINDOW_FAILED, WindowHooks,
 };
+use roster_core::login::Callback;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -30,23 +31,23 @@ pub fn page_allowed(url: &Url, allowed: &dyn Fn(&str) -> bool, app_origins: &[Ur
         && allowed(url.as_str())
 }
 
-/// The core's page rules, with local pages pinned to the port this login's link returns to
-/// (`pin`), so no other local server can be reached from the login window.
+/// The core's page rules, with local pages pinned to the callback server this login's link
+/// returns to (its host and port), so no other local server can be reached from the login
+/// window. With no callback in the link, no local page at all.
 pub fn pinned(
-    allowed: impl Fn(&str) -> bool + Copy,
-    pin: Option<u16>,
-) -> impl Fn(&str) -> bool + Copy {
+    allowed: fn(&str) -> bool,
+    callback: Option<Callback>,
+) -> impl Fn(&str) -> bool + Clone + Send + Sync + 'static {
     move |s: &str| {
         let loopback = s
             .parse::<Url>()
             .ok()
-            .and_then(|u| u.host_str().map(|h| h == "localhost" || h == "127.0.0.1"))
+            .and_then(|u| {
+                u.host_str()
+                    .map(|h| h.eq_ignore_ascii_case("localhost") || h == "127.0.0.1")
+            })
             .unwrap_or(false);
-        allowed(s)
-            && match pin {
-                Some(p) if loopback => roster_core::login::callback_matches(s, p),
-                _ => true,
-            }
+        allowed(s) && (!loopback || callback.as_ref().is_some_and(|c| c.matches(s)))
     }
 }
 
@@ -162,7 +163,7 @@ impl LoginUi for TauriLoginUi {
         let origins = app_origins(&self.app);
         let allowed = pinned(
             roster_core::login::allowed_in_window,
-            roster_core::login::redirect_port(&spec.url),
+            roster_core::login::redirect_callback(&spec.url),
         );
         if !page_allowed(&url, &allowed, &origins) {
             return Err(NEEDS_BROWSER.into());
@@ -317,17 +318,20 @@ mod tests {
     #[test]
     fn loopback_pages_only_on_the_logins_own_port() {
         // The link sends the browser back to Codex's 1455: another local server (any other
-        // port) must not be reachable from the login window.
+        // port, or the same port under the other loopback name) must not be reachable.
         let link = "https://auth.openai.com/oauth/authorize?redirect_uri=http%3A%2F%2F127.0.0.1%3A1455%2Fauth%2Fcallback";
-        let ok = pinned(fake_allowed, roster_core::login::redirect_port(link));
+        let ok = pinned(fake_allowed, roster_core::login::redirect_callback(link));
         assert!(ok("http://127.0.0.1:1455/auth/callback"));
         assert!(ok("http://127.0.0.1:1455/success"));
         assert!(!ok("http://127.0.0.1:8080/"));
         assert!(!ok("http://localhost:3000/callback"));
+        assert!(!ok("http://localhost:1455/success"));
         assert!(ok("https://auth.openai.com/log-in"));
-        // No port in the link: the core's rules alone.
-        let any = pinned(fake_allowed, None);
-        assert!(any("http://localhost:3000/callback"));
+        // No callback in the link: no local page at all, the provider's pages still.
+        let none = pinned(fake_allowed, None);
+        assert!(!none("http://localhost:3000/callback"));
+        assert!(!none("http://127.0.0.1:1455/auth/callback"));
+        assert!(none("https://auth.openai.com/log-in"));
     }
 
     #[test]

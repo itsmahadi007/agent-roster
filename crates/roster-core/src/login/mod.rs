@@ -17,7 +17,9 @@ pub mod bridge;
 pub mod claude;
 pub mod codex;
 
-pub use allow::{allowed_popup, callback_matches, is_first_page, redirect_port};
+pub use allow::{
+    Callback, allowed_popup, callback_matches, is_first_page, redirect_callback, redirect_port,
+};
 
 use crate::model::{Agent, Roster, Tool};
 use crate::names::PathLookup;

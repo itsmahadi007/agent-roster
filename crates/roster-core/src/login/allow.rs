@@ -115,6 +115,41 @@ pub fn redirect_port(link: &str) -> Option<u16> {
     loopback_port(&parse(&redirect)?)
 }
 
+/// The tool's own callback server, as the sign-in link names it (its `redirect_uri`): the
+/// loopback host exactly as written there, and its port. The window lets only this server
+/// be reached, so no other local server (or the same port under the other loopback name)
+/// can be.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Callback {
+    pub host: String,
+    pub port: u16,
+}
+
+impl Callback {
+    /// Is this page on exactly this callback server (plain http, same host, same port)?
+    pub fn matches(&self, url: &str) -> bool {
+        parse(url).is_some_and(|u| {
+            loopback_port(&u) == Some(self.port) && u.host_str() == Some(self.host.as_str())
+        })
+    }
+}
+
+/// The callback server the provider will send the browser back to, from the link's
+/// `redirect_uri`. `None` when the link has no loopback `redirect_uri` with a port.
+pub fn redirect_callback(link: &str) -> Option<Callback> {
+    let u = parse(link)?;
+    let redirect = u
+        .query_pairs()
+        .find(|(k, _)| k == "redirect_uri")
+        .map(|(_, v)| v.into_owned())?;
+    let r = parse(&redirect)?;
+    let port = loopback_port(&r)?;
+    Some(Callback {
+        host: r.host_str()?.to_string(),
+        port,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -283,6 +318,45 @@ mod tests {
         ));
         assert!(!is_first_page(Tool::Codex, "https://chatgpt.com/"));
         assert!(!is_first_page(Tool::Codex, "https://claude.com/"));
+    }
+
+    /// The window binds the callback to the link's own host and port: the other loopback
+    /// name, or another port, is another server.
+    #[test]
+    fn the_callback_is_the_links_own_host_and_port() {
+        let codex = "https://auth.openai.com/oauth/authorize?redirect_uri=http%3A%2F%2F127.0.0.1%3A1455%2Fauth%2Fcallback";
+        let cb = redirect_callback(codex).unwrap();
+        assert_eq!(
+            cb,
+            Callback {
+                host: "127.0.0.1".into(),
+                port: 1455
+            }
+        );
+        assert!(cb.matches("http://127.0.0.1:1455/auth/callback?code=x"));
+        assert!(cb.matches("http://127.0.0.1:1455/success"));
+        assert!(!cb.matches("http://localhost:1455/success"));
+        assert!(!cb.matches("http://127.0.0.1:1456/auth/callback"));
+        assert!(!cb.matches("https://127.0.0.1:1455/auth/callback"));
+        assert!(!cb.matches("http://user@127.0.0.1:1455/"));
+        let claude = "https://claude.com/cai/oauth/authorize?redirect_uri=http%3A%2F%2Flocalhost%3A61234%2Fcallback";
+        let cb = redirect_callback(claude).unwrap();
+        assert!(cb.matches("http://LOCALHOST:61234/callback?code=x"));
+        assert!(!cb.matches("http://127.0.0.1:61234/callback"));
+        // No loopback redirect: no callback at all.
+        assert_eq!(
+            redirect_callback(
+                "https://claude.com/x?redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback"
+            ),
+            None
+        );
+        assert_eq!(redirect_callback("https://claude.com/x"), None);
+        assert_eq!(
+            redirect_callback(
+                "https://claude.com/x?redirect_uri=http%3A%2F%2Flocalhost%2Fcallback"
+            ),
+            None
+        );
     }
 
     #[test]
