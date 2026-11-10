@@ -9,17 +9,10 @@ const view = overview as OverviewView;
 const props = (over = {}) => ({
   view,
   open: null as string | null,
-  palette: view.palette,
-  terminals: [],
-  round: 0,
-  nudge: 0,
   onToggle: vi.fn(),
   onNavigate: vi.fn(),
   onRefresh: vi.fn(async () => {}),
   onSite: vi.fn(),
-  onApplied: vi.fn(),
-  onDirty: vi.fn(),
-  onClose: vi.fn(),
   ...over,
 });
 const row = (name: RegExp) => screen.getByRole("button", { name });
@@ -122,12 +115,49 @@ describe("AgentList", () => {
     expect(p.onToggle).toHaveBeenLastCalledWith("a1");
   });
 
-  it("the open row shows its settings under it", () => {
+  it("the open row is marked, and its settings are not in the list", () => {
     render(AgentList, props({ open: "a1" }));
     expect(row(/^agent1/)).toHaveAttribute("aria-expanded", "true");
+    expect(row(/^agent1/)).toHaveAttribute("aria-haspopup", "dialog");
     expect(row(/^agent3/)).toHaveAttribute("aria-expanded", "false");
-    expect(screen.getByLabelText("Name")).toHaveValue("agent1");
-    expect(screen.getByRole("radiogroup", { name: "Color" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Name")).not.toBeInTheDocument();
+  });
+
+  it("the bar's color says how full the week is, never the agent's color", () => {
+    const v = structuredClone(view);
+    const at = (i: number, used: number) =>
+      Object.assign(v.agents[i], { health: "ok", windows: [{ label: "week", used_percent: used, hot: used >= 90 }], reset_text: "resets in 1d" });
+    at(0, 69);
+    at(1, 70);
+    at(2, 89);
+    at(3, 90);
+    // The same color for all four: it must not change the bars.
+    for (const a of v.agents) Object.assign(a, { color: "#ff7a6b", color_label: "coral" });
+    render(AgentList, props({ view: v }));
+    const bar = (n: RegExp) => row(n).querySelector(".track i") as HTMLElement;
+    const pc = (n: RegExp) => row(n).querySelector(".pc") as HTMLElement;
+    expect(bar(/^agent1/).style.background).toBe("var(--u-ok)");
+    expect(bar(/^agent2/).style.background).toBe("var(--u-warn)");
+    expect(bar(/^agent3/).style.background).toBe("var(--u-warn)");
+    expect(bar(/^boss/).style.background).toBe("var(--u-hot)");
+    expect(pc(/^agent1/)).not.toHaveClass("hot");
+    expect(pc(/^agent1/)).not.toHaveClass("warn-use");
+    expect(pc(/^agent2/)).toHaveClass("warn-use");
+    expect(pc(/^boss/)).toHaveClass("hot");
+    // The agent's color is only the dot and the name, drawn as the new pink.
+    expect(row(/^agent1/).querySelector(".sq")).toHaveStyle({ background: "#ff6bc4" });
+    expect(row(/^agent1/).querySelector(".nm")).toHaveStyle({ color: "#ff6bc4" });
+  });
+
+  it("a reached limit is red even when the week is low", () => {
+    const v = structuredClone(view);
+    Object.assign(v.agents[0], {
+      health: "limit-reached",
+      windows: [{ label: "week", used_percent: 20, hot: false }],
+      limits_note: "5-hour limit reached, resets in 2h 0m",
+    });
+    render(AgentList, props({ view: v }));
+    expect((row(/^agent1/).querySelector(".track i") as HTMLElement).style.background).toBe("var(--u-hot)");
   });
 
   it("arrow keys move between rows without opening them", async () => {

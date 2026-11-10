@@ -20,7 +20,7 @@ export interface LoginState {
 /** The app's setting; the browser until the backend says otherwise (the owner's default). */
 export const prefs = $state<{ signInWith: SignInWith }>({ signInWith: "browser" });
 
-/** In-app sign-ins by agent id: kept here so they survive the drawer closing and opening. */
+/** In-app sign-ins by agent id: kept here so they survive the panel closing and opening. */
 export const logins = $state<Record<string, LoginState>>({});
 
 export async function loadPrefs() {

@@ -4,6 +4,7 @@
   import { rememberedTerminal } from "../lib/terminal";
   import { clearLogin, logins, prefs, setSignInWith, signInInApp, type SignInWith } from "../lib/signin.svelte";
   import TerminalButton from "./TerminalButton.svelte";
+  import { agentHex, BAR, colorName, swatches, usageLevel } from "../lib/colors";
   import RolePicker from "./RolePicker.svelte";
   import { onDestroy } from "svelte";
 
@@ -11,6 +12,7 @@
     agent,
     palette,
     terminals,
+    updated = null,
     nudge = 0,
     onApplied,
     onDirty,
@@ -19,6 +21,8 @@
     agent: AgentView;
     palette: ColorView[];
     terminals: TerminalApp[];
+    /** When the numbers were last checked ("Last update 4m ago."). */
+    updated?: string | null;
     /** Goes up each time the person tries to close or switch rows while a change waits. */
     nudge?: number;
     /** A change went through: what to tell the person, and which kind it was. */
@@ -29,7 +33,7 @@
     onClose: () => void;
   } = $props();
 
-  // The drawer is mounted again after every change, so starting from the agent is enough.
+  // The panel is mounted again after every change, so starting from the agent is enough.
   // svelte-ignore state_referenced_locally
   let name = $state(agent.name);
   // svelte-ignore state_referenced_locally
@@ -75,7 +79,8 @@
 
   const shownColor = $derived(picked?.op === "color" ? picked.color : agent.color_label);
   const shownShare = $derived(picked?.op === "share" ? picked.on : agent.share);
-  const hex = $derived(palette.find((c) => c.label === shownColor)?.hex ?? agent.color);
+  const colors = $derived(swatches(palette));
+  const hex = $derived(colors.find((c) => c.value === shownColor)?.hex ?? agentHex(agent.color));
   const tool = $derived(agent.tool);
 
   const LABEL: Record<string, string> = {
@@ -99,7 +104,7 @@
       case "rename":
         return `${r.name} is now ${r.new_name}. Type ${r.new_name} in any terminal to start it.`;
       case "color":
-        return `${r.name} is ${r.color} now.`;
+        return `${r.name} is ${colorName(r.color)} now.`;
       case "role":
         return r.role ? `${r.name}'s role is saved. Other agents see it from their next session.` : `${r.name} has no role now.`;
       case "good-at":
@@ -180,7 +185,7 @@
       retry += 1;
       return;
     }
-    // Stays busy: this page is replaced once the list has the new state.
+    // Stays busy: this panel is replaced once the list has the new state.
     onApplied(notice(r), r.op);
   }
 
@@ -235,79 +240,97 @@
   // Also when the tool says signed in but the last check found the login expired.
   const signedOut = $derived(agent.health === "sign-in");
   const noNumbers = $derived(agent.windows.length === 0);
-  const live = $derived(agent.state === "working" || agent.live);
   const login = $derived(logins[agent.id]);
+  /** The weekly limit; core sends no other window. */
+  const week = $derived(agent.windows.find((w) => w.label === "week") ?? null);
+  const level = $derived(week ? usageLevel(week.used_percent, agent.health === "limit-reached") : "ok");
+  const used = $derived(week ? Math.max(0, Math.min(100, week.used_percent)) : 0);
+  const resetLine = $derived(agent.reset_text ? agent.reset_text.charAt(0).toUpperCase() + agent.reset_text.slice(1) : null);
+  const checkedLine = $derived(agent.as_of ?? (updated ? updated.replace(/^Last update/, "checked").replace(/\.$/, "") : null));
+  const opensIn = $derived(prefs.signInWith === "window" ? "Opens in an Agent Roster window" : "Opens in your browser");
 </script>
 
 <svelte:window
   onkeydown={(e) => {
-    // Escape closes an open menu first, then drops a waiting change, and only then closes the drawer.
+    // Escape closes an open menu first, then drops a waiting change, and only then closes the panel.
     if (e.key !== "Escape" || document.querySelector('[role="menu"]')) return;
     if (req) reset();
     else onClose();
   }}
 />
 
-<div class="drawer">
-  <div class="body">
-    <header class="top">
-      <div class="meta">
-        <b>{agent.tool_label}</b>
-        {#if agent.email}<span>{agent.email}</span>{:else if signedOut}<span>not signed in yet</span>{/if}
-        {#if agent.plan}<span>{agent.plan}</span>{/if}
-        {#if agent.default_label}<span>{agent.default_label}</span>{/if}
-        <span class="st" class:ink={live} style:--c={agent.color} style:color={live ? agent.color : "var(--mut)"}>
-          <i style:background={live ? agent.color : "var(--line-2)"}></i>{agent.status_text}
-        </span>
-      </div>
-      <TerminalButton name={agent.name} {terminals} />
-    </header>
-
-    <p class="callout">
-      Or type <code class="mono">{agent.name}</code> in any terminal
-      <button class="link" onclick={copyName}>{copied ? "Copied" : "Copy"}</button>
-    </p>
-
-    {#if login?.state === "failed"}
-      <div class="sign-fail" role="alert">
-        <span>{login.reason}</span>
-        <button class="btn sm" onclick={signInBrowser}>Sign in with your browser</button>
-      </div>
-    {:else if login}
-      <p class="usage-line" role="status">Signing in… (finish in the Agent Roster window)</p>
-    {/if}
-
-    {#if signedOut}
-      <p class="usage-line">
-        Weekly use shows after sign in.
-        <button class="btn sm pri" onclick={signInAgain}>Sign in</button>
-      </p>
-    {:else if agent.state !== "not-installed"}
-      {#if agent.health === "checking"}
-        <p class="usage-line">Checking with {agent.tool_label}…</p>
-      {:else if agent.health === "no-subscription"}
-        <p class="usage-line">
-          This account is signed in with no {agent.tool_label} subscription (none, or it ended), so it has no weekly limit to show.
-        </p>
-      {:else if agent.health === "unreachable"}
-        <p class="usage-line">
-          Couldn't reach {agent.tool_label} just now.{agent.as_of ? ` These numbers are ${agent.as_of}.` : " It tries again soon."}
-        </p>
-      {:else if agent.health === "limit-reached"}
-        <p class="usage-line hot">{agent.limit_text ?? `${agent.name} has reached a usage limit.`}</p>
-      {:else if noNumbers}
-        <p class="usage-line">Weekly use shows after you use {agent.name}. Type {agent.name} in a terminal and send one message.</p>
+<div class="agent">
+  <section class="sec" aria-labelledby="sec-week">
+    <h4 id="sec-week">This week</h4>
+    <div class="box">
+      {#if login?.state === "failed"}
+        <div class="sign-fail" role="alert">
+          <span>{login.reason}</span>
+          <button class="btn sm" onclick={signInBrowser}>Sign in with your browser</button>
+        </div>
+      {:else if login}
+        <p class="line" role="status">Signing in… (finish in the Agent Roster window)</p>
       {/if}
-      <p class="usage-line quiet">
-        Agent Roster asks {agent.tool_label} itself for this account's use, every 5 minutes. It never limits the agent.
-        {#if agent.claude_limits === true}
-          Claude Code's status line reports it too.
-          <button class="link" onclick={() => reset({ op: "disable-limits", name: agent.name })}>Hide usage</button>
-        {/if}
-      </p>
-    {/if}
 
-    <div class="grid">
+      {#if signedOut}
+        <p class="big-line">Not signed in yet</p>
+        <p class="line">Weekly use shows after sign in.</p>
+        <div class="acts-row">
+          <button class="btn sm pri" onclick={signInAgain}>Sign in</button>
+        </div>
+        <p class="hint">{opensIn} · change it under Settings</p>
+        {#if actionError}<p class="note">{actionError}</p>{/if}
+      {:else if agent.state === "not-installed"}
+        <p class="line">{agent.status_text}</p>
+      {:else}
+        {#if week}
+          <div class="week-top">
+            <b class="num" class:hot={level === "hot"} class:warn-use={level === "warn"} data-level={level}>
+              {week.used_percent}% of the week used
+            </b>
+            <span class="num left">{Math.max(0, 100 - used)}% left</span>
+          </div>
+          <span class="track big" data-level={level}><i style:width="{used}%" style:background={BAR[level]}></i></span>
+          {#if resetLine || checkedLine}
+            <p class="hint num">{[resetLine, checkedLine].filter(Boolean).join(" · ")}</p>
+          {/if}
+        {/if}
+        {#if agent.health === "checking"}
+          <p class="line">Checking with {agent.tool_label}…</p>
+        {:else if agent.health === "no-subscription"}
+          <p class="line">
+            This account is signed in with no {agent.tool_label} subscription (none, or it ended), so it has no weekly limit to show.
+          </p>
+        {:else if agent.health === "unreachable"}
+          <p class="line">
+            Couldn't reach {agent.tool_label} just now.{agent.as_of ? ` These numbers are ${agent.as_of}.` : " It tries again soon."}
+          </p>
+        {:else if agent.health === "limit-reached"}
+          <p class="line hot">{agent.limit_text ?? `${agent.name} has reached a usage limit.`}</p>
+        {:else if noNumbers}
+          <p class="line">Weekly use shows after you use {agent.name}. Type {agent.name} in a terminal and send one message.</p>
+        {/if}
+        <p class="line quiet">
+          Agent Roster asks {agent.tool_label} itself for this account's use, every 5 minutes. It never limits the agent.
+        </p>
+      {/if}
+    </div>
+  </section>
+
+  <section class="sec" aria-labelledby="sec-use">
+    <h4 id="sec-use">Use it</h4>
+    <div class="acts-row">
+      <TerminalButton name={agent.name} {terminals} />
+      {#if terminals.length > 0}
+        <button class="btn" onclick={copyName}>{copied ? "Copied" : "Copy command"}</button>
+      {/if}
+    </div>
+    <p class="hint">Or type <code class="mono">{agent.name}</code> in any terminal.</p>
+  </section>
+
+  <section class="sec" aria-labelledby="sec-settings">
+    <h4 id="sec-settings">Settings</h4>
+    <div class="grid box">
       <label class="k" for="page-name">Name</label>
       <div>
         <input
@@ -332,19 +355,19 @@
       <span class="k">Color</span>
       <div>
         <div class="sw" role="radiogroup" aria-label="Color">
-          {#each palette as c (c.label)}
+          {#each colors as c (c.value)}
             <button
               role="radio"
-              aria-checked={c.label === shownColor}
+              aria-checked={c.value === shownColor}
               aria-label={c.label}
               title={c.label}
-              class:on={c.label === shownColor}
+              class:on={c.value === shownColor}
               style:background={c.hex}
-              onclick={() => reset(c.label === agent.color_label ? null : { op: "color", name: agent.name, color: c.label })}
+              onclick={() => reset(c.value === agent.color_label ? null : { op: "color", name: agent.name, color: c.value })}
             ></button>
           {/each}
         </div>
-        <p class="hint">Used for its name, its place in the list and its menu bar dot</p>
+        <p class="hint">Its dot and its name use this color</p>
       </div>
 
       <span class="k">Role</span>
@@ -430,11 +453,25 @@
         {/if}
       </div>
 
-      <span class="k">Sign in</span>
+      {#if agent.claude_limits === true}
+        <span class="k">Status line</span>
+        <div>
+          <p class="plain">Claude Code's status line reports its use too.</p>
+          <button class="btn sm" onclick={() => reset({ op: "disable-limits", name: agent.name })}>Hide usage</button>
+        </div>
+      {/if}
+
+      <span class="k">Account</span>
       <div>
-        <button class="btn sm" onclick={signInAgain}>Sign in again</button>
-        <p class="hint">Opens {agent.tool_label}'s own sign-in, to fix a sign-in or switch to another account</p>
-        {#if actionError}<p class="note">{actionError}</p>{/if}
+        <p class="plain acct">
+          {#if agent.email}<span>{agent.email}</span>{:else if signedOut}<span class="dim">Not signed in yet</span>{/if}
+          {#if agent.plan}<span class="dim">{agent.plan}</span>{/if}
+        </p>
+        {#if !signedOut}
+          <button class="btn sm" onclick={signInAgain}>Switch account</button>
+          <p class="hint">Opens {agent.tool_label}'s own sign-in, to fix a sign-in or switch to another account</p>
+          {#if actionError}<p class="note">{actionError}</p>{/if}
+        {/if}
         <div class="with">
           <span class="dim">Sign in with</span>
           <div class="seg" role="radiogroup" aria-label="Sign in with">
@@ -451,16 +488,13 @@
         </p>
         {#if settingError}<p class="hint">{settingError}</p>{/if}
       </div>
-
-      <span class="k">Remove</span>
-      <div>
-        <button class="btn sm danger" aria-label="Remove {agent.name}" onclick={() => reset({ op: "remove", name: agent.name })}>
-          Remove from roster
-        </button>
-        <p class="hint">Removes its command. Its login folder stays on this computer, and you can undo this under What changed.</p>
-      </div>
     </div>
-  </div>
+  </section>
+
+  <section class="sec danger-zone" aria-label="Remove">
+    <button class="btn sm danger" onclick={() => reset({ op: "remove", name: agent.name })}>Remove {agent.name}</button>
+    <p class="hint">Removes its command. Its login folder stays on this computer, and you can undo this under What changed.</p>
+  </section>
 
   {#if req}
     <section class="save" aria-label="Change waiting">
@@ -485,56 +519,67 @@
 </div>
 
 <style>
-  .drawer {
-    border: 1px solid var(--line-2);
-    border-top: 1px dashed var(--line);
-    border-radius: 0 0 10px 10px;
-    background: var(--well);
-    margin-bottom: 8px;
-  }
-  .body {
-    padding: 14px 16px 16px;
+  .agent {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    min-height: 100%;
   }
-  .top {
+  .sec {
+    margin: 0 0 16px;
+  }
+  h4 {
+    margin: 0 0 8px;
+    font-size: 11px;
+    line-height: 16px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-weight: 600;
+    color: var(--dim);
+  }
+  .box {
+    background: var(--raise);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .week-top {
     display: flex;
     justify-content: space-between;
-    align-items: center;
-    gap: 16px;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 13px;
   }
-  .meta {
+  .week-top b {
+    font-weight: 600;
+    color: var(--txt);
+  }
+  .left {
+    color: var(--mut);
+  }
+  .big-line {
+    margin: 0;
+    font-weight: 600;
+    font-size: 14px;
+  }
+  .track {
+    display: block;
+    height: 8px;
+    border-radius: 4px;
+    background: var(--hole);
+    overflow: hidden;
+  }
+  .track i {
+    display: block;
+    height: 100%;
+  }
+  .acts-row {
     display: flex;
     flex-wrap: wrap;
-    gap: 4px 12px;
-    font-size: 12px;
-    line-height: 16px;
-    color: var(--mut);
-    min-width: 0;
-  }
-  .meta b {
-    color: var(--txt);
-    font-weight: 500;
-  }
-  .st {
-    display: inline-flex;
+    gap: 8px;
     align-items: center;
-    gap: 6px;
-    font-weight: 500;
-  }
-  .st i {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-  }
-  .callout {
-    margin: 0;
-    font-size: 13px;
-    color: var(--mut);
-    display: flex;
-    align-items: center;
-    gap: 6px;
   }
   code {
     font-size: 12px;
@@ -544,26 +589,20 @@
     background: var(--raise);
     border: 1px solid var(--line);
   }
-  .usage-line {
+  .line {
     margin: 0;
     font-size: 12px;
     line-height: 16px;
     color: var(--mut);
-    display: flex;
-    align-items: center;
-    gap: 12px;
   }
-  .usage-line.quiet {
+  .line.quiet {
     color: var(--dim);
   }
   .grid {
     display: grid;
-    grid-template-columns: 84px minmax(0, 1fr);
-    gap: 16px 20px;
+    grid-template-columns: 72px minmax(0, 1fr);
+    gap: 16px 14px;
     align-items: start;
-    border-top: 1px solid var(--line);
-    padding-top: 16px;
-    margin-top: 2px;
   }
   .k {
     font-size: 13px;
@@ -573,14 +612,13 @@
   }
   .name {
     width: 100%;
-    max-width: 420px;
-    height: 36px;
-    background: var(--raise);
+    height: 34px;
+    background: var(--well);
     border: 1px solid var(--line);
     border-radius: 8px;
-    padding: 0 12px;
+    padding: 0 10px;
     font-family: inherit;
-    font-size: 18px;
+    font-size: 16px;
     outline: none;
   }
   .name:focus-visible {
@@ -592,6 +630,9 @@
     line-height: 16px;
     color: var(--dim);
   }
+  .box > .hint {
+    margin: 0;
+  }
   .hint .link {
     margin-left: 6px;
   }
@@ -600,21 +641,30 @@
     padding-top: 6px;
     font-size: 13px;
   }
+  .acct {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    padding: 6px 0 8px;
+  }
+  .acct:empty {
+    display: none;
+  }
   .sw {
     display: flex;
     gap: 8px;
     padding-top: 4px;
   }
   .sw button {
-    width: 24px;
-    height: 24px;
+    width: 22px;
+    height: 22px;
     border-radius: 50%;
     border: 0;
     padding: 0;
   }
   .sw button.on {
     box-shadow:
-      0 0 0 2px var(--base),
+      0 0 0 2px var(--raise),
       0 0 0 4px var(--txt);
   }
   .tags {
@@ -630,7 +680,7 @@
     gap: 4px;
     padding: 0 4px 0 10px;
     border-radius: 6px;
-    background: var(--raise);
+    background: var(--well);
     border: 1px solid var(--line);
     font-size: 12px;
   }
@@ -646,11 +696,11 @@
   }
   .tag button:hover {
     color: var(--txt);
-    background: var(--well);
+    background: var(--raise);
   }
   .add {
     height: 28px;
-    width: 120px;
+    width: 100px;
     border: 1px dashed var(--line-2);
     border-radius: 6px;
     background: none;
@@ -706,8 +756,14 @@
     transform: translateX(16px);
     background: #ffffff;
   }
+  .danger-zone {
+    margin-top: 4px;
+    padding-top: 14px;
+    border-top: 1px dashed var(--line-2);
+    margin-bottom: 18px;
+  }
   .danger {
-    color: var(--coral);
+    color: var(--u-hot);
   }
   .sign-fail {
     display: flex;
@@ -715,12 +771,13 @@
     gap: 12px;
     font-size: 12px;
     line-height: 16px;
-    color: var(--coral);
+    color: var(--u-hot);
   }
   .with {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 10px;
+    gap: 8px 10px;
     margin-top: 10px;
     font-size: 12px;
   }
@@ -743,7 +800,7 @@
     border-left: 1px solid var(--line);
   }
   .seg button[aria-checked="true"] {
-    background: var(--raise);
+    background: var(--well);
     color: var(--txt);
   }
   .note {
@@ -755,13 +812,13 @@
     position: sticky;
     bottom: 0;
     z-index: 5;
+    margin: auto -18px 0;
     border-top: 1px solid var(--line-2);
-    border-radius: 0 0 10px 10px;
     background: var(--raise);
-    padding: 12px 16px;
+    padding: 12px 18px;
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
-    gap: 16px;
+    gap: 12px;
     align-items: center;
   }
   .what {
@@ -782,7 +839,7 @@
     margin: 0;
   }
   .what .nudge {
-    color: var(--coral);
+    color: var(--u-hot);
     font-weight: 500;
   }
   .dim {
@@ -793,8 +850,8 @@
     gap: 8px;
   }
   .danger-pri {
-    background: var(--coral);
-    border-color: var(--coral);
+    background: var(--u-hot);
+    border-color: var(--u-hot);
     color: #ffffff;
   }
 </style>

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
-import AgentDrawer from "./AgentDrawer.svelte";
+import AgentPanel from "./AgentPanel.svelte";
 import overview from "../lib/fixtures/overview.json";
 import type { AgentView, OverviewView } from "../lib/types";
 import { invoke } from "../test/setup";
@@ -16,7 +16,7 @@ function mount(a: AgentView, nudge = 0) {
   const onApplied = vi.fn();
   const onDirty = vi.fn();
   const onClose = vi.fn();
-  const r = render(AgentDrawer, { agent: a, palette: view.palette, terminals: [], nudge, onApplied, onDirty, onClose });
+  const r = render(AgentPanel, { agent: a, palette: view.palette, terminals: [], nudge, onApplied, onDirty, onClose });
   return { onApplied, onDirty, onClose, rerender: r.rerender };
 }
 function answer(text: string) {
@@ -24,7 +24,7 @@ function answer(text: string) {
 }
 const bar = () => within(screen.getByRole("region", { name: "Change waiting" }));
 
-describe("AgentDrawer", () => {
+describe("AgentPanel", () => {
   beforeEach(() => resetSignIn());
 
   it("Sign in with: your browser by default, the Agent Roster window one click away", async () => {
@@ -62,21 +62,80 @@ describe("AgentDrawer", () => {
     prefs.signInWith = "window";
     invoke.mockRejectedValue("Codex isn't installed on this computer.");
     mount(agent("agent2"));
-    await userEvent.click(screen.getByRole("button", { name: "Sign in again" }));
+    await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Codex isn't installed on this computer.");
     expect(screen.getByRole("button", { name: "Sign in with your browser" })).toBeInTheDocument();
   });
 
-  it("shows how to start the agent, without a name header or usage cards", async () => {
+  it("sections run This week, Use it, Settings, then Remove alone at the bottom", () => {
+    mount(agent("agent1"));
+    const heads = screen.getAllByRole("heading", { level: 4 }).map((h) => h.textContent);
+    expect(heads).toEqual(["This week", "Use it", "Settings"]);
+    const remove = screen.getByRole("button", { name: "Remove agent1" });
+    const settings = screen.getByRole("region", { name: "Settings" });
+    expect(settings.compareDocumentPosition(remove) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(settings).not.toContainElement(remove);
+  });
+
+  it("this week: a big bar, used and left, the reset and when it was checked", () => {
+    const { container } = render(AgentPanel, {
+      agent: agent("agent1"),
+      palette: view.palette,
+      terminals: [],
+      updated: "Last update 4m ago.",
+      onApplied: vi.fn(),
+      onDirty: vi.fn(),
+      onClose: vi.fn(),
+    });
+    const week = within(screen.getByRole("region", { name: "This week" }));
+    expect(week.getByText("61% of the week used")).toBeInTheDocument();
+    expect(week.getByText("39% left")).toBeInTheDocument();
+    expect(week.getByText("Resets in 3d 16h · checked 4m ago")).toBeInTheDocument();
+    expect(container.querySelector(".track.big i")).toHaveStyle({ width: "61%" });
+  });
+
+  it("shows how to start the agent", async () => {
     const user = userEvent.setup();
     mount(agent("agent1"));
-    expect(screen.queryByRole("heading", { name: "agent1" })).not.toBeInTheDocument();
     expect(screen.getByText("you@example.com")).toBeInTheDocument();
     expect(screen.getByText(/in any terminal/)).toHaveTextContent("Or type agent1 in any terminal");
-    await user.click(screen.getByRole("button", { name: "Copy" }));
+    await user.click(screen.getByRole("button", { name: "Copy command" }));
     expect(await navigator.clipboard.readText()).toBe("agent1");
     expect(screen.queryByText("5-hour use")).not.toBeInTheDocument();
-    expect(screen.queryByText("Weekly use")).not.toBeInTheDocument();
+  });
+
+  it("with terminals found: Open in terminal and Copy command side by side", async () => {
+    const user = userEvent.setup();
+    render(AgentPanel, {
+      agent: agent("agent1"),
+      palette: view.palette,
+      terminals: [{ id: "wt", label: "Windows Terminal", runs: true }],
+      onApplied: vi.fn(),
+      onDirty: vi.fn(),
+      onClose: vi.fn(),
+    });
+    const use = within(screen.getByRole("region", { name: "Use it" }));
+    expect(use.getByRole("button", { name: /Open in/ })).toBeInTheDocument();
+    await user.click(use.getByRole("button", { name: "Copy command" }));
+    expect(await navigator.clipboard.readText()).toBe("agent1");
+    expect(use.getByRole("button", { name: "Copied" })).toBeInTheDocument();
+  });
+
+  it("one sign-in place: Sign in when signed out, Switch account when signed in, never Sign in again", () => {
+    mount(agent("agent2"));
+    expect(screen.getAllByRole("button", { name: "Sign in" })).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Switch account" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Sign in again" })).not.toBeInTheDocument();
+  });
+
+  it("the picker shows the new colors, and an old coral agent shows as pink", () => {
+    mount(agent("boss", { color: "#ff7a6b", color_label: "coral" }));
+    const group = within(screen.getByRole("radiogroup", { name: "Color" }));
+    expect(group.getAllByRole("radio").map((r) => r.getAttribute("aria-label"))).toEqual(["cobalt", "cyan", "jade", "violet", "pink"]);
+    expect(group.getByRole("radio", { name: "pink" })).toHaveAttribute("aria-checked", "true");
+    expect(group.queryByRole("radio", { name: "coral" })).not.toBeInTheDocument();
+    expect(group.queryByRole("radio", { name: "marigold" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Name")).toHaveStyle({ color: "#ff6bc4" });
   });
 
   it("an agent without numbers says how to get them", () => {
@@ -206,7 +265,7 @@ describe("AgentDrawer", () => {
   it("changes color, sharing, default; remove keeps the login folder", async () => {
     answer("Done.");
     mount(agent("boss"));
-    await userEvent.click(screen.getByRole("radio", { name: "coral" }));
+    await userEvent.click(screen.getByRole("radio", { name: "pink" }));
     expect(invoke).toHaveBeenLastCalledWith("preview", { req: { op: "color", name: "boss", color: "coral" } });
     await userEvent.click(screen.getByRole("switch", { name: "Share my skills" }));
     expect(invoke).toHaveBeenLastCalledWith("preview", { req: { op: "share", name: "boss", on: true } });
@@ -230,10 +289,10 @@ describe("AgentDrawer", () => {
     expect(await screen.findByText("agent3 is already an agent.")).toBeInTheDocument();
   });
 
-  it("sign in again uses the same terminal choice", async () => {
+  it("switch account uses the same terminal choice", async () => {
     invoke.mockResolvedValue(true);
     mount(agent("agent1"));
-    await userEvent.click(screen.getByRole("button", { name: "Sign in again" }));
+    await userEvent.click(screen.getByRole("button", { name: "Switch account" }));
     expect(invoke).toHaveBeenCalledWith("sign_in", { name: "agent1", app: null });
   });
 
@@ -243,7 +302,7 @@ describe("AgentDrawer", () => {
       if (cmd === "apply") throw "That preview has expired. Look at it again.";
     });
     mount(agent("boss"));
-    await userEvent.click(screen.getByRole("radio", { name: "coral" }));
+    await userEvent.click(screen.getByRole("radio", { name: "pink" }));
     await userEvent.click(await bar().findByRole("button", { name: "Change color" }));
     expect(await screen.findByText("That preview has expired. Look at it again.")).toBeInTheDocument();
     await new Promise((r) => setTimeout(r, 50));
@@ -253,7 +312,7 @@ describe("AgentDrawer", () => {
   it("after a change is applied, Apply stays off until the page reloads", async () => {
     answer("Changes the color.");
     mount(agent("boss"));
-    await userEvent.click(screen.getByRole("radio", { name: "coral" }));
+    await userEvent.click(screen.getByRole("radio", { name: "pink" }));
     const btn = await bar().findByRole("button", { name: "Change color" });
     await userEvent.click(btn);
     await waitFor(() => expect(btn).toBeDisabled());

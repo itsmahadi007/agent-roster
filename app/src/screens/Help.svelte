@@ -1,9 +1,8 @@
 <script lang="ts">
   import type { OverviewView } from "../lib/types";
-  import PageHead from "../components/PageHead.svelte";
   import { openSite } from "../lib/api";
 
-  let { view, onBack }: { view: OverviewView; onBack: () => void } = $props();
+  let { view }: { view: OverviewView } = $props();
 
   const first = $derived(view.agents[0]);
   const ex = $derived(first?.name ?? "agent1");
@@ -11,8 +10,7 @@
   const tool = $derived(first?.tool_label ?? "Claude Code");
 </script>
 
-<div class="page help">
-  <PageHead title="How Agent Roster works" sub="A short tour of this window, in the order you'll need it" {onBack} />
+<div class="help">
   <div class="grid">
     <section>
       <h4>What an agent is</h4>
@@ -45,8 +43,9 @@
     <section>
       <h4>Usage and limits</h4>
       <p>
-        Each row's bar shows how much of its weekly limit an account has used, and when that limit resets. It turns coral
-        at 90%. Agent Roster asks Claude Code and Codex themselves for these numbers when it starts and every 5 minutes,
+        Each row's bar shows how much of its weekly limit an account has used, and when that limit resets. The bar is
+        light grey under 70%, amber from 70% and red from 90% or when a limit is reached, the same for every agent: an
+        agent's own color is only its dot and its name. Agent Roster asks Claude Code and Codex themselves for these numbers when it starts and every 5 minutes,
         with each agent's own login and no model call, so nothing has to be open first. Refresh, under the list, asks
         again right away. A row also says when an account needs a sign-in, has no subscription, has reached its limit, or
         couldn't be reached (then it keeps the last numbers and says when they're from).</p>
@@ -65,7 +64,7 @@
       <h4>Sign in</h4>
       <p>
         A new agent signs in once. Sign in opens a terminal with the tool's own sign-in for that account, which opens
-        your browser. Or pick Sign in with: Agent Roster window (in an agent's row) to sign in inside a private Agent
+        your browser. Or pick Sign in with: Agent Roster window (in an agent's panel, under Settings) to sign in inside a private Agent
         Roster window that shows the real sign-in page and its address in the title. Some sign-ins still need your
         browser; the window then says so. Agent Roster never collects your password and never reads your login files.
       </p>
@@ -73,9 +72,11 @@
     <section>
       <h4>Change an agent</h4>
       <p>
-        Click an agent's row to open it in place. There you can rename it, change its color, pick a ready-made role
-        like Leader or Worker 1, edit what it's good at, share your skills with it, make it the default, sign in again or
-        remove it. Each change waits in a bar at the bottom until you save it. Removing keeps its login folder.</p>
+        Click an agent's row to open its panel on the right. It shows its week, how to start it, then its settings:
+        rename it, change its color, pick a ready-made role like Leader or Worker 1, edit what it's good at, share your
+        skills with it, make it the default, or switch account. Remove is alone at the bottom. Each change waits in a bar
+        at the bottom until you save it. Removing keeps its login folder. Close a panel or a dialog with ✕, Esc, or a click
+        on the list.</p>
     </section>
     <section>
       <h4>Nothing changes without asking</h4>
@@ -137,12 +138,12 @@
     text-underline-offset: 3px;
   }
   .help {
-    max-width: 1040px;
+    padding-bottom: 18px;
   }
   .grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(296px, 1fr));
-    gap: 24px 32px;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 20px 32px;
   }
   h4 {
     margin: 0 0 4px;

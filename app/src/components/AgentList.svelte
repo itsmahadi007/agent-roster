@@ -1,39 +1,23 @@
 <script lang="ts">
-  import type { ColorView, OpRequest, OverviewView, Screen, TerminalApp } from "../lib/types";
-  import AgentDrawer from "./AgentDrawer.svelte";
+  import type { OverviewView, Screen } from "../lib/types";
+  import { agentHex, BAR, usageLevel } from "../lib/colors";
   import Updates from "./Updates.svelte";
 
   let {
     view,
     open,
-    palette,
-    terminals,
-    round,
-    nudge,
     onToggle,
     onNavigate,
     onRefresh,
     onSite,
-    onApplied,
-    onDirty,
-    onClose,
   }: {
     view: OverviewView;
-    /** The id of the agent whose row is open, or null. */
+    /** The id of the agent whose panel is open, or null. */
     open: string | null;
-    palette: ColorView[];
-    terminals: TerminalApp[];
-    /** Bumped after each change so the open drawer starts fresh from the new state. */
-    round: number;
-    /** Bumped when a close or switch is refused because a change waits. */
-    nudge: number;
     onToggle: (id: string) => void;
     onNavigate: (s: Screen) => void;
     onRefresh: () => Promise<void>;
     onSite: () => void;
-    onApplied: (notice: string, op: OpRequest["op"]) => void;
-    onDirty: (dirty: boolean) => void;
-    onClose: () => void;
   } = $props();
 
   /** The weekly limit; core sends no other window. */
@@ -74,16 +58,19 @@
     {#each view.agents as a, i (a.id)}
       {@const w = week(a)}
       {@const isOpen = a.id === open}
+      {@const c = agentHex(a.color)}
+      {@const lv = w ? usageLevel(w.used_percent, a.health === "limit-reached") : "ok"}
       <button
         class="item"
         class:open={isOpen}
+        aria-haspopup="dialog"
         aria-expanded={isOpen}
         onclick={() => onToggle(a.id)}
         onkeydown={(e) => move(e, i)}
       >
-        <span class="sq" style:background={a.color}></span>
+        <span class="sq" style:background={c}></span>
         <span class="who">
-          <span class="nm agent-name ink" style:color={a.color} style:--c={a.color}>{a.name}</span>
+          <span class="nm agent-name ink" style:color={c} style:--c={c}>{a.name}</span>
           <span class="meta">{a.role ? `${a.role} · ` : ""}{a.tool_label} · {a.status_text}</span>
         </span>
         <span class="use">
@@ -92,14 +79,14 @@
             <span class="line">
               <span class="pc num hot">{a.limits_note ?? "limit reached"}</span>
             </span>
-            <span class="track"><i style:width="{w.used_percent}%" style:background="var(--coral)"></i></span>
+            <span class="track" data-level={lv}><i style:width="{w.used_percent}%" style:background={BAR[lv]}></i></span>
           {:else if w}
             <span class="line">
-              <span class="pc num" class:hot={w.hot}>{w.used_percent}% week</span>
-              {#if a.reset_text}<span class="rs num" class:hot={w.hot}>{a.reset_text}</span>{/if}
+              <span class="pc num" class:hot={lv === "hot"} class:warn-use={lv === "warn"} data-level={lv}>{w.used_percent}% week</span>
+              {#if a.reset_text}<span class="rs num" class:hot={lv === "hot"}>{a.reset_text}</span>{/if}
             </span>
-            <span class="track"><i style:width="{w.used_percent}%" style:background={w.hot ? "var(--coral)" : a.color}></i></span>
-            <span class="remaining num" class:hot={w.hot}>{Math.max(0, Math.min(100, 100 - w.used_percent))}% remaining</span>
+            <span class="track" data-level={lv}><i style:width="{w.used_percent}%" style:background={BAR[lv]}></i></span>
+            <span class="remaining num" class:hot={lv === "hot"}>{Math.max(0, Math.min(100, 100 - w.used_percent))}% remaining</span>
             {#if a.as_of}<span class="asof">{a.as_of}</span>{/if}
           {:else if a.health === "sign-in"}
             <span class="pc dim">sign in</span>
@@ -113,22 +100,19 @@
         </span>
         <svg class="chev" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M4.5 2.5 8 6l-3.5 3.5" /></svg>
       </button>
-      {#if isOpen}
-        {#key `${a.id}:${round}`}
-          <AgentDrawer agent={a} {palette} {terminals} {nudge} {onApplied} {onDirty} {onClose} />
-        {/key}
-      {/if}
     {/each}
   </div>
 
   <div class="foot">
     {#each view.warnings as w, i (i)}
-      <p class="warn"><b class="agent-name hot">{w.name}</b> {w.text}</p>
+      <p class="warn">
+        <b class="agent-name ink" style:color={agentHex(w.color)} style:--c={agentHex(w.color)}>{w.name}</b> <span class="hot">{w.text}</span>
+      </p>
     {/each}
     {#each view.calls as c, i (i)}
-      <p class="call" style:border-color={c.from_color}>
-        <b class="agent-name ink" style:color={c.from_color} style:--c={c.from_color}>{c.from_name}</b> asked
-        <b class="agent-name ink" style:color={c.to_color} style:--c={c.to_color}>{c.to_name}</b>
+      <p class="call" style:border-color={agentHex(c.from_color)}>
+        <b class="agent-name ink" style:color={agentHex(c.from_color)} style:--c={agentHex(c.from_color)}>{c.from_name}</b> asked
+        <b class="agent-name ink" style:color={agentHex(c.to_color)} style:--c={agentHex(c.to_color)}>{c.to_name}</b>
         <span>{c.detail}</span>
       </p>
     {:else}
@@ -213,9 +197,7 @@
   }
   .item.open {
     border-color: var(--line-2);
-    border-bottom-left-radius: 0;
-    border-bottom-right-radius: 0;
-    margin-bottom: 0;
+    background: color-mix(in oklab, var(--raise), var(--txt) 4%);
   }
   .item:focus-visible {
     outline: 2px solid var(--txt);
@@ -301,9 +283,6 @@
     stroke-linecap: round;
     stroke-linejoin: round;
     transition: transform 150ms var(--ease);
-  }
-  .item.open .chev {
-    transform: rotate(90deg);
   }
   .foot {
     border-top: 1px solid var(--line);

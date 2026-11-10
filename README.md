@@ -82,12 +82,13 @@ installed. Agent Roster finds the logins you already have the first time it open
 
 ### Every account in one list
 
-Each row shows the agent's role, its weekly use and when that limit resets. At 90% the row turns
-coral, so you know which account to rest and when it's back. Click a row to open it in place: how
-to start it and all its settings, while the other agents stay in view. Calls between agents and
-limit warnings show under the list.
+Each row shows the agent's role, its weekly use and when that limit resets. The bar turns amber at
+70% and red at 90%, the same for every agent, so you know which account to rest and when it's back
+(an agent's own color is only its dot and its name). Click a row to open its panel on the right: its
+week, how to start it and all its settings, while the list stays in view behind it. Close it with ✕,
+Esc or a click on the list. Calls between agents and limit warnings show under the list.
 
-<p align="center"><img src="docs/images/agent-open.png" alt="agent1's row open in place, with how to start it and its settings under the row" width="760"></p>
+<p align="center"><img src="docs/images/agent-open.png" alt="agent1's panel open on the right, with its week, how to start it and its settings" width="760"></p>
 
 ### Change anything, see it first
 
@@ -186,9 +187,9 @@ they're from.
 
 | It says | Meaning |
 |---|---|
-| `61% week` | used this much of the weekly limit; coral from 90% |
+| `61% week` | used this much of the weekly limit; amber from 70%, red from 90% |
 | `limit reached` | the week is used up; the row says when it resets |
-| `sign in` | the agent isn't signed in; open its row and click **Sign in** |
+| `sign in` | the agent isn't signed in; open its panel and click **Sign in** |
 | `no subscription` | signed in, but with no plan (none, ended, or an API key): no weekly limit |
 | `checking` | the first check since it was added or signed in is still running |
 | `not installed` | Claude Code or Codex isn't on this computer |

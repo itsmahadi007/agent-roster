@@ -9,7 +9,10 @@
   import Changes from "./screens/Changes.svelte";
   import Help from "./screens/Help.svelte";
   import AgentList from "./components/AgentList.svelte";
+  import AgentPanel from "./components/AgentPanel.svelte";
+  import Overlay from "./components/Overlay.svelte";
   import TopBar from "./components/TopBar.svelte";
+  import { agentHex } from "./lib/colors";
   import { chrome } from "./lib/platform";
   import { loadPrefs, onSignInUpdate, type SignInUpdate } from "./lib/signin.svelte";
 
@@ -18,13 +21,14 @@
   let error = $state<string | null>(null);
   let notice = $state<string | null>(null);
   let terminals = $state<TerminalApp[]>([]);
-  /** The agent whose row is open, by id so a rename keeps it open. Nothing is open at start. */
+  /** The list is the only page: `screen` is what opens over it (Add agent, Help, What changed). */
+  /** The agent whose panel is open, by id so a rename keeps it open. Nothing is open at start. */
   let open = $state<string | null>(null);
   /** Whether the open row has a change waiting in its save bar. */
   let dirty = $state(false);
   /** Bumped when a close or switch is refused because a change waits. */
   let nudge = $state(0);
-  /** Bumped after each change so the open drawer starts fresh from the new state. */
+  /** Bumped after each change so the open panel starts fresh from the new state. */
   let round = $state(0);
   /** Ids seen so far: a new one after this app's Add agent gets opened. */
   let known: Set<string> | null = null;
@@ -61,24 +65,38 @@
   }
 
   function navigate(s: Screen, note?: string) {
-    // Leaving the list would drop the change waiting in the open row.
+    // Opening something else would drop the change waiting in the open panel.
     if (dirty && s !== "agents") {
       nudge += 1;
       return;
     }
+    // One thing over the list at a time.
+    if (s !== "agents") open = null;
     screen = s;
     notice = note ?? null;
     if (s === "agents") refresh();
   }
 
-  /** Open a row, or close the open one. A waiting change keeps its row open. */
+  /** Open an agent's panel, or close it. A waiting change keeps its panel open. */
   function toggle(id: string) {
     if (dirty) {
       nudge += 1;
       return;
     }
+    screen = "agents";
     open = open === id ? null : id;
   }
+
+  /** ✕, Escape or a click on the list. A waiting change keeps the panel open. */
+  function closePanel() {
+    if (dirty) {
+      nudge += 1;
+      return;
+    }
+    open = null;
+  }
+
+  const openAgent = $derived(view && open ? (view.agents.find((a) => a.id === open) ?? null) : null);
 
   async function changed(note: string, op: OpRequest["op"]) {
     notice = note;
@@ -99,7 +117,7 @@
     const unlisten = listen<Screen>("navigate", (e) => navigate(e.payload));
     // The app asks for usage on start, every 5 minutes and after a sign-in; show each answer.
     const unchecked = listen("usage-checked", () => refresh());
-    // Signing in inside an Agent Roster window: the drawer shows progress; a finished one updates the row.
+    // Signing in inside an Agent Roster window: the agent panel shows progress; a finished one updates the row.
     loadPrefs();
     const unsigned = listen<SignInUpdate>("sign-in", (e) => {
       onSignInUpdate(e.payload);
@@ -127,48 +145,76 @@
     <div class="content"><div class="page"><p class="error">{error}</p></div></div>
   {:else if !view}
     <div class="content"><div class="page"><p class="lede">Looking at your agents…</p></div></div>
-  {:else if view.agents.length === 0 && screen !== "add"}
-    <div class="content"><FirstRun palette={view.palette} onDone={() => navigate("agents")} /></div>
   {:else}
     <div class="content">
-      <div class="column">
-        {#if screen === "help"}
-          <Help {view} onBack={() => navigate("agents")} />
-        {:else if screen === "changes"}
-          <Changes onBack={() => navigate("agents")} />
-        {:else if screen === "add"}
-          <AddAgent
-            palette={view.palette}
-            nextColor={view.next_color}
-            onDone={(note) => {
-              added = true;
-              navigate("agents", note);
-            }}
-            onCancel={() => navigate("agents")}
-          />
-        {:else}
-          <AgentList
-            {view}
-            {open}
+      {#if view.agents.length === 0}
+        <FirstRun palette={view.palette} onDone={() => navigate("agents")} />
+      {:else}
+        <div class="column">
+          <AgentList {view} {open} onToggle={toggle} onNavigate={(s) => navigate(s)} onRefresh={checkUsage} onSite={() => openSite().catch((e) => (notice = message(e)))} />
+        </div>
+      {/if}
+    </div>
+
+    <!-- Everything else opens over the list and closes with ✕, Escape or a click on the list. -->
+    {#if screen === "add"}
+      <AddAgent
+        palette={view.palette}
+        nextColor={view.next_color}
+        onDone={(note) => {
+          added = true;
+          navigate("agents", note);
+        }}
+        onCancel={() => navigate("agents")}
+      />
+    {:else if screen === "help"}
+      <Overlay kind="panel" label="How Agent Roster works" sub="A short tour of this window, in the order you'll need it" onClose={() => navigate("agents")}>
+        <Help {view} />
+      </Overlay>
+    {:else if screen === "changes"}
+      <Overlay
+        kind="panel"
+        label="Everything Agent Roster did"
+        sub="Each change has a backup. Undo one, or undo all of them."
+        onClose={() => navigate("agents")}
+      >
+        <Changes />
+      </Overlay>
+    {:else if openAgent}
+      {@const a = openAgent}
+      {@const c = agentHex(a.color)}
+      {@const live = a.state === "working" || a.live}
+      <Overlay kind="panel" label={a.name} onClose={closePanel} onEscape={null}>
+        {#snippet head()}
+          <div class="ah">
+            <span class="sq" style:background={c}></span>
+            <div class="ahw">
+              <h2 class="agent-name ink" style:color={c} style:--c={c}>{a.name}</h2>
+              <p class="st">
+                {a.tool_label} ·
+                <span class:ink={live} style:--c={c} style:color={live ? c : null}>{a.status_text}</span>
+              </p>
+            </div>
+          </div>
+        {/snippet}
+        {#key `${a.id}:${round}`}
+          <AgentPanel
+            agent={a}
             palette={view.palette}
             {terminals}
-            {round}
+            updated={view.limits_updated}
             {nudge}
-            onToggle={toggle}
-            onNavigate={(s) => navigate(s)}
-            onRefresh={checkUsage}
-            onSite={() => openSite().catch((e) => (notice = message(e)))}
             onApplied={changed}
             onDirty={(d) => {
               dirty = d;
               // The last notice would sit over the new change's save bar.
               if (d) notice = null;
             }}
-            onClose={() => (open = null)}
+            onClose={closePanel}
           />
-        {/if}
-      </div>
-    </div>
+        {/key}
+      </Overlay>
+    {/if}
   {/if}
 </div>
 
@@ -203,5 +249,34 @@
     z-index: 40;
     max-width: 640px;
     box-shadow: var(--shadow);
+  }
+  .ah {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+  }
+  .sq {
+    flex: none;
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+    margin-top: 8px;
+  }
+  .ahw {
+    min-width: 0;
+  }
+  .ahw h2 {
+    margin: 0;
+    font-size: 19px;
+    line-height: 26px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .st {
+    margin: 0;
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--mut);
   }
 </style>

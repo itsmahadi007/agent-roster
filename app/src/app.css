@@ -13,7 +13,13 @@
   --coral: #ff7a6b;
   --jade: #2fbf8f;
   --amber: #f0b429;
-  --scrim: rgba(5, 9, 14, 0.62);
+  /* Usage: how full a limit is. The same for every agent. */
+  --u-ok: #c3cede;
+  --u-warn: #f2b632;
+  --u-hot: #ff5a4f;
+  --panel: #141d2b;
+  --panel-line: #2c3a50;
+  --scrim: rgba(5, 9, 14, 0.55);
   --shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
   --glow: rgba(255, 255, 255, 0.04);
   /* How much agent colors darken to stay readable as text. 1 = as they are. */
@@ -36,6 +42,11 @@
     --coral: #d6452f;
     --jade: #13865f;
     --amber: #a8730a;
+    --u-ok: #8d9ab0;
+    --u-warn: #c48a00;
+    --u-hot: #d93a2f;
+    --panel: #ffffff;
+    --panel-line: #c3ccd7;
     --scrim: rgba(20, 28, 39, 0.32);
     --shadow: 0 24px 64px rgba(20, 28, 39, 0.18);
     --glow: rgba(20, 28, 39, 0.06);
@@ -95,7 +106,10 @@ body {
 }
 
 .hot {
-  color: var(--coral) !important;
+  color: var(--u-hot) !important;
+}
+.warn-use {
+  color: var(--u-warn) !important;
 }
 
 button {

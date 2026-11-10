@@ -30,7 +30,7 @@ export interface AgentView {
   reset_text: string | null;
   reset_hot: boolean;
   limits_note: string | null;
-  /** For the drawer when a limit is used up: which one, and when it resets. */
+  /** For the agent panel when a limit is used up: which one, and when it resets. */
   limit_text: string | null;
   /** The account as the row shows it, from the last usage check and the tool's sign-in. */
   health: "ok" | "sign-in" | "no-subscription" | "limit-reached" | "not-installed" | "checking" | "unreachable";

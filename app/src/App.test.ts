@@ -91,13 +91,17 @@ describe("App first run", () => {
 });
 
 describe("App history", () => {
-  it("what changed opens the history and back returns", async () => {
+  it("what changed opens in the side panel over the list and the close button closes it", async () => {
     invoke.mockImplementation(async (cmd: string) => (cmd === "overview" ? overview : cmd === "changes" ? [] : null));
     render(App);
     await userEvent.click(await screen.findByRole("button", { name: "What changed" }));
-    expect(await screen.findByRole("heading", { name: "Everything Agent Roster did" })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Back to your agents" }));
-    expect(await screen.findByRole("heading", { name: "Your agents" })).toBeInTheDocument();
+    const panel = await screen.findByRole("dialog", { name: "Everything Agent Roster did" });
+    expect(within(panel).getByRole("heading", { name: "Everything Agent Roster did" })).toBeInTheDocument();
+    // The list stays behind it.
+    expect(screen.getByRole("heading", { name: "Your agents" })).toBeInTheDocument();
+    await userEvent.click(within(panel).getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "What changed" })).toHaveFocus();
   });
 });
 
@@ -120,7 +124,7 @@ describe("App rename and help", () => {
     expect(await screen.findByText("agent1 is now lead. Type lead in any terminal to start it.")).toBeInTheDocument();
   });
 
-  it("removing the open agent closes the drawer", async () => {
+  it("removing the open agent closes its panel", async () => {
     invoke.mockImplementation(async (cmd: string) => {
       if (cmd === "overview") return overview;
       if (cmd === "preview") return { token: 3, summary: "Removed boss", steps: [{ kind: "remove", text: "Removes the boss command." }] };
@@ -137,15 +141,18 @@ describe("App rename and help", () => {
     expect(screen.queryByLabelText("Name")).not.toBeInTheDocument();
   });
 
-  it("how it works explains the app and goes back", async () => {
+  it("how it works explains the app in the side panel and Escape closes it", async () => {
     invoke.mockImplementation(async (cmd: string) => (cmd === "overview" ? overview : null));
     render(App);
     await userEvent.click(await screen.findByRole("button", { name: "How it works" }));
-    expect(await screen.findByRole("heading", { name: "How Agent Roster works" })).toBeInTheDocument();
-    expect(screen.getByText(/Type its name in any terminal/)).toBeInTheDocument();
-    expect(screen.getByText(/Click an agent's row to open it in place/)).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Back to your agents" }));
-    expect(await screen.findByRole("heading", { name: "Your agents" })).toBeInTheDocument();
+    const panel = await screen.findByRole("dialog", { name: "How Agent Roster works" });
+    expect(within(panel).getByRole("heading", { name: "How Agent Roster works" })).toBeInTheDocument();
+    expect(within(panel).getByText(/Type its name in any terminal/)).toBeInTheDocument();
+    expect(within(panel).getByText(/Click an agent's row to open its panel on the right/)).toBeInTheDocument();
+    await userEvent.click(within(panel).getByRole("link", { name: "mahadihassan.com" }));
+    expect(invoke).toHaveBeenCalledWith("open_site");
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });
 
@@ -242,13 +249,14 @@ describe("App rows", () => {
     });
     render(App);
     await userEvent.click(await screen.findByRole("button", { name: /^agent1/ }));
-    await userEvent.click(screen.getByRole("radio", { name: "coral" }));
+    await userEvent.click(screen.getByRole("radio", { name: "pink" }));
+    expect(invoke).toHaveBeenCalledWith("preview", { req: { op: "color", name: "agent1", color: "coral" } });
     const bar = within(await screen.findByRole("region", { name: "Change waiting" }));
     await userEvent.click(await bar.findByRole("button", { name: "Change color" }));
-    expect(await screen.findByText("agent1 is coral now.")).toBeInTheDocument();
+    expect(await screen.findByText("agent1 is pink now.")).toBeInTheDocument();
     await userEvent.click(await screen.findByRole("radio", { name: "jade" }));
     await screen.findByRole("region", { name: "Change waiting" });
-    await waitFor(() => expect(screen.queryByText("agent1 is coral now.")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText("agent1 is pink now.")).not.toBeInTheDocument());
   });
 
   it("add agent opens the new agent's row", async () => {
@@ -271,5 +279,115 @@ describe("App rows", () => {
     await waitFor(() => expect(go).toBeEnabled());
     await userEvent.click(go);
     await waitFor(() => expect(screen.getByRole("button", { name: /^helper/ })).toHaveAttribute("aria-expanded", "true"));
+  });
+});
+
+describe("App layers", () => {
+  const plain = () =>
+    invoke.mockImplementation(async (cmd: string) => (cmd === "overview" ? structuredClone(overview) : cmd === "changes" ? [] : null));
+
+  it("a row opens the agent panel over the list: dot, name, tool · status, ✕", async () => {
+    plain();
+    const { container } = render(App);
+    await userEvent.click(await screen.findByRole("button", { name: /^agent1/ }));
+    const panel = screen.getByRole("dialog", { name: "agent1" });
+    expect(panel).toHaveAttribute("aria-modal", "true");
+    expect(panel).toHaveClass("panel");
+    expect(within(panel).getByRole("heading", { name: "agent1", level: 2 })).toHaveStyle({ color: "#4f7cff" });
+    expect(within(panel).getByText(/Claude Code ·/)).toHaveTextContent("Claude Code · calling agent3");
+    expect(within(panel).getByRole("button", { name: "Close" })).toBeInTheDocument();
+    // The list is still there, under a scrim; the panel isn't inside it.
+    expect(container.querySelector(".content")).not.toContainElement(panel);
+    expect(screen.getByTestId("scrim")).toBeInTheDocument();
+  });
+
+  it("the agent panel closes with ✕, Escape and a click on the dimmed list, and focus goes back to the row", async () => {
+    plain();
+    render(App);
+    const a1 = await screen.findByRole("button", { name: /^agent1/ });
+    await userEvent.click(a1);
+    await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(a1).toHaveFocus();
+    await userEvent.click(a1);
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(a1).toHaveFocus();
+    await userEvent.click(a1);
+    await userEvent.click(screen.getByTestId("scrim"));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("a waiting change keeps the panel open on ✕ and the scrim, and says so", async () => {
+    invoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "overview") return structuredClone(overview);
+      if (cmd === "preview") return { token: 2, summary: "s", steps: [{ kind: "change", text: "Renames." }] };
+      return null;
+    });
+    render(App);
+    await userEvent.click(await screen.findByRole("button", { name: /^agent1/ }));
+    const input = screen.getByLabelText("Name");
+    await userEvent.clear(input);
+    await userEvent.type(input, "lead");
+    await within(await screen.findByRole("region", { name: "Change waiting" })).findByText("Renames.");
+    await userEvent.click(screen.getByTestId("scrim"));
+    await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Close" }));
+    expect(screen.getByRole("dialog", { name: "agent1" })).toBeInTheDocument();
+    expect(await screen.findByText("Apply or cancel this change first.")).toBeInTheDocument();
+  });
+
+  it("Enter on a row opens its panel; arrow keys move between rows", async () => {
+    plain();
+    render(App);
+    const a1 = await screen.findByRole("button", { name: /^agent1/ });
+    a1.focus();
+    await userEvent.keyboard("{ArrowDown}");
+    expect(screen.getByRole("button", { name: /^agent2/ })).toHaveFocus();
+    await userEvent.keyboard("{Enter}");
+    expect(screen.getByRole("dialog", { name: "agent2" })).toBeInTheDocument();
+  });
+
+  it("focus stays inside the open panel", async () => {
+    plain();
+    render(App);
+    await userEvent.click(await screen.findByRole("button", { name: /^agent1/ }));
+    const panel = screen.getByRole("dialog");
+    for (let i = 0; i < 60; i++) {
+      await userEvent.tab();
+      expect(panel).toContainElement(document.activeElement as HTMLElement);
+    }
+    await userEvent.tab({ shift: true });
+    expect(panel).toContainElement(document.activeElement as HTMLElement);
+  });
+
+  it("Add agent opens as a dialog at its top, even with the list scrolled down", async () => {
+    plain();
+    const { container } = render(App);
+    await screen.findByRole("button", { name: /^agent1/ });
+    const content = container.querySelector(".content") as HTMLElement;
+    content.scrollTop = 400;
+    await userEvent.click(screen.getByRole("button", { name: "Add agent" }));
+    const dialog = screen.getByRole("dialog", { name: "Add an agent" });
+    expect(dialog).toHaveClass("dialog");
+    expect(content).not.toContainElement(dialog);
+    expect((dialog.querySelector(".ob") as HTMLElement).scrollTop).toBe(0);
+    expect(screen.getByLabelText("Name")).toHaveFocus();
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add agent" })).toHaveFocus();
+  });
+
+  it("no layer has a Back link", async () => {
+    plain();
+    render(App);
+    await screen.findByRole("button", { name: /^agent1/ });
+    for (const open of ["Add agent", "How it works", "What changed"]) {
+      await userEvent.click(screen.getByRole("button", { name: open }));
+      await screen.findByRole("dialog");
+      expect(screen.queryByRole("button", { name: /Back/ })).not.toBeInTheDocument();
+      await userEvent.keyboard("{Escape}");
+    }
+    await userEvent.click(screen.getByRole("button", { name: /^agent1/ }));
+    expect(screen.queryByRole("button", { name: /Back/ })).not.toBeInTheDocument();
   });
 });

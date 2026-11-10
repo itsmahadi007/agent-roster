@@ -2,9 +2,7 @@
   import { onMount } from "svelte";
   import type { ChangeView } from "../lib/types";
   import { changes, message, undo, undoAll } from "../lib/api";
-  import PageHead from "../components/PageHead.svelte";
-
-  let { onBack }: { onBack: () => void } = $props();
+  import { agentHex } from "../lib/colors";
 
   let list = $state<ChangeView[] | null>(null);
   let error = $state<string | null>(null);
@@ -49,13 +47,12 @@
   onMount(load);
 </script>
 
-<div class="page">
-  <PageHead title="Everything Agent Roster did" sub="Each change has a backup. Undo one, or undo all of them." {onBack} />
+<div class="changes">
 
   {#if list}
     {#each list as c (c.id)}
       <div class="found" data-change={c.id}>
-        <span class="dot" style:background={c.color ?? "var(--mut)"}></span>
+        <span class="dot" style:background={agentHex(c.color)}></span>
         <span class="meta">
           <span class="what" class:gone={c.undone}>{c.summary}</span><br />
           <span class="dim num">{when(c.at)}</span>
@@ -95,6 +92,9 @@
 </div>
 
 <style>
+  .changes {
+    padding-bottom: 18px;
+  }
   .found {
     display: flex;
     align-items: center;
@@ -143,5 +143,6 @@
   .bottom {
     justify-content: space-between;
     align-items: center;
+    flex-wrap: wrap;
   }
 </style>

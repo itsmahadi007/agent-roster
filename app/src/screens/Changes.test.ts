@@ -17,18 +17,18 @@ function backend(extra: Record<string, (a: any) => unknown> = {}) {
 describe("Changes", () => {
   it("lists_changes_newest_first", async () => {
     backend();
-    const { container } = render(Changes, { onBack: () => {} });
+    const { container } = render(Changes);
     await screen.findByText("Turned on Claude limits for agent1");
     const rows = [...container.querySelectorAll("[data-change]")].map((r) => r.getAttribute("data-change"));
     expect(rows).toEqual(["3", "2", "1"]);
     expect(screen.getAllByRole("button", { name: "Undo" })).toHaveLength(2);
     expect(screen.getByText("undone")).toBeInTheDocument();
-    expect(container.querySelector('[data-change="2"] .dot')).toHaveStyle({ background: "#c06bf0" });
+    expect(container.querySelector('[data-change="2"] .dot')).toHaveStyle({ background: "#b86bff" });
   });
 
   it("undo_one_confirms_then_calls_undo", async () => {
     backend({ undo: () => null });
-    render(Changes, { onBack: () => {} });
+    render(Changes);
     await userEvent.click((await screen.findAllByRole("button", { name: "Undo" }))[0]);
     expect(invoke).not.toHaveBeenCalledWith("undo", expect.anything());
     expect(screen.getByText("Undo change 3: Turned on Claude limits for agent1?")).toBeInTheDocument();
@@ -44,7 +44,7 @@ describe("Changes", () => {
         throw msg;
       },
     });
-    render(Changes, { onBack: () => {} });
+    render(Changes);
     await userEvent.click((await screen.findAllByRole("button", { name: "Undo" }))[1]);
     await userEvent.click(screen.getByRole("button", { name: "Yes, undo" }));
     expect(await screen.findByText(msg)).toBeInTheDocument();
@@ -52,7 +52,7 @@ describe("Changes", () => {
 
   it("undo_everything_confirms_then_calls_undo_all", async () => {
     backend({ undo_all: () => 2 });
-    render(Changes, { onBack: () => {} });
+    render(Changes);
     await userEvent.click(await screen.findByRole("button", { name: "Undo everything" }));
     expect(screen.getByText("Undo every change Agent Roster made?")).toBeInTheDocument();
     expect(invoke).not.toHaveBeenCalledWith("undo_all");
@@ -62,7 +62,7 @@ describe("Changes", () => {
 
   it("cancel leaves everything alone", async () => {
     backend();
-    render(Changes, { onBack: () => {} });
+    render(Changes);
     await userEvent.click(await screen.findByRole("button", { name: "Undo everything" }));
     await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.queryByText("Undo every change Agent Roster made?")).not.toBeInTheDocument();
@@ -70,7 +70,7 @@ describe("Changes", () => {
 
   it("hooks_row_says_none_ever", async () => {
     backend();
-    render(Changes, { onBack: () => {} });
+    render(Changes);
     expect(await screen.findByText("Hooks added to your tools")).toBeInTheDocument();
     expect(screen.getByText("none, ever")).toBeInTheDocument();
     expect(screen.getByText(/To remove Agent Roster and put all of this back, run/)).toBeInTheDocument();
@@ -78,7 +78,7 @@ describe("Changes", () => {
 
   it("empty history", async () => {
     invoke.mockResolvedValue([]);
-    render(Changes, { onBack: () => {} });
+    render(Changes);
     expect(await screen.findByText("Agent Roster hasn't changed anything yet")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Undo everything" })).not.toBeInTheDocument();
   });
