@@ -2,6 +2,7 @@
   import type { AgentView, ColorView, OpRequest, PlanView, TerminalApp } from "../lib/types";
   import { apply, copyText, message, preview, signIn } from "../lib/api";
   import { rememberedTerminal } from "../lib/terminal";
+  import { clearLogin, logins, prefs, setSignInWith, signInInApp, type SignInWith } from "../lib/signin.svelte";
   import TerminalButton from "./TerminalButton.svelte";
   import RolePicker from "./RolePicker.svelte";
   import { onDestroy } from "svelte";
@@ -183,8 +184,20 @@
     onApplied(notice(r), r.op);
   }
 
+  /** Sign in, the way the setting says: the browser (a terminal running `roster login`) or an Agent Roster window. */
   async function signInAgain() {
     actionError = null;
+    if (prefs.signInWith === "window") {
+      await signInInApp(agent.name, agent.id);
+      return;
+    }
+    await signInBrowser();
+  }
+
+  /** Today's sign-in: a terminal running `roster login`, which opens the browser. */
+  async function signInBrowser() {
+    actionError = null;
+    clearLogin(agent.id);
     const app = terminals.find((t) => t.id === rememberedTerminal()) ?? null;
     if (app && !app.runs) await copyText(`roster login ${agent.name}`);
     try {
@@ -192,6 +205,16 @@
       if (!ran && app) actionError = `roster login ${agent.name} is copied. Paste it in ${app.label} and press Return.`;
     } catch (e) {
       actionError = message(e);
+    }
+  }
+
+  let settingError = $state<string | null>(null);
+  async function chooseSignIn(w: SignInWith) {
+    settingError = null;
+    try {
+      await setSignInWith(w);
+    } catch (e) {
+      settingError = message(e);
     }
   }
 
@@ -213,6 +236,7 @@
   const signedOut = $derived(agent.health === "sign-in");
   const noNumbers = $derived(agent.windows.length === 0);
   const live = $derived(agent.state === "working" || agent.live);
+  const login = $derived(logins[agent.id]);
 </script>
 
 <svelte:window
@@ -243,6 +267,15 @@
       Or type <code class="mono">{agent.name}</code> in any terminal
       <button class="link" onclick={copyName}>{copied ? "Copied" : "Copy"}</button>
     </p>
+
+    {#if login?.state === "failed"}
+      <div class="sign-fail" role="alert">
+        <span>{login.reason}</span>
+        <button class="btn sm" onclick={signInBrowser}>Sign in with your browser</button>
+      </div>
+    {:else if login}
+      <p class="usage-line" role="status">Signing in… (finish in the Agent Roster window)</p>
+    {/if}
 
     {#if signedOut}
       <p class="usage-line">
@@ -402,6 +435,21 @@
         <button class="btn sm" onclick={signInAgain}>Sign in again</button>
         <p class="hint">Opens {agent.tool_label}'s own sign-in, to fix a sign-in or switch to another account</p>
         {#if actionError}<p class="note">{actionError}</p>{/if}
+        <div class="with">
+          <span class="dim">Sign in with</span>
+          <div class="seg" role="radiogroup" aria-label="Sign in with">
+            <button role="radio" aria-checked={prefs.signInWith === "browser"} onclick={() => chooseSignIn("browser")}>Your browser</button>
+            <button role="radio" aria-checked={prefs.signInWith === "window"} onclick={() => chooseSignIn("window")}
+              >Agent Roster window</button
+            >
+          </div>
+        </div>
+        <p class="hint">
+          For every agent. {prefs.signInWith === "window"
+            ? "The sign-in page opens in a private Agent Roster window. Some sign-ins (Microsoft, Apple, company) need your browser."
+            : "Your browser opens the sign-in page."}
+        </p>
+        {#if settingError}<p class="hint">{settingError}</p>{/if}
       </div>
 
       <span class="k">Remove</span>
@@ -660,6 +708,43 @@
   }
   .danger {
     color: var(--coral);
+  }
+  .sign-fail {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--coral);
+  }
+  .with {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 10px;
+    font-size: 12px;
+  }
+  .seg {
+    display: inline-flex;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .seg button {
+    height: 26px;
+    padding: 0 10px;
+    border: 0;
+    background: none;
+    color: var(--mut);
+    font: inherit;
+    font-size: 12px;
+  }
+  .seg button + button {
+    border-left: 1px solid var(--line);
+  }
+  .seg button[aria-checked="true"] {
+    background: var(--raise);
+    color: var(--txt);
   }
   .note {
     margin: 6px 0 0;

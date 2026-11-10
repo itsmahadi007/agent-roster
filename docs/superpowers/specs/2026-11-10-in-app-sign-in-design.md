@@ -104,7 +104,7 @@ would make Agent Roster handle passwords and 2FA codes and break the tools' own 
 - No JavaScript injected into pages; no reading page content; URLs never logged.
 
 ### The option
-- Settings: *Sign in with* — Agent Roster window (default) · My browser.
+- Settings: *Sign in with* — My browser (default, owner decision §7) · Agent Roster window. The setting lives in `app-settings.json` next to the roster file; popups only for `accounts.google.com`.
 - `roster login <name>` in a terminal keeps using the browser (it is the terminal path).
 - The drawer's Sign in button and Add agent's sign-in step follow the setting.
 
