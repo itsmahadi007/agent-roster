@@ -1006,6 +1006,52 @@ fn quitting_cancels_every_sign_in_and_waits_for_it_to_stop() {
     assert_eq!(w.login.started(), 2);
 }
 
+/// Quitting while a sign-in is still starting (its handle hasn't come back): quitting waits
+/// for the handle, cancels it and waits for it to stop, so no process is left on Unix.
+#[test]
+fn quitting_waits_for_a_sign_in_still_starting() {
+    let w = world();
+    w.add("boss");
+    *w.login.cleanup.lock().unwrap() = Some(Duration::from_millis(200));
+    let (release, held) = std::sync::mpsc::channel();
+    *w.login.hold.lock().unwrap() = Some(held);
+    let b = Arc::clone(&w.b);
+    let starting = std::thread::spawn(move || b.sign_in_in_app("boss"));
+    wait_until("the login never started", || w.login.started() == 1);
+    let b = Arc::clone(&w.b);
+    let quitting = std::thread::spawn(move || b.cancel_all_logins(Duration::from_secs(5)));
+    std::thread::sleep(Duration::from_millis(200));
+    assert!(
+        !quitting.is_finished(),
+        "quit before the login's handle came back"
+    );
+    release.send(()).unwrap();
+    starting.join().unwrap().unwrap();
+    assert_eq!(quitting.join().unwrap(), 1);
+    assert_eq!(w.login.cancels(), 1, "the login was left running");
+    assert_eq!(
+        w.login.stopped.load(Ordering::SeqCst),
+        1,
+        "returned before the login stopped"
+    );
+}
+
+/// A start that never hands its handle back holds quitting up only so long.
+#[test]
+fn quitting_waits_for_a_stuck_start_only_so_long() {
+    let w = world();
+    w.add("boss");
+    let (_release, held) = std::sync::mpsc::channel::<()>();
+    *w.login.hold.lock().unwrap() = Some(held);
+    let b = Arc::clone(&w.b);
+    let _starting = std::thread::spawn(move || b.sign_in_in_app("boss"));
+    wait_until("the login never started", || w.login.started() == 1);
+    let t = Instant::now();
+    assert_eq!(w.b.cancel_all_logins(Duration::from_millis(300)), 0);
+    assert!(t.elapsed() >= Duration::from_millis(250));
+    assert!(t.elapsed() < Duration::from_secs(2));
+}
+
 #[test]
 fn quitting_waits_for_a_stuck_sign_in_only_so_long() {
     let w = world();

@@ -26,7 +26,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 pub const NO_ROSTER_BIN: &str = "Agent Roster's `roster` command wasn't found. If you opened the app from the downloaded disk image, drag it to Applications and open it from there. Otherwise reinstall Agent Roster.";
@@ -187,6 +187,8 @@ pub struct Backend {
     login: LoginStarter,
     login_ui: OnceLock<Arc<dyn LoginUi>>,
     logins: Mutex<Logins>,
+    /// Signalled when a starting login's handle comes back (for `cancel_all_logins`).
+    login_started: Condvar,
     login_seq: AtomicU64,
     /// A sign-in just finished: the next usage check skips the 30 s wait.
     check_now: AtomicBool,
@@ -203,6 +205,11 @@ struct Logins {
     cancel_later: HashSet<u64>,
     /// The app is quitting: no new sign-in starts.
     closing: bool,
+    /// Logins whose start hasn't handed back its handle yet.
+    starting: HashSet<u64>,
+    /// Handles that came back while the app was quitting, already canceled: quitting waits
+    /// for them to stop.
+    late: Vec<LoginHandle>,
 }
 
 struct ActiveLogin {
@@ -266,6 +273,7 @@ impl Backend {
             login: c.login,
             login_ui: OnceLock::new(),
             logins: Mutex::new(Logins::default()),
+            login_started: Condvar::new(),
             login_seq: AtomicU64::new(1),
             check_now: AtomicBool::new(false),
             #[cfg(test)]
@@ -322,6 +330,7 @@ impl Backend {
             let seq = self.login_seq.fetch_add(1, Ordering::Relaxed);
             l.active
                 .insert(id.clone(), ActiveLogin { seq, handle: None });
+            l.starting.insert(seq);
             seq
         };
         let me = Arc::downgrade(self);
@@ -345,6 +354,18 @@ impl Backend {
         match (self.login)(&req, on_event) {
             Ok(h) => {
                 let mut l = self.logins();
+                if l.closing {
+                    // The app is quitting: stop it now, and let quitting wait for it.
+                    drop(l);
+                    h.cancel();
+                    let mut l = self.logins();
+                    l.starting.remove(&seq);
+                    l.cancel_later.remove(&seq);
+                    l.late.push(h);
+                    self.login_started.notify_all();
+                    return Ok(());
+                }
+                l.starting.remove(&seq);
                 match l.active.get_mut(&id) {
                     Some(a) if a.seq == seq => a.handle = Some(h),
                     _ => {
@@ -359,6 +380,8 @@ impl Backend {
                 Ok(())
             }
             Err(e) => {
+                self.logins().starting.remove(&seq);
+                self.login_started.notify_all();
                 self.take_login(&id, seq, false);
                 Err(e)
             }
@@ -468,10 +491,11 @@ impl Backend {
 
     /// For app exit: cancels every sign-in in progress and waits, at most `within` in all,
     /// for each to stop the processes it started (on macOS and Linux nothing else stops them).
+    /// A sign-in still starting is waited for too: its handle is canceled when it comes back.
     /// No sign-in starts afterwards. Returns how many were canceled.
     pub fn cancel_all_logins(&self, within: Duration) -> usize {
         let deadline = Instant::now() + within;
-        let handles: Vec<LoginHandle> = {
+        let mut handles: Vec<LoginHandle> = {
             let mut l = self.logins();
             l.closing = true;
             let all: Vec<ActiveLogin> = l.active.drain().map(|(_, a)| a).collect();
@@ -479,7 +503,8 @@ impl Backend {
             for a in all {
                 match a.handle {
                     Some(h) => handles.push(h),
-                    // Still starting: canceled the moment its handle comes back.
+                    // Still starting: canceled the moment its handle comes back (also after
+                    // the wait below gives up).
                     None => {
                         l.cancel_later.insert(a.seq);
                     }
@@ -490,6 +515,21 @@ impl Backend {
         for h in &handles {
             h.cancel();
         }
+        // Wait for the starts still under way; each cancels its own handle when it comes.
+        let mut l = self.logins();
+        while !l.starting.is_empty() {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                break;
+            }
+            l = self
+                .login_started
+                .wait_timeout(l, left)
+                .unwrap_or_else(|e| e.into_inner())
+                .0;
+        }
+        handles.append(&mut l.late);
+        drop(l);
         for h in &handles {
             h.wait_ended(deadline.saturating_duration_since(Instant::now()));
         }
