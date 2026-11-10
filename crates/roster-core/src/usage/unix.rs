@@ -46,16 +46,34 @@ pub fn spawn_piped(cmd: &mut Command) -> std::io::Result<Child> {
 /// Stops the child's whole process group, then waits for the child.
 pub fn kill_tree(child: &mut Child) {
     // Signal the group before reaping the child: a leader that already exited still leaves
-    // its group (and the group id) to the processes it started, and reaping it first would
-    // skip them. Until it is reaped below, its id can't be reused.
-    if let Ok(pgid) = libc::pid_t::try_from(child.id()) {
-        // SAFETY: a plain signal to the group the child leads (see `hide`).
+    // its group to the processes it started, and reaping it first would skip them. But once
+    // the leader was reaped (a caller's `try_wait` saw it exit) its id may belong to someone
+    // else, so the group is signalled only while the leader is still unreaped.
+    if let Ok(pgid) = libc::pid_t::try_from(child.id())
+        && unreaped(pgid)
+    {
+        // SAFETY: a plain signal to the group the child leads (see `hide`); the leader is not
+        // reaped, so the id is still ours.
         unsafe {
             libc::kill(-pgid, libc::SIGKILL);
         }
     }
     let _ = child.kill();
     let _ = child.wait();
+}
+
+/// The child is running or exited but not yet reaped: asks without reaping it.
+fn unreaped(pid: libc::pid_t) -> bool {
+    // SAFETY: `waitid` with WNOWAIT only reads the child's state into a zeroed struct.
+    unsafe {
+        let mut info: libc::siginfo_t = std::mem::zeroed();
+        libc::waitid(
+            libc::P_PID,
+            pid as libc::id_t,
+            &mut info,
+            libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
+        ) == 0
+    }
 }
 
 /// Folders where Claude Code and Codex usually live that the app's PATH may lack (an app
@@ -108,6 +126,27 @@ mod tests {
             tool_dirs_with(Path::new("/home/you"), &env).last(),
             Some(&PathBuf::from("/opt/npm/bin"))
         );
+    }
+
+    /// Running and exited-but-unreaped children are still ours; a reaped one is not, so
+    /// `kill_tree` never signals a group id that may have been given to someone else.
+    #[test]
+    fn only_an_unreaped_child_counts_as_ours() {
+        let mut running = Command::new("sleep").arg("5").spawn().unwrap();
+        assert!(unreaped(running.id() as libc::pid_t));
+        let _ = running.kill();
+        let _ = running.wait();
+        assert!(!unreaped(running.id() as libc::pid_t));
+
+        let exited = Command::new("true").spawn().unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(
+            unreaped(exited.id() as libc::pid_t),
+            "a zombie is still ours"
+        );
+        let mut exited = exited;
+        let _ = exited.wait();
+        assert!(!unreaped(exited.id() as libc::pid_t));
     }
 
     /// The leader exits at once and leaves `sleep` holding stdout in its group: the group
