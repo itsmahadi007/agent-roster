@@ -18,8 +18,10 @@ the other agents stay visible while you do.
 
 ## Goals
 
-1. **One column, no right pane.** The window opens about 760 px wide (minWidth about 560). The list is centered,
-   max width about 720 px.
+1. **One column, no right pane.** The window opens 760 x 720 (minWidth 560) on every platform. The content fills
+   the window's width with 24 px sides, like a native app; it is not a centered page with empty sides (owner,
+   2026-11-10, after seeing a wide window: "the internal size should match the app size"). This replaces the
+   earlier "centered, max width about 720 px".
 2. **Each row**: color square, the name in its color, "role · tool · status", the weekly % ("68% week"), one bar and
    the reset time ("resets in 2d 18h"). At 90% or more the %, the bar and the reset text turn coral. Rows with no
    numbers keep today's words ("not used yet", "sign in"). A chevron on the right turns when the row is open.

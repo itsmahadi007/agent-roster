@@ -167,6 +167,13 @@
     gap: 48px;
     align-items: start;
   }
+  /* A narrow window stacks the preview under the form. */
+  @media (max-width: 820px) {
+    .cols {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 24px;
+    }
+  }
   .lbl.first {
     margin-top: 0;
   }

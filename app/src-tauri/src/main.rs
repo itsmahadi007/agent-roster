@@ -115,3 +115,22 @@ fn main() {
         let _ = (handle, event);
     });
 }
+
+#[cfg(test)]
+mod window_config_tests {
+    /// Every platform's config opens the list-first window at the same size.
+    #[test]
+    fn every_platform_opens_the_list_first_window() {
+        for (name, text) in [
+            ("tauri.conf.json", include_str!("../tauri.conf.json")),
+            ("tauri.macos.conf.json", include_str!("../tauri.macos.conf.json")),
+            ("tauri.windows.conf.json", include_str!("../tauri.windows.conf.json")),
+        ] {
+            let v: serde_json::Value = serde_json::from_str(text).unwrap();
+            let w = &v["app"]["windows"][0];
+            assert_eq!(w["width"], 760, "{name}");
+            assert_eq!(w["height"], 720, "{name}");
+            assert_eq!(w["minWidth"], 560, "{name}");
+        }
+    }
+}

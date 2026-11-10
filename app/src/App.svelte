@@ -142,10 +142,9 @@
     min-height: 0;
     overflow-y: auto;
   }
+  /* The content fills the window, like a native app: no centered page with empty sides. */
   .column {
-    max-width: 720px;
-    margin: 0 auto;
-    padding: 0 20px;
+    min-width: 0;
   }
   .notice {
     position: fixed;

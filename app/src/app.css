@@ -112,6 +112,7 @@ button {
   padding: 0 16px;
   font-size: 13px;
   font-weight: 500;
+  white-space: nowrap;
   border: 1px solid var(--line);
   background: var(--raise);
   color: var(--txt);
