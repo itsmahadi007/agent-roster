@@ -151,6 +151,7 @@ mod tests {
             share: false,
             limits: crate::model::LimitsSource::Off,
             advanced_links: vec![],
+            good_at: None,
         });
         r
     }

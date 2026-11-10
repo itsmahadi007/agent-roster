@@ -187,7 +187,7 @@ limits = "codex-sessions"       # codex-sessions | claude-statusline | off
   `<name> exec "<task>"`, `--full-auto` to let it edit); "never call bare `claude`/`codex` from
   inside a session, use a roster name"; "pass a self-contained task, relay the result"; how to check
   which account you are.
-- It does **not** list what each tool is good at. That is the agents' own knowledge (owner's rule).
+- It lists what each agent is good at ("Good at" column): the tool's defaults (Claude Code: coding, reviewing code, long tasks; Codex: coding, making images), or what the person set. Changed by the owner on 2026-11-10, replacing the earlier rule that the note doesn't list capabilities. A Leader role adds one sentence naming the leader(s).
 - Rewritten on every roster change; re-running is idempotent (verified in the prototype).
 
 ### 5.5 Sharing (off by default)

@@ -175,6 +175,7 @@ pub fn overview_json(o: &Overview) -> serde_json::Value {
                 "role": a.agent.role,
                 "default": a.agent.default,
                 "share": a.agent.share,
+                "good_at": roster_core::model::good_at_of(&a.agent),
                 "status": a.state.label(),
                 "email": a.sign_in.email,
                 "plan": a.sign_in.plan.clone().or_else(|| a.limits.as_ref().and_then(|l| l.plan.clone())),

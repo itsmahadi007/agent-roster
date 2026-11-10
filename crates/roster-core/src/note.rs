@@ -17,20 +17,36 @@ pub fn render_note(r: &Roster, me: &Agent) -> String {
         "You are `{}`. These are the other AI accounts on this computer. Each one has its own login and its own limits.\n\n",
         me.name
     ));
-    s.push_str("| Name | Tool | Role |\n|---|---|---|\n");
+    s.push_str("| Name | Tool | Role | Good at |\n|---|---|---|---|\n");
+    let cell = |t: &str| t.replace('|', "/").replace('\n', " ");
     for a in &r.agents {
-        let role = a
-            .role
-            .as_deref()
-            .unwrap_or("")
-            .replace('|', "/")
-            .replace('\n', " ");
         s.push_str(&format!(
-            "| {} | {} | {} |\n",
+            "| {} | {} | {} | {} |\n",
             a.name,
             a.tool.display(),
-            role
+            cell(a.role.as_deref().unwrap_or("")),
+            cell(&crate::model::good_at_of(a).join(", "))
         ));
+    }
+    let leaders: Vec<String> = r
+        .agents
+        .iter()
+        .filter(|a| {
+            a.role
+                .as_deref()
+                .is_some_and(|x| x.trim().eq_ignore_ascii_case("leader"))
+        })
+        .map(|a| format!("`{}`", a.name))
+        .collect();
+    match leaders.as_slice() {
+        [] => {}
+        [one] => s.push_str(&format!(
+            "\n{one} is the leader: give it big tasks; it splits them and hands parts to the workers.\n"
+        )),
+        [rest @ .., last] => s.push_str(&format!(
+            "\n{} and {last} are leaders: give them big tasks; they split them and hand parts to the workers.\n",
+            rest.join(", ")
+        )),
     }
     s.push_str(
         "\nHow to use another agent:\n\
@@ -143,6 +159,7 @@ pub(crate) mod tests {
             share: false,
             limits: LimitsSource::Off,
             advanced_links: vec![],
+            good_at: None,
         }
     }
 
@@ -197,15 +214,49 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn note_lists_names_tools_roles_and_no_capabilities() {
+    fn note_lists_names_tools_roles_and_good_at() {
         let n = blk();
         assert!(n.contains("| boss | Claude Code | plans work |"));
         assert!(n.contains("| worker2 | Codex |  |"));
         assert!(n.contains("You are `boss`"));
         assert!(n.contains("<name> -p \"<task>\""));
         assert!(n.contains("<name> exec \"<task>\""));
-        assert!(!n.to_lowercase().contains("image"));
         assert!(n.starts_with(BEGIN) && n.trim_end().ends_with(END));
+    }
+
+    #[test]
+    fn note_lists_good_at_column() {
+        let n = blk();
+        assert!(n.contains("| Name | Tool | Role | Good at |\n|---|---|---|---|\n"));
+        assert!(
+            n.contains("| boss | Claude Code | plans work | coding, reviewing code, long tasks |")
+        );
+        assert!(n.contains("| worker2 | Codex |  | coding, making images |"));
+    }
+
+    #[test]
+    fn note_uses_the_good_at_someone_set() {
+        let mut r = roster_boss_worker();
+        r.agents[1].good_at = Some(vec!["tests".into(), "a | b".into()]);
+        assert!(render_note(&r, &r.agents[0]).contains("| worker2 | Codex |  | tests, a / b |"));
+    }
+
+    #[test]
+    fn note_names_every_leader() {
+        let mut r = roster_boss_worker();
+        assert!(
+            !render_note(&r, &r.agents[0])
+                .to_lowercase()
+                .contains("leader")
+        );
+        r.agents[0].role = Some("Leader".into());
+        assert!(render_note(&r, &r.agents[0]).contains(
+            "`boss` is the leader: give it big tasks; it splits them and hands parts to the workers."
+        ));
+        r.agents[1].role = Some("leader".into());
+        assert!(render_note(&r, &r.agents[0]).contains(
+            "`boss` and `worker2` are leaders: give them big tasks; they split them and hand parts to the workers."
+        ));
     }
 
     #[test]

@@ -14,6 +14,12 @@
       "default": true,
       "role": null,
       "share": false,
+      "good_at": [
+        "coding",
+        "reviewing code",
+        "long tasks"
+      ],
+      "good_at_custom": false,
       "state": "working",
       "status_text": "calling agent3",
       "windows": [
@@ -49,6 +55,12 @@
       "default": false,
       "role": null,
       "share": false,
+      "good_at": [
+        "coding",
+        "reviewing code",
+        "long tasks"
+      ],
+      "good_at_custom": false,
       "state": "sign-in",
       "status_text": "sign in",
       "windows": [],
@@ -73,6 +85,11 @@
       "default": false,
       "role": null,
       "share": false,
+      "good_at": [
+        "coding",
+        "making images"
+      ],
+      "good_at_custom": false,
       "state": "working",
       "status_text": "working",
       "windows": [
@@ -103,6 +120,11 @@
       "default": false,
       "role": null,
       "share": false,
+      "good_at": [
+        "coding",
+        "making images"
+      ],
+      "good_at_custom": false,
       "state": "ready",
       "status_text": "ready",
       "windows": [

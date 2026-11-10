@@ -86,6 +86,15 @@ enum Cmd {
         #[command(flatten)]
         yes: Yes,
     },
+    /// Set what other agents read this agent is good at. --reset goes back to the tool's usual list.
+    GoodAt {
+        name: String,
+        items: Vec<String>,
+        #[arg(long, conflicts_with = "items")]
+        reset: bool,
+        #[command(flatten)]
+        yes: Yes,
+    },
     /// Share your skills with an agent, or stop sharing.
     Share {
         name: String,
@@ -588,6 +597,21 @@ fn real() -> Result<u8, String> {
         }
         Some(Cmd::Role { name, role, yes }) => app.run_plan(
             ops::plan_set_role(&app.roster()?, &app.p, &ctx, &name, role),
+            yes,
+        ),
+        Some(Cmd::GoodAt {
+            name,
+            items,
+            reset,
+            yes,
+        }) => app.run_plan(
+            ops::plan_set_good_at(
+                &app.roster()?,
+                &app.p,
+                &ctx,
+                &name,
+                (!reset).then_some(items),
+            ),
             yes,
         ),
         Some(Cmd::Share { name, state, yes }) => app.run_plan(

@@ -55,6 +55,10 @@ pub struct AgentView {
     pub role: Option<String>,
     /// Uses the skills of the main account.
     pub share: bool,
+    /// What other agents read it's good at: the list someone set, or the tool's defaults.
+    pub good_at: Vec<String>,
+    /// True when someone set `good_at`; false when it shows the defaults.
+    pub good_at_custom: bool,
     pub state: String,
     pub status_text: String,
     pub windows: Vec<WindowView>,
@@ -252,6 +256,8 @@ fn agent_view(s: &AgentStatus, o: &Overview, now: i64) -> AgentView {
         default: a.default,
         role: a.role.clone(),
         share: a.share,
+        good_at: crate::model::good_at_of(a),
+        good_at_custom: a.good_at.is_some(),
         state: state_key(s.state).to_string(),
         status_text,
         windows: windows
@@ -375,6 +381,7 @@ pub fn first_run_view(
                         share: false,
                         limits: LimitsSource::Off,
                         advanced_links: vec![],
+                        good_at: None,
                     };
                     sign_in_for(&probe, r, p, path, runner)
                 })

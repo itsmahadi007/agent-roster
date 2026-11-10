@@ -26,6 +26,7 @@ fn agent(id: &str, name: &str, tool: Tool, color: AgentColor, limits: LimitsSour
         share: false,
         limits,
         advanced_links: vec![],
+        good_at: None,
     }
 }
 
@@ -498,4 +499,19 @@ fn a_signed_in_agent_without_numbers_says_how_to_get_them() {
         v.agents[3].limits_note.as_deref(),
         Some(format!("usage shows after you use {name}").as_str())
     );
+}
+
+#[test]
+fn agent_view_shows_good_at_defaults_until_someone_sets_them() {
+    let mut o = sample();
+    let v = overview_view(&o, Path::new(HOME), NOW);
+    assert_eq!(
+        v.agents[0].good_at,
+        ["coding", "reviewing code", "long tasks"]
+    );
+    assert!(!v.agents[0].good_at_custom);
+    o.agents[0].agent.good_at = Some(vec!["planning".into()]);
+    let v = overview_view(&o, Path::new(HOME), NOW);
+    assert_eq!(v.agents[0].good_at, ["planning"]);
+    assert!(v.agents[0].good_at_custom);
 }

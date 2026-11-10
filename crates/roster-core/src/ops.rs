@@ -202,6 +202,7 @@ pub fn plan_adopt(
         share: false,
         limits: default_limits(tool),
         advanced_links: vec![],
+        good_at: None,
     });
     let steps = vec![
         step(
@@ -291,6 +292,7 @@ pub fn plan_add(r: &Roster, p: &RosterPaths, ctx: &Ctx, req: AddRequest) -> Resu
         share: req.share,
         limits: default_limits(req.tool),
         advanced_links: vec![],
+        good_at: None,
     });
     let n = &req.name;
     let mut steps = vec![
@@ -453,6 +455,52 @@ pub fn plan_set_color(
     Ok(finish(
         format!("Changed {}'s color", a.name),
         steps,
+        after,
+        vec![],
+        p,
+        ctx,
+    ))
+}
+
+pub fn plan_set_good_at(
+    r: &Roster,
+    p: &RosterPaths,
+    ctx: &Ctx,
+    name: &str,
+    items: Option<Vec<String>>,
+) -> Result<Plan, OpError> {
+    let items: Option<Vec<String>> = items.map(|v| {
+        v.iter()
+            .map(|x| x.trim().replace('|', "/").replace('\n', " "))
+            .filter(|x| !x.is_empty())
+            .collect()
+    });
+    let (after, a) = edit(r, name, |a| a.good_at = items.clone())?;
+    let (summary, text) = match &items {
+        Some(v) => (
+            format!("Set what {} is good at", a.name),
+            format!(
+                "Tells your agents that {} is good at: {}.",
+                a.name,
+                if v.is_empty() {
+                    "nothing listed".to_string()
+                } else {
+                    v.join(", ")
+                }
+            ),
+        ),
+        None => (
+            format!("Reset what {} is good at", a.name),
+            format!(
+                "Goes back to what {} is usually good at: {}.",
+                a.tool.display(),
+                crate::model::default_good_at(a.tool).join(", ")
+            ),
+        ),
+    };
+    Ok(finish(
+        summary,
+        vec![step(StepKind::Note, text)],
         after,
         vec![],
         p,

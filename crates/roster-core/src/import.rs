@@ -88,6 +88,7 @@ pub fn plan_import(r: &Roster, p: &RosterPaths, ctx: &Ctx) -> Result<Plan, OpErr
             share: false,
             limits: default_limits(l.tool),
             advanced_links: vec![],
+            good_at: None,
         };
         if !adopted {
             let (note, skills, advanced): (&str, &[&str], &[&str]) = match l.tool {

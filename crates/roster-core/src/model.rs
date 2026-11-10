@@ -120,6 +120,29 @@ pub struct Agent {
     pub limits: LimitsSource,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub advanced_links: Vec<String>,
+    /// What other agents should know it's good at. None means the tool's defaults.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub good_at: Option<Vec<String>>,
+}
+
+/// What a tool is good at, until someone says otherwise for one agent.
+pub fn default_good_at(tool: Tool) -> Vec<&'static str> {
+    match tool {
+        Tool::Claude => vec!["coding", "reviewing code", "long tasks"],
+        // Image generation is a stable, on-by-default Codex feature (codex-cli 0.167.0).
+        Tool::Codex => vec!["coding", "making images"],
+    }
+}
+
+/// The agent's "good at" list: what someone set, or the tool's defaults.
+pub fn good_at_of(a: &Agent) -> Vec<String> {
+    match &a.good_at {
+        Some(v) => v.clone(),
+        None => default_good_at(a.tool)
+            .into_iter()
+            .map(String::from)
+            .collect(),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -298,6 +321,7 @@ mod tests {
             share: false,
             limits: LimitsSource::Off,
             advanced_links: vec![],
+            good_at: None,
         }
     }
 
