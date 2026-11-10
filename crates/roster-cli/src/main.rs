@@ -239,11 +239,7 @@ fn show_overview(app: &App, json: bool) -> Result<u8, String> {
     if r.agents.is_empty() && !json {
         println!("\n Agent Roster has no agents yet.\n");
         let tools = [Tool::Claude, Tool::Codex].map(|t| {
-            roster_core::detect::find_tool(
-                t,
-                &env_var("PATH").unwrap_or_default(),
-                &app.p.bin_dir(),
-            )
+            roster_core::detect::find_tool(t, &env_var("PATH").unwrap_or_default(), &app.p)
         });
         for (t, found) in [Tool::Claude, Tool::Codex].iter().zip(tools.iter()) {
             match found {
@@ -331,7 +327,7 @@ fn doctor(app: &App) -> Result<u8, String> {
     };
     println!();
     for t in [Tool::Claude, Tool::Codex] {
-        let found = roster_core::detect::find_tool(t, &path_var, &app.p.bin_dir());
+        let found = roster_core::detect::find_tool(t, &path_var, &app.p);
         let used = r.agents.iter().any(|a| a.tool == t);
         check(
             found.is_some() || !used,
@@ -543,8 +539,7 @@ fn real() -> Result<u8, String> {
             let mut any = false;
             let path_var = env_var("PATH").unwrap_or_default();
             for (tool, name) in [(Tool::Claude, claude_name), (Tool::Codex, codex_name)] {
-                let installed =
-                    roster_core::detect::find_tool(tool, &path_var, &app.p.bin_dir()).is_some();
+                let installed = roster_core::detect::find_tool(tool, &path_var, &app.p).is_some();
                 let standard = expand_tilde(tool.standard_dir(), &app.p.home);
                 let on_roster = r
                     .agents

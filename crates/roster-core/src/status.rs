@@ -65,7 +65,7 @@ pub fn overview(
 ) -> Overview {
     let tools: Vec<ToolInfo> = [Tool::Claude, Tool::Codex]
         .into_iter()
-        .map(|t| tool_info(t, path_var, &p.bin_dir(), runner))
+        .map(|t| tool_info(t, path_var, p, runner))
         .collect();
     let sessions = live_sessions(p);
     let agents = std::thread::scope(|s| {

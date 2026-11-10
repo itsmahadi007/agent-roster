@@ -68,8 +68,7 @@ pub fn prepare_run(
         .by_id(id)
         .ok_or_else(|| RunError::UnknownAgent(id.to_string()))?;
     let path_var = env("PATH").unwrap_or_default();
-    let program =
-        find_tool(agent.tool, &path_var, &p.bin_dir()).ok_or(RunError::ToolMissing(agent.tool))?;
+    let program = find_tool(agent.tool, &path_var, p).ok_or(RunError::ToolMissing(agent.tool))?;
     let parent = env("ROSTER_AGENT").filter(|x| !x.is_empty() && x != id);
     let env_changes = build_env(agent, &r, p, parent.as_deref());
     let record = SessionRecord {

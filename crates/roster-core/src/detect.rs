@@ -105,10 +105,34 @@ pub struct SignIn {
     pub plan: Option<String>,
 }
 
-/// Finds the real tool on PATH, skipping Agent Roster's own launcher folder.
-pub fn find_tool(tool: Tool, path_var: &str, exclude: &Path) -> Option<PathBuf> {
+/// Finds the real tool on PATH, then in the folders tools usually install to (npm, WinGet,
+/// Homebrew, ~/.local/bin), skipping Agent Roster's own launcher folder.
+pub fn find_tool(tool: Tool, path_var: &str, p: &RosterPaths) -> Option<PathBuf> {
+    find_tool_in(tool, path_var, &p.bin_dir(), &usual_tool_dirs(p))
+}
+
+/// The usual install folders for this person. `%APPDATA%` and `%LOCALAPPDATA%` are the
+/// folders that hold Agent Roster's own config and data, so tests stay inside their temp home.
+fn usual_tool_dirs(p: &RosterPaths) -> Vec<PathBuf> {
+    let parent = |d: &Path| d.parent().map(|x| x.as_os_str().to_owned());
+    let env = |k: &str| match k {
+        "APPDATA" => parent(&p.config_dir),
+        "LOCALAPPDATA" => parent(&p.data_dir),
+        _ => std::env::var_os(k),
+    };
+    crate::usage::sys::tool_dirs_with(&p.home, &env)
+}
+
+/// `find_tool` with the extra folders given.
+pub fn find_tool_in(
+    tool: Tool,
+    path_var: &str,
+    exclude: &Path,
+    extra: &[PathBuf],
+) -> Option<PathBuf> {
     let dirs: Vec<PathBuf> = std::env::split_paths(path_var)
-        .filter(|d| d != exclude)
+        .chain(extra.iter().cloned())
+        .filter(|d| d != exclude && !d.as_os_str().is_empty())
         .collect();
     let joined = std::env::join_paths(dirs).ok()?;
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -131,10 +155,10 @@ pub fn parse_version(tool: Tool, stdout: &str) -> Option<String> {
 pub fn tool_info(
     tool: Tool,
     path_var: &str,
-    exclude: &Path,
+    paths: &RosterPaths,
     runner: &dyn CommandRunner,
 ) -> ToolInfo {
-    let path = find_tool(tool, path_var, exclude);
+    let path = find_tool(tool, path_var, paths);
     let version = path.as_ref().and_then(|p| {
         let out = runner
             .run(p, &["--version"], &[("CLAUDECODE".into(), None)])
@@ -274,9 +298,45 @@ mod tests {
         }
         let path_var = std::env::join_paths([&ours, &real]).unwrap();
         assert_eq!(
-            find_tool(Tool::Claude, &path_var.to_string_lossy(), &ours),
+            find_tool_in(Tool::Claude, &path_var.to_string_lossy(), &ours, &[]),
             Some(real.join("claude"))
         );
+    }
+
+    /// A runnable stand-in for `codex` in `dir`.
+    fn fake_codex(dir: &Path) -> PathBuf {
+        std::fs::create_dir_all(dir).unwrap();
+        #[cfg(windows)]
+        let f = dir.join("codex.cmd");
+        #[cfg(unix)]
+        let f = dir.join("codex");
+        std::fs::write(&f, "echo\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&f, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        f
+    }
+
+    #[test]
+    fn find_tool_looks_in_usual_folders_missing_from_path() {
+        // The app can start with a shorter PATH than a terminal (Explorer keeps the PATH from
+        // sign-in, so a tool installed later with npm is missing): the usual install folders
+        // are searched after PATH.
+        let d = tempfile::tempdir().unwrap();
+        let npm = d.path().join("npm");
+        let in_npm = fake_codex(&npm);
+        let ours = d.path().join("ours");
+        assert_eq!(
+            find_tool_in(Tool::Codex, "", &ours, std::slice::from_ref(&npm)),
+            Some(in_npm)
+        );
+        // A copy on PATH wins over the usual folders.
+        let on_path = fake_codex(&d.path().join("onpath"));
+        let path_var = std::env::join_paths([on_path.parent().unwrap()]).unwrap();
+        let found = find_tool_in(Tool::Codex, &path_var.to_string_lossy(), &ours, &[npm]);
+        assert_eq!(found, Some(on_path));
     }
 
     struct FakeRunner {

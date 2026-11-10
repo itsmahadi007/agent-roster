@@ -193,8 +193,8 @@ pub fn refresh_all(
     path_var: &str,
     runner: &(dyn CommandRunner + Sync),
 ) -> Vec<(String, Check)> {
-    let claude = tool_info(Tool::Claude, path_var, &p.bin_dir(), runner);
-    let codex = find_tool(Tool::Codex, path_var, &p.bin_dir());
+    let claude = tool_info(Tool::Claude, path_var, p, runner);
+    let codex = find_tool(Tool::Codex, path_var, p);
     let checks: Vec<(String, Check)> = std::thread::scope(|s| {
         let handles: Vec<_> = r
             .agents

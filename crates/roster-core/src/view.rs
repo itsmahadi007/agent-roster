@@ -440,7 +440,7 @@ pub fn first_run_view(
             !r.agents.iter().any(|a| r.config_dir_of(a, p) == standard)
         })
         .map(|(tool, name)| {
-            let info = tool_info(tool, path_var, &p.bin_dir(), runner);
+            let info = tool_info(tool, path_var, p, runner);
             let sign_in = info
                 .path
                 .as_ref()
