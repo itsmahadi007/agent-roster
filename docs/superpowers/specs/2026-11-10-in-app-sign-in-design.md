@@ -179,6 +179,24 @@ Windows-only, v0.3.4's macOS/Linux downloads carried over, the tag-triggered run
 Verified: Latest, latest.json 0.4.0 windows-x86_64 + windows-aarch64, downloads 200/206, and a
 real in-app update 0.3.4 → 0.4.0 on the owner's PC (installed roster.exe identical to the release).
 
+## 6d. Release 0.4.1: every platform (2026-11-11)
+
+- **macOS link hand-off, cause:** macOS refuses `setsockopt` (EINVAL) on an accepted Unix socket
+  whose peer has already shut down, and `roster` sends, shuts its end and exits at once, so
+  `set_read_timeout` failed and the link was dropped (Linux allows it). Fix: no socket options;
+  the stream is read non-blocking, bounded by 5 s and the stop flag. The app also listens before
+  Claude Code starts (a Windows pipe client can't finish before the app listens).
+- Colors are saved as `marigold` / `coral` again (0.3.x reads them), both names load, the app
+  shows cyan / pink. The login window's callback is pinned to its path (`/callback`,
+  `/auth/callback`, plus `/success`). Quitting waits for sign-ins still starting. A leader's
+  roster note says to run `roster limits` first and skip agents at their limit (owner: yes).
+- Found on the Mac: the title touched the green traffic light (newer macOS draws the buttons
+  larger); the inset is now 88 px.
+- Not done: the person-run sign-ins in WKWebView (owner skipped them; to be watched as issues)
+  and the Windows in-app update 0.4.0 -> 0.4.1. Done: CI green on all three OSes, release run
+  42889445005 green, Latest, `latest.json` 0.4.1 with all five platforms signed, every file 200,
+  in-app update 0.3.4 -> 0.4.1 on the Mac (installed app and `roster` report 0.4.1).
+
 ## 7. Review (codex_1, gpt-6.1-sol, high effort, read-only) and the one decision
 
 Blockers it raised, now in the plan above: embedded OAuth is discouraged by RFC 8252 (promise
