@@ -2,7 +2,10 @@
 //! Safety rules (docs/superpowers/specs/2026-11-10-in-app-sign-in-design.md):
 //! - only pages `roster_core::login::allowed_in_window` accepts, on every navigation; anything
 //!   else stops the login and sends the person to their browser;
-//! - popups only for Google's own sign-in (`accounts.google.com`), every other one is refused;
+//! - popups only for Google's own sign-in (`accounts.google.com`), every other one is refused.
+//!   An allowed popup is a window Agent Roster makes (never the webview's own default popup),
+//!   with the same page rules, title, private session and lifecycle as its login window,
+//!   and it closes with its login;
 //! - a private session per login (incognito plus its own data folder, deleted after);
 //! - no Tauri capabilities (`capabilities/*.json` grant to `main` only), no injected script,
 //!   no reading the page, and URLs are never logged;
@@ -17,8 +20,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use tauri::webview::{NewWindowResponse, PageLoadEvent};
-use tauri::{AppHandle, Emitter, Manager, Url, WebviewUrl, WebviewWindowBuilder};
+use tauri::webview::{NewWindowFeatures, NewWindowResponse, PageLoadEvent};
+use tauri::{AppHandle, Emitter, Manager, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 /// May the login window show this page? What the core allows, never one of the app's own
 /// pages (those could reach the app's commands), and only web pages.
@@ -55,6 +58,47 @@ pub fn pinned(
 /// claude.com opens and talks back to (the core's single rule).
 pub fn popup_allowed(url: &Url) -> bool {
     roster_core::login::allowed_popup(url.as_str())
+}
+
+/// What a page's request for a new window (`window.open`, a `target=_blank` link) gets.
+/// Never the webview's own default popup: that one would be outside every rule here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PopupDecision {
+    /// A window Agent Roster makes, ruled like its login window.
+    Open,
+    Refuse,
+}
+
+/// Google's sign-in from a login window opens as a managed popup; anything else, and any
+/// popup a popup asks for, is refused.
+pub fn popup_decision(url: &Url, from_popup: bool) -> PopupDecision {
+    if !from_popup && popup_allowed(url) {
+        PopupDecision::Open
+    } else {
+        PopupDecision::Refuse
+    }
+}
+
+/// The pages a login window and its popups may show (`page_allowed`), one object for both.
+pub struct PageRules {
+    allowed: Box<dyn Fn(&str) -> bool + Send + Sync>,
+    app_origins: Vec<Url>,
+}
+
+impl PageRules {
+    pub fn new(
+        allowed: impl Fn(&str) -> bool + Send + Sync + 'static,
+        app_origins: Vec<Url>,
+    ) -> Arc<PageRules> {
+        Arc::new(PageRules {
+            allowed: Box::new(allowed),
+            app_origins,
+        })
+    }
+
+    pub fn allows(&self, url: &Url) -> bool {
+        page_allowed(url, &*self.allowed, &self.app_origins)
+    }
 }
 
 /// "Sign in codex_2 · auth.openai.com 🔒": the page's real host, as ASCII (punycode for
@@ -124,6 +168,8 @@ struct Slot {
     label: String,
     /// Its login ended: the window goes (or is never kept, if still being made).
     closing: bool,
+    /// Its popups' labels.
+    popups: Vec<String>,
 }
 
 impl WindowTable {
@@ -138,6 +184,7 @@ impl WindowTable {
             Slot {
                 label: label.to_string(),
                 closing: false,
+                popups: vec![],
             },
         );
     }
@@ -167,21 +214,59 @@ impl WindowTable {
             .map(|s| s.label.as_str())
     }
 
-    /// The login ended: the windows to close now (none while it is still being made, it is
-    /// closed once made).
+    /// The login ended: the windows to close now, its popups too (a window still being
+    /// made is closed once made).
     pub fn close(&mut self, agent: &str, login: u64) -> Vec<String> {
         match self.slots.get_mut(&Self::key(agent, login)) {
             Some(s) => {
                 s.closing = true;
-                vec![s.label.clone()]
+                std::iter::once(s.label.clone())
+                    .chain(s.popups.iter().cloned())
+                    .collect()
             }
             None => vec![],
         }
     }
 
-    /// The window is gone.
-    pub fn destroyed(&mut self, agent: &str, login: u64) {
-        self.slots.remove(&Self::key(agent, login));
+    /// The login window is gone: returns its popups, which go with it.
+    pub fn destroyed(&mut self, agent: &str, login: u64) -> Vec<String> {
+        self.slots
+            .remove(&Self::key(agent, login))
+            .map(|s| s.popups)
+            .unwrap_or_default()
+    }
+
+    /// A popup of this login's window. False (no popup) once the login ended.
+    pub fn add_popup(&mut self, agent: &str, login: u64, label: &str) -> bool {
+        match self.slots.get_mut(&Self::key(agent, login)) {
+            Some(s) if !s.closing => {
+                s.popups.push(label.to_string());
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Is this popup still wanted (its login on, not closed)?
+    pub fn popup_wanted(&self, agent: &str, login: u64, label: &str) -> bool {
+        self.slots
+            .get(&Self::key(agent, login))
+            .is_some_and(|s| !s.closing && s.popups.iter().any(|p| p == label))
+    }
+
+    /// The login window moved on to another page: its popups are done.
+    pub fn take_popups(&mut self, agent: &str, login: u64) -> Vec<String> {
+        self.slots
+            .get_mut(&Self::key(agent, login))
+            .map(|s| std::mem::take(&mut s.popups))
+            .unwrap_or_default()
+    }
+
+    /// A popup is gone (closed by the person or by itself).
+    pub fn popup_destroyed(&mut self, agent: &str, login: u64, label: &str) {
+        if let Some(s) = self.slots.get_mut(&Self::key(agent, login)) {
+            s.popups.retain(|p| p != label);
+        }
     }
 }
 
@@ -203,14 +288,23 @@ impl TauriLoginUi {
     fn table(&self) -> std::sync::MutexGuard<'_, WindowTable> {
         self.windows.lock().unwrap_or_else(|e| e.into_inner())
     }
+}
 
-    fn destroy(&self, labels: &[String]) {
-        for l in labels {
-            if let Some(w) = self.app.get_webview_window(l) {
-                let _ = w.destroy();
-            }
+fn destroy(app: &AppHandle, labels: &[String]) {
+    for l in labels {
+        if let Some(w) = app.get_webview_window(l) {
+            let _ = w.destroy();
         }
     }
+}
+
+/// `destroy` off a window's own callback.
+fn destroy_later(app: &AppHandle, labels: Vec<String>) {
+    if labels.is_empty() {
+        return;
+    }
+    let app = app.clone();
+    std::thread::spawn(move || destroy(&app, &labels));
 }
 
 /// Runs a hook off the webview's own callback, which must return before the window can close.
@@ -234,15 +328,124 @@ fn set_title_later(app: &AppHandle, label: &str, title: String) {
     });
 }
 
+/// One login window and what its popups share with it.
+struct LoginWindow {
+    app: AppHandle,
+    agent: String,
+    agent_name: String,
+    login: u64,
+    label: String,
+    dir: PathBuf,
+    rules: Arc<PageRules>,
+    hooks: Arc<WindowHooks>,
+    /// One "needs your browser" per login, however many blocked requests follow.
+    blocked: AtomicBool,
+    windows: Arc<Mutex<WindowTable>>,
+    popups: AtomicU64,
+}
+
+impl LoginWindow {
+    fn table(&self) -> std::sync::MutexGuard<'_, WindowTable> {
+        self.windows.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// The page went somewhere it may not: the login goes to the browser.
+    fn block(&self) {
+        if !self.blocked.swap(true, Ordering::SeqCst) {
+            later(&self.hooks, true);
+        }
+    }
+
+    /// Every navigation of the login window or of one of its popups (`label`).
+    fn navigate(&self, label: &str, u: &Url) -> bool {
+        if self.rules.allows(u) {
+            set_title_later(&self.app, label, title_for(&self.agent_name, u));
+            true
+        } else {
+            self.block();
+            false
+        }
+    }
+
+    fn new_window(
+        self: &Arc<Self>,
+        u: &Url,
+        features: NewWindowFeatures,
+        from_popup: bool,
+    ) -> NewWindowResponse<tauri::Wry> {
+        match popup_decision(u, from_popup) {
+            PopupDecision::Open => match self.open_popup(u, features) {
+                Some(window) => NewWindowResponse::Create { window },
+                None => NewWindowResponse::Deny,
+            },
+            PopupDecision::Refuse => {
+                // A popup's own popups are only refused; the login window's go to the browser.
+                if !from_popup {
+                    self.block();
+                }
+                NewWindowResponse::Deny
+            }
+        }
+    }
+
+    /// Makes the popup the page asked for: the webview runtime then loads the page into it
+    /// and keeps `window.opener` working. Same rules, title, private session (the opener's
+    /// own WebView2 environment / WKWebView configuration, incognito) and no capabilities
+    /// (those are for `main` only); closed with its login.
+    fn open_popup(self: &Arc<Self>, u: &Url, features: NewWindowFeatures) -> Option<WebviewWindow> {
+        let n = self.popups.fetch_add(1, Ordering::Relaxed) + 1;
+        let label = format!("{}-popup-{n}", self.label);
+        if !self.table().add_popup(&self.agent, self.login, &label) {
+            return None;
+        }
+        let blank: Url = "about:blank".parse().ok()?;
+        let (nav, nav_label) = (Arc::clone(self), label.clone());
+        let popups = Arc::clone(self);
+        let load_name = self.agent_name.clone();
+        let built = WebviewWindowBuilder::new(&self.app, &label, WebviewUrl::External(blank))
+            .window_features(features)
+            .title(title_for(&self.agent_name, u))
+            .incognito(true)
+            .data_directory(self.dir.clone())
+            .on_navigation(move |u| nav.navigate(&nav_label, u))
+            .on_new_window(move |u, f| popups.new_window(&u, f, true))
+            .on_page_load(move |w, p| {
+                if p.event() == PageLoadEvent::Finished {
+                    let _ = w.set_title(&title_for(&load_name, p.url()));
+                }
+            })
+            .build();
+        let Ok(window) = built else {
+            self.table()
+                .popup_destroyed(&self.agent, self.login, &label);
+            return None;
+        };
+        let (me, my_label) = (Arc::clone(self), label.clone());
+        window.on_window_event(move |e| {
+            if let tauri::WindowEvent::Destroyed = e {
+                me.table().popup_destroyed(&me.agent, me.login, &my_label);
+            }
+        });
+        // The login may have ended while the popup was being made.
+        if !self.table().popup_wanted(&self.agent, self.login, &label) {
+            let _ = window.destroy();
+            return None;
+        }
+        Some(window)
+    }
+}
+
 impl LoginUi for TauriLoginUi {
     fn open(&self, spec: &LoginWindowSpec, hooks: WindowHooks) -> Result<(), String> {
         let url: Url = spec.url.parse().map_err(|_| WINDOW_FAILED.to_string())?;
-        let origins = app_origins(&self.app);
-        let allowed = pinned(
-            roster_core::login::allowed_in_window,
-            roster_core::login::redirect_callback(&spec.url),
+        let rules = PageRules::new(
+            pinned(
+                roster_core::login::allowed_in_window,
+                roster_core::login::redirect_callback(&spec.url),
+            ),
+            app_origins(&self.app),
         );
-        if !page_allowed(&url, &allowed, &origins) {
+        if !rules.allows(&url) {
             return Err(NEEDS_BROWSER.into());
         }
         let n = self.next.fetch_add(1, Ordering::Relaxed);
@@ -253,48 +456,43 @@ impl LoginUi for TauriLoginUi {
             .unwrap_or_default();
         let dir = data_root().join(format!("{label}-{stamp}"));
         std::fs::create_dir_all(&dir).map_err(|_| WINDOW_FAILED.to_string())?;
-        let hooks = Arc::new(hooks);
-        // One "needs your browser" per window, however many blocked requests follow.
-        let blocked = Arc::new(AtomicBool::new(false));
+        let lw = Arc::new(LoginWindow {
+            app: self.app.clone(),
+            agent: spec.agent_id.clone(),
+            agent_name: spec.agent_name.clone(),
+            login: spec.login,
+            label: label.clone(),
+            dir: dir.clone(),
+            rules,
+            hooks: Arc::new(hooks),
+            blocked: AtomicBool::new(false),
+            windows: Arc::clone(&self.windows),
+            popups: AtomicU64::new(0),
+        });
         let (agent, login) = (spec.agent_id.clone(), spec.login);
         // Entered before the window is made: its hooks may end the login meanwhile.
         self.table().opening(&agent, login, &label);
 
-        let (nav_app, nav_label, nav_name) =
-            (self.app.clone(), label.clone(), spec.agent_name.clone());
-        let (nav_hooks, nav_blocked) = (Arc::clone(&hooks), Arc::clone(&blocked));
-        let (pop_hooks, pop_blocked) = (Arc::clone(&hooks), Arc::clone(&blocked));
-        let load_name = spec.agent_name.clone();
+        let (nav, nav_label) = (Arc::clone(&lw), label.clone());
+        let pop = Arc::clone(&lw);
+        let load = Arc::clone(&lw);
         let built = WebviewWindowBuilder::new(&self.app, &label, WebviewUrl::External(url))
             .title(first_title(spec))
             .inner_size(520.0, 760.0)
             .min_inner_size(420.0, 560.0)
             .incognito(true)
             .data_directory(dir.clone())
-            .on_navigation(move |u| {
-                if page_allowed(u, &allowed, &origins) {
-                    set_title_later(&nav_app, &nav_label, title_for(&nav_name, u));
-                    true
-                } else {
-                    if !nav_blocked.swap(true, Ordering::SeqCst) {
-                        later(&nav_hooks, true);
-                    }
-                    false
+            .on_navigation(move |u| nav.navigate(&nav_label, u))
+            .on_new_window(move |u, f| pop.new_window(&u, f, false))
+            .on_page_load(move |w, p| match p.event() {
+                // The login window moved on (Google's popup closes itself when done, and may
+                // leave an empty frame): its popups are done.
+                PageLoadEvent::Started => {
+                    let done = load.table().take_popups(&load.agent, load.login);
+                    destroy_later(&load.app, done);
                 }
-            })
-            .on_new_window(move |u, _features| {
-                if popup_allowed(&u) {
-                    NewWindowResponse::Allow
-                } else {
-                    if !pop_blocked.swap(true, Ordering::SeqCst) {
-                        later(&pop_hooks, true);
-                    }
-                    NewWindowResponse::Deny
-                }
-            })
-            .on_page_load(move |w, p| {
-                if p.event() == PageLoadEvent::Finished {
-                    let _ = w.set_title(&title_for(&load_name, p.url()));
+                PageLoadEvent::Finished => {
+                    let _ = w.set_title(&title_for(&load.agent_name, p.url()));
                 }
             })
             .build();
@@ -306,18 +504,16 @@ impl LoginUi for TauriLoginUi {
                 return Err(WINDOW_FAILED.into());
             }
         };
-        let windows = Arc::clone(&self.windows);
-        let (gone_agent, closed) = (agent.clone(), Arc::new(AtomicBool::new(false)));
+        let closed = Arc::new(AtomicBool::new(false));
+        let gone = Arc::clone(&lw);
         window.on_window_event(move |e| {
             if let tauri::WindowEvent::Destroyed = e
                 && !closed.swap(true, Ordering::SeqCst)
             {
-                windows
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .destroyed(&gone_agent, login);
-                later(&hooks, false);
-                remove_later(dir.clone());
+                let popups = gone.table().destroyed(&gone.agent, gone.login);
+                destroy_later(&gone.app, popups);
+                later(&gone.hooks, false);
+                remove_later(gone.dir.clone());
             }
         });
         if !self.table().built(&agent, login) {
@@ -340,7 +536,7 @@ impl LoginUi for TauriLoginUi {
 
     fn close(&self, agent_id: &str, login: u64) {
         let labels = self.table().close(agent_id, login);
-        self.destroy(&labels);
+        destroy(&self.app, &labels);
     }
 
     fn notify(&self, u: &SignInUpdate) {
@@ -482,6 +678,80 @@ mod tests {
         assert_eq!(t.label("b", 2), None);
         t.destroyed("a", 2);
         assert_eq!(t.label("a", 2), None);
+    }
+
+    /// A page's popup is never an unmanaged webview: either a window Agent Roster makes (and
+    /// rules) or nothing. A popup's own popups are refused.
+    #[test]
+    fn a_popup_is_a_managed_window_or_refused() {
+        let google = url("https://accounts.google.com/o/oauth2/v2/auth?client_id=x");
+        assert_eq!(popup_decision(&google, false), PopupDecision::Open);
+        assert_eq!(popup_decision(&google, true), PopupDecision::Refuse);
+        assert_eq!(
+            popup_decision(&url("https://login.microsoftonline.com/"), false),
+            PopupDecision::Refuse
+        );
+        assert_eq!(
+            popup_decision(&url("https://accounts.google.com.evil.example/"), false),
+            PopupDecision::Refuse
+        );
+    }
+
+    /// The popup is checked by the very rules of its login window: the core's pages, the
+    /// login's own callback only, never the app's pages.
+    #[test]
+    fn a_popup_follows_its_login_windows_page_rules() {
+        let link = "https://claude.com/cai/oauth/authorize?redirect_uri=http%3A%2F%2Flocalhost%3A61234%2Fcallback";
+        let rules = PageRules::new(
+            pinned(
+                roster_core::login::allowed_in_window,
+                roster_core::login::redirect_callback(link),
+            ),
+            vec![url("http://tauri.localhost")],
+        );
+        assert!(rules.allows(&url("https://accounts.google.com/signin/v2")));
+        assert!(rules.allows(&url("https://claude.ai/login")));
+        assert!(rules.allows(&url("http://localhost:61234/callback?code=x")));
+        assert!(!rules.allows(&url("http://localhost:8080/")));
+        assert!(!rules.allows(&url("https://evil.example.com/")));
+        assert!(!rules.allows(&url("http://tauri.localhost/")));
+        // Shared, not copied: the popup gets the same rules object.
+        let popup = Arc::clone(&rules);
+        assert!(!popup.allows(&url("https://appleid.apple.com/")));
+    }
+
+    #[test]
+    fn popups_live_and_die_with_their_login() {
+        let mut t = WindowTable::default();
+        t.opening("a", 1, "login-1");
+        assert!(t.built("a", 1));
+        assert!(t.add_popup("a", 1, "login-1-popup-1"));
+        assert!(!t.add_popup("a", 2, "login-2-popup-1"), "no such login");
+        assert_eq!(t.close("a", 1), ["login-1", "login-1-popup-1"]);
+        assert!(
+            !t.add_popup("a", 1, "login-1-popup-2"),
+            "a popup after its login ended"
+        );
+        // The login window going takes its popups with it.
+        t.opening("b", 3, "login-3");
+        assert!(t.built("b", 3));
+        assert!(t.add_popup("b", 3, "login-3-popup-1"));
+        assert_eq!(t.destroyed("b", 3), ["login-3-popup-1"]);
+    }
+
+    /// Google's popup closes itself when done, which leaves an empty frame on some systems:
+    /// once its login window moves on to another page, the popups go.
+    #[test]
+    fn popups_go_when_their_login_window_moves_on() {
+        let mut t = WindowTable::default();
+        t.opening("a", 1, "login-1");
+        assert!(t.built("a", 1));
+        assert!(t.add_popup("a", 1, "p1"));
+        assert_eq!(t.take_popups("a", 1), ["p1"]);
+        assert!(t.take_popups("a", 1).is_empty());
+        assert!(t.add_popup("a", 1, "p2"));
+        t.popup_destroyed("a", 1, "p2");
+        assert_eq!(t.close("a", 1), ["login-1"]);
     }
 
     /// Remote pages get no IPC: every capability grants to the main window only, by label,
