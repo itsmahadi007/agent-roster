@@ -115,7 +115,7 @@ pub fn real_shell(cmd: &str, stdin: &str) -> String {
         c.args(["-c", cmd]);
         c
     };
-    let Ok(mut child) = c
+    let Ok(mut child) = crate::proc::hide_console(&mut c)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())

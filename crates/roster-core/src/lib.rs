@@ -9,6 +9,7 @@ pub mod names;
 pub mod note;
 pub mod ops;
 pub mod paths;
+pub mod proc;
 pub mod run;
 pub mod session;
 pub mod share;

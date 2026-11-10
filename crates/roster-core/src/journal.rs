@@ -598,7 +598,8 @@ fn make_dir_link(target: &Path, link: &Path) -> std::io::Result<()> {
 }
 #[cfg(windows)]
 fn make_dir_link(target: &Path, link: &Path) -> std::io::Result<()> {
-    let status = std::process::Command::new("cmd")
+    let mut c = std::process::Command::new("cmd");
+    let status = crate::proc::hide_console(&mut c)
         .args(["/C", "mklink", "/J"])
         .arg(link)
         .arg(target)

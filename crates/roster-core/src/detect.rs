@@ -38,7 +38,8 @@ impl CommandRunner for RealRunner {
         // Runs with a time limit, so a stuck tool can't hang the overview.
         use std::io::Read;
         let mut c = Command::new(prog);
-        c.args(args)
+        crate::proc::hide_console(&mut c)
+            .args(args)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
