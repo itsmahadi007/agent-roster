@@ -1,0 +1,4 @@
+{"id":1,"result":{"userAgent":"agent-roster/0.167.0 (Windows 10.0.26300; x86_64) xterm-256color (agent-roster; 0.0.0)","codexHome":"C:\\Users\\you\\.codex","platformFamily":"windows","platformOs":"windows"}}
+{"method":"remoteControl/status/changed","params":{"status":"disabled","serverName":"ghost","installationId":"00000000-0000-4000-8000-000000000002","environmentId":null},"emittedAtMs":1794314408658}
+{"id":2,"result":{"account":null,"requiresOpenaiAuth":true,"workspaceRouting":null}}
+{"error":{"code":-32603,"message":"failed to fetch codex rate limits: GET https://chatgpt.com/backend-api/wham/usage failed: 401 Unauthorized; content-type=text/plain; body={\n  \"error\": {\n    \"message\": \"Your authentication token is not from a valid issuer.\",\n    \"type\": \"invalid_request_error\",\n    \"code\": \"invalid_issuer\",\n    \"param\": null\n  },\n  \"status\": 401\n}"},"id":3}

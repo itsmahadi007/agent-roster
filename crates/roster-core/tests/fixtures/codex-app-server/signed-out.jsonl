@@ -1,0 +1,4 @@
+{"id":1,"result":{"userAgent":"agent-roster/0.167.0 (Windows 10.0.26300; x86_64) xterm-256color (agent-roster; 0.0.0)","codexHome":"C:\\Users\\you\\.codex","platformFamily":"windows","platformOs":"windows"}}
+{"method":"remoteControl/status/changed","params":{"status":"disabled","serverName":"ghost","installationId":"00000000-0000-4000-8000-000000000002","environmentId":null},"emittedAtMs":1794314285160}
+{"error":{"code":-32600,"message":"codex account authentication required to read rate limits"},"id":3}
+{"id":2,"result":{"account":null,"requiresOpenaiAuth":true,"workspaceRouting":null}}
