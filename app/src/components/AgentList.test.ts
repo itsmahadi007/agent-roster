@@ -31,9 +31,11 @@ describe("AgentList", () => {
     const a1 = row(/^agent1/);
     expect(a1).toHaveTextContent("Claude Code");
     expect(a1).toHaveTextContent("61% week");
+    expect(a1).toHaveTextContent("39% remaining");
     expect(a1).toHaveTextContent("resets in 3d 16h");
     const a3 = row(/^agent3/);
     expect(a3).toHaveTextContent("93% week");
+    expect(a3).toHaveTextContent("7% remaining");
     expect(a3).toHaveTextContent("resets in 21h 52m");
     expect(a3.querySelector(".pc")).toHaveClass("hot");
     expect(a3.querySelector(".rs")).toHaveClass("hot");

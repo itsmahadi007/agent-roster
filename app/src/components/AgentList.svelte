@@ -99,6 +99,7 @@
               {#if a.reset_text}<span class="rs num" class:hot={w.hot}>{a.reset_text}</span>{/if}
             </span>
             <span class="track"><i style:width="{w.used_percent}%" style:background={w.hot ? "var(--coral)" : a.color}></i></span>
+            <span class="remaining num" class:hot={w.hot}>{Math.max(0, Math.min(100, 100 - w.used_percent))}% remaining</span>
             {#if a.as_of}<span class="asof">{a.as_of}</span>{/if}
           {:else if a.state === "sign-in"}
             <span class="pc dim">sign in</span>
@@ -270,6 +271,11 @@
   }
   .rs {
     color: var(--mut);
+  }
+  .remaining {
+    color: var(--mut);
+    font-size: 12px;
+    line-height: 16px;
   }
   .asof {
     font-size: 11px;
