@@ -1,11 +1,16 @@
 use super::*;
+use crate::sign_in::{
+    LoginUi, LoginWindowSpec, NEEDS_BROWSER, OnEvent, SignInUpdate, SignInWith, WindowHooks,
+};
 use roster_core::detect::SignIn;
+use roster_core::login::{LoginEvent, LoginHandle};
 use roster_core::model::Tool;
 use roster_core::names::CommandLookup;
 use roster_core::paths::{Platform, RosterPaths};
 use roster_core::status::{AgentState, AgentStatus};
 use roster_core::usage::{Health, SavedHealth};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -18,8 +23,127 @@ impl CommandLookup for NoCmds {
 
 struct World {
     _d: tempfile::TempDir,
-    b: Backend,
+    b: Arc<Backend>,
     opened: Arc<Mutex<Vec<Vec<String>>>>,
+    ui: Arc<FakeUi>,
+    login: Arc<FakeLogin>,
+}
+
+/// Login windows that are only recorded. Closing one reports it closed, as a real one does.
+#[derive(Default)]
+struct FakeUi {
+    opened: Mutex<Vec<LoginWindowSpec>>,
+    hooks: Mutex<HashMap<String, WindowHooks>>,
+    closed: Mutex<Vec<String>>,
+    focused: Mutex<Vec<String>>,
+    updates: Mutex<Vec<SignInUpdate>>,
+    refuse: Mutex<Option<String>>,
+}
+
+impl LoginUi for FakeUi {
+    fn open(&self, spec: &LoginWindowSpec, hooks: WindowHooks) -> Result<(), String> {
+        if let Some(e) = self.refuse.lock().unwrap().clone() {
+            return Err(e);
+        }
+        self.opened.lock().unwrap().push(spec.clone());
+        self.hooks
+            .lock()
+            .unwrap()
+            .insert(spec.agent_id.clone(), hooks);
+        Ok(())
+    }
+    fn focus(&self, agent_id: &str) -> bool {
+        self.focused.lock().unwrap().push(agent_id.into());
+        self.hooks.lock().unwrap().contains_key(agent_id)
+    }
+    fn close(&self, agent_id: &str) {
+        self.closed.lock().unwrap().push(agent_id.into());
+        let h = self.hooks.lock().unwrap().remove(agent_id);
+        if let Some(h) = h {
+            (h.on_closed)();
+        }
+    }
+    fn notify(&self, u: &SignInUpdate) {
+        self.updates.lock().unwrap().push(u.clone());
+    }
+}
+
+impl FakeUi {
+    /// The person closes the window with its X.
+    fn person_closes(&self, agent_id: &str) {
+        let h = self.hooks.lock().unwrap().remove(agent_id).expect("open");
+        (h.on_closed)();
+    }
+    /// The page tried to go somewhere the window may not show.
+    fn page_blocked(&self, agent_id: &str) {
+        // Taken out while it runs: the backend closes the window from inside the hook.
+        let h = self.hooks.lock().unwrap().remove(agent_id).expect("open");
+        (h.on_blocked)();
+        if self.closed.lock().unwrap().iter().any(|c| c == agent_id) {
+            (h.on_closed)();
+        } else {
+            self.hooks.lock().unwrap().insert(agent_id.into(), h);
+        }
+    }
+    fn last(&self) -> SignInUpdate {
+        self.updates
+            .lock()
+            .unwrap()
+            .last()
+            .cloned()
+            .expect("an update")
+    }
+    fn states(&self) -> Vec<&'static str> {
+        self.updates
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|u| u.state)
+            .collect()
+    }
+}
+
+/// A login that only does what the test tells it. Cancel reports `Failed("canceled")` right
+/// away, from inside `cancel`, as the core may.
+#[derive(Default)]
+struct FakeLogin {
+    events: Mutex<Vec<Arc<OnEvent>>>,
+    cancels: Arc<AtomicUsize>,
+    refuse: Mutex<Option<String>>,
+}
+
+impl FakeLogin {
+    fn starter(self: &Arc<Self>) -> crate::sign_in::LoginStarter {
+        let me = Arc::clone(self);
+        Box::new(move |_req, on_event| {
+            if let Some(e) = me.refuse.lock().unwrap().clone() {
+                return Err(e);
+            }
+            let on_event = Arc::new(on_event);
+            me.events.lock().unwrap().push(Arc::clone(&on_event));
+            let cancels = Arc::clone(&me.cancels);
+            Ok(LoginHandle::new(Box::new(move || {
+                cancels.fetch_add(1, Ordering::SeqCst);
+                on_event(LoginEvent::Failed("canceled".into()));
+            })))
+        })
+    }
+    fn send(&self, e: LoginEvent) {
+        let f = self
+            .events
+            .lock()
+            .unwrap()
+            .last()
+            .cloned()
+            .expect("started");
+        f(e);
+    }
+    fn started(&self) -> usize {
+        self.events.lock().unwrap().len()
+    }
+    fn cancels(&self) -> usize {
+        self.cancels.load(Ordering::SeqCst)
+    }
 }
 
 fn world_with(roster_bin: Option<PathBuf>) -> World {
@@ -30,7 +154,9 @@ fn world_with(roster_bin: Option<PathBuf>) -> World {
     let opened = Arc::new(Mutex::new(vec![]));
     let rec = opened.clone();
     let scratch = d.path().join("scratch");
+    let login = Arc::new(FakeLogin::default());
     let b = Backend::new(BackendConfig {
+        login: login.starter(),
         path_var: p.bin_dir().display().to_string(),
         p,
         roster_bin,
@@ -43,7 +169,16 @@ fn world_with(roster_bin: Option<PathBuf>) -> World {
             Ok(())
         }),
     });
-    World { _d: d, b, opened }
+    let b = Arc::new(b);
+    let ui = Arc::new(FakeUi::default());
+    b.set_login_ui(ui.clone());
+    World {
+        _d: d,
+        b,
+        opened,
+        ui,
+        login,
+    }
 }
 
 fn world() -> World {
@@ -265,6 +400,7 @@ fn preview_taken_while_roster_changes_is_stale() {
         app_dirs: vec![],
         env: Box::new(|_| None),
         opener: Box::new(|_| Ok(())),
+        login: Arc::new(FakeLogin::default()).starter(),
     });
     let plan = b.preview(add_req("boss")).unwrap();
     assert_eq!(b.apply(plan.token).unwrap_err(), STALE);
@@ -550,4 +686,177 @@ fn sign_in_from_the_app_asks_for_checks_until_one_says_it_worked() {
     assert!(!w.b.take_wanted());
     w.b.view_of(expired(t + 100), t + 110);
     assert!(!w.b.take_wanted());
+}
+
+// --- Signing in from the app ---
+
+fn boss_id(w: &World) -> String {
+    agent_of(w, "boss").id
+}
+
+#[test]
+fn sign_in_with_is_the_browser_until_changed_and_is_kept() {
+    let w = world();
+    assert_eq!(w.b.settings().sign_in_with, SignInWith::Browser);
+    w.b.set_sign_in_with(SignInWith::Window).unwrap();
+    assert_eq!(w.b.settings().sign_in_with, SignInWith::Window);
+    // Kept in the app's own settings file, not the roster or its journal.
+    let file = crate::sign_in::settings_file(&w.b.p);
+    assert_eq!(
+        crate::sign_in::load_settings(&file).sign_in_with,
+        SignInWith::Window
+    );
+    assert!(w.b.changes().unwrap().is_empty());
+    w.b.set_sign_in_with(SignInWith::Browser).unwrap();
+    assert_eq!(w.b.settings().sign_in_with, SignInWith::Browser);
+}
+
+#[test]
+fn the_sign_in_link_opens_the_login_window() {
+    let w = world();
+    w.add("boss");
+    w.b.sign_in_in_app("boss").unwrap();
+    assert_eq!(w.login.started(), 1);
+    assert!(w.ui.opened.lock().unwrap().is_empty());
+    w.login.send(LoginEvent::Link(
+        "https://auth.openai.com/oauth/authorize?x=1".into(),
+    ));
+    let opened = w.ui.opened.lock().unwrap().clone();
+    assert_eq!(
+        opened,
+        [LoginWindowSpec {
+            agent_id: boss_id(&w),
+            agent_name: "boss".into(),
+            tool_label: "Codex".into(),
+            url: "https://auth.openai.com/oauth/authorize?x=1".into(),
+        }]
+    );
+    assert_eq!(w.ui.last().state, "waiting");
+    assert_eq!(w.ui.last().name, "boss");
+    // Nothing went through a terminal.
+    assert!(w.opened.lock().unwrap().is_empty());
+}
+
+#[test]
+fn a_second_click_focuses_the_open_window() {
+    let w = world();
+    w.add("boss");
+    w.b.sign_in_in_app("boss").unwrap();
+    w.login
+        .send(LoginEvent::Link("https://auth.openai.com/a".into()));
+    w.b.sign_in_in_app("boss").unwrap();
+    assert_eq!(w.login.started(), 1);
+    assert_eq!(*w.ui.focused.lock().unwrap(), [boss_id(&w)]);
+    assert_eq!(w.ui.opened.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn done_closes_the_window_and_checks_usage_now() {
+    let w = world();
+    w.add("boss");
+    // A check just ran, so a plain one would wait 30 s.
+    assert!(w.b.refresh_usage().unwrap());
+    assert!(!w.b.refresh_usage().unwrap());
+    w.b.take_wanted();
+    w.b.sign_in_in_app("boss").unwrap();
+    w.login
+        .send(LoginEvent::Link("https://auth.openai.com/a".into()));
+    // The window stays open through every page; only the tool's own Done closes it.
+    assert!(w.ui.closed.lock().unwrap().is_empty());
+    w.login.send(LoginEvent::Done);
+    assert_eq!(*w.ui.closed.lock().unwrap(), [boss_id(&w)]);
+    assert_eq!(w.ui.states(), ["waiting", "done"]);
+    assert_eq!(w.login.cancels(), 0, "a finished login is not canceled");
+    assert!(w.b.take_wanted());
+    assert!(
+        w.b.refresh_usage().unwrap(),
+        "the check after a sign-in skips the wait"
+    );
+    // The next sign-in starts a new login.
+    w.b.sign_in_in_app("boss").unwrap();
+    assert_eq!(w.login.started(), 2);
+}
+
+#[test]
+fn failed_closes_the_window_and_says_why() {
+    let w = world();
+    w.add("boss");
+    w.b.sign_in_in_app("boss").unwrap();
+    w.login
+        .send(LoginEvent::Link("https://auth.openai.com/a".into()));
+    w.login.send(LoginEvent::Failed(
+        "Another Codex sign-in is open. Finish or close it first.".into(),
+    ));
+    assert_eq!(*w.ui.closed.lock().unwrap(), [boss_id(&w)]);
+    let u = w.ui.last();
+    assert_eq!(u.state, "failed");
+    assert_eq!(
+        u.reason.as_deref(),
+        Some("Another Codex sign-in is open. Finish or close it first.")
+    );
+    assert_eq!(w.login.cancels(), 0);
+}
+
+#[test]
+fn closing_the_window_cancels_the_login() {
+    let w = world();
+    w.add("boss");
+    w.b.sign_in_in_app("boss").unwrap();
+    w.login
+        .send(LoginEvent::Link("https://auth.openai.com/a".into()));
+    w.ui.person_closes(&boss_id(&w));
+    assert_eq!(w.login.cancels(), 1);
+    // The core's own "canceled" that follows is not shown as a failure.
+    assert_eq!(w.ui.states(), ["waiting", "canceled"]);
+    w.b.sign_in_in_app("boss").unwrap();
+    assert_eq!(w.login.started(), 2);
+}
+
+#[test]
+fn a_page_the_window_may_not_show_sends_the_person_to_the_browser() {
+    let w = world();
+    w.add("boss");
+    w.b.sign_in_in_app("boss").unwrap();
+    w.login
+        .send(LoginEvent::Link("https://auth.openai.com/a".into()));
+    w.ui.page_blocked(&boss_id(&w));
+    assert_eq!(w.login.cancels(), 1);
+    assert_eq!(*w.ui.closed.lock().unwrap(), [boss_id(&w)]);
+    let u = w.ui.last();
+    assert_eq!(
+        (u.state, u.reason.as_deref()),
+        ("failed", Some(NEEDS_BROWSER))
+    );
+    assert_eq!(w.ui.states(), ["waiting", "failed"]);
+}
+
+#[test]
+fn a_window_that_cannot_open_fails_the_login() {
+    let w = world();
+    w.add("boss");
+    *w.ui.refuse.lock().unwrap() = Some(NEEDS_BROWSER.into());
+    w.b.sign_in_in_app("boss").unwrap();
+    w.login
+        .send(LoginEvent::Link("https://accounts.example.com/a".into()));
+    assert_eq!(w.login.cancels(), 1);
+    let u = w.ui.last();
+    assert_eq!(
+        (u.state, u.reason.as_deref()),
+        ("failed", Some(NEEDS_BROWSER))
+    );
+}
+
+#[test]
+fn a_login_that_cannot_start_says_why_and_can_be_tried_again() {
+    let w = world();
+    w.add("boss");
+    *w.login.refuse.lock().unwrap() = Some("Codex isn't installed on this computer.".into());
+    assert_eq!(
+        w.b.sign_in_in_app("boss").unwrap_err(),
+        "Codex isn't installed on this computer."
+    );
+    *w.login.refuse.lock().unwrap() = None;
+    w.b.sign_in_in_app("boss").unwrap();
+    assert_eq!(w.login.started(), 1);
+    assert!(w.b.sign_in_in_app("nobody").is_err());
 }

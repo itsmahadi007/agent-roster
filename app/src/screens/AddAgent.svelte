@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { ColorView, PlanView, Tool } from "../lib/types";
   import { apply, message, preview, signIn } from "../lib/api";
+  import { prefs, signInInApp } from "../lib/signin.svelte";
   import PageHead from "../components/PageHead.svelte";
   import RolePicker from "../components/RolePicker.svelte";
 
@@ -77,7 +78,8 @@
       return;
     }
     try {
-      await signIn(added);
+      if (prefs.signInWith === "window") await signInInApp(added);
+      else await signIn(added);
       onDone();
     } catch (e) {
       onDone(`${added} was added. Sign in didn't open: ${message(e)}`);

@@ -64,8 +64,10 @@
     <section>
       <h4>Sign in</h4>
       <p>
-        A new agent signs in once. Sign in opens a terminal with the tool's own sign-in for that account. Agent Roster
-        never sees your password and never reads your login files.
+        A new agent signs in once. Sign in opens a terminal with the tool's own sign-in for that account, which opens
+        your browser. Or pick Sign in with: Agent Roster window (in an agent's row) to sign in inside a private Agent
+        Roster window that shows the real sign-in page and its address in the title. Some sign-ins still need your
+        browser; the window then says so. Agent Roster never collects your password and never reads your login files.
       </p>
     </section>
     <section>

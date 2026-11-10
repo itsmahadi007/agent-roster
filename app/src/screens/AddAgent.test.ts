@@ -5,6 +5,7 @@ import AddAgent from "./AddAgent.svelte";
 import overview from "../lib/fixtures/overview.json";
 import type { OverviewView, PlanView } from "../lib/types";
 import { invoke } from "../test/setup";
+import { prefs, resetSignIn } from "../lib/signin.svelte";
 
 const view = overview as OverviewView;
 const plan: PlanView = {
@@ -28,6 +29,24 @@ function backend(handlers: Record<string, (args: any) => unknown>) {
 const props = (over = {}) => ({ palette: view.palette, nextColor: view.next_color, onDone: () => {}, onCancel: () => {}, ...over });
 
 describe("AddAgent", () => {
+  it("add_and_sign_in_uses_the_window_when_set", async () => {
+    resetSignIn();
+    prefs.signInWith = "window";
+    backend({ preview: () => plan, apply: () => 9, sign_in_in_app: () => null });
+    const onDone = vi.fn();
+    render(AddAgent, props({ onDone }));
+    await userEvent.type(screen.getByLabelText("Name"), "boss");
+    await screen.findByText(plan.steps[0].text);
+    await userEvent.click(screen.getByRole("button", { name: "Add and sign in" }));
+    try {
+      await waitFor(() => expect(onDone).toHaveBeenCalled());
+      expect(invoke).toHaveBeenCalledWith("sign_in_in_app", { name: "boss" });
+      expect(invoke).not.toHaveBeenCalledWith("sign_in", expect.anything());
+    } finally {
+      resetSignIn();
+    }
+  });
+
   it("add_preview_shows_backend_steps", async () => {
     backend({ preview: () => plan });
     render(AddAgent, props());

@@ -5,6 +5,8 @@ import AgentDrawer from "./AgentDrawer.svelte";
 import overview from "../lib/fixtures/overview.json";
 import type { AgentView, OverviewView } from "../lib/types";
 import { invoke } from "../test/setup";
+import { logins, prefs, resetSignIn } from "../lib/signin.svelte";
+import { beforeEach } from "vitest";
 
 const view = overview as OverviewView;
 const agent = (name: string, over: Partial<AgentView> = {}) => ({ ...view.agents.find((a) => a.name === name)!, ...over });
@@ -23,6 +25,48 @@ function answer(text: string) {
 const bar = () => within(screen.getByRole("region", { name: "Change waiting" }));
 
 describe("AgentDrawer", () => {
+  beforeEach(() => resetSignIn());
+
+  it("Sign in with: your browser by default, the Agent Roster window one click away", async () => {
+    invoke.mockResolvedValue({ sign_in_with: "window" });
+    mount(agent("agent1"));
+    const group = screen.getByRole("radiogroup", { name: "Sign in with" });
+    expect(within(group).getByRole("radio", { name: "Your browser" })).toHaveAttribute("aria-checked", "true");
+    await userEvent.click(within(group).getByRole("radio", { name: "Agent Roster window" }));
+    expect(invoke).toHaveBeenCalledWith("set_sign_in_with", { with: "window" });
+    expect(within(group).getByRole("radio", { name: "Agent Roster window" })).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("with the window setting, Sign in opens the Agent Roster window, not a terminal", async () => {
+    prefs.signInWith = "window";
+    invoke.mockResolvedValue(null);
+    mount(agent("agent2"));
+    await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    expect(invoke).toHaveBeenCalledWith("sign_in_in_app", { name: "agent2" });
+    expect(invoke).not.toHaveBeenCalledWith("sign_in", expect.anything());
+    expect(await screen.findByText("Signing in… (finish in the Agent Roster window)")).toBeInTheDocument();
+  });
+
+  it("a failed sign-in says why and offers the browser", async () => {
+    const a = agent("agent2");
+    logins[a.id] = { state: "failed", reason: "This sign-in needs your browser." };
+    invoke.mockResolvedValue(true);
+    mount(a);
+    expect(screen.getByRole("alert")).toHaveTextContent("This sign-in needs your browser.");
+    await userEvent.click(screen.getByRole("button", { name: "Sign in with your browser" }));
+    expect(invoke).toHaveBeenCalledWith("sign_in", { name: "agent2", app: null });
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+  });
+
+  it("a sign-in window that can't start says why", async () => {
+    prefs.signInWith = "window";
+    invoke.mockRejectedValue("Codex isn't installed on this computer.");
+    mount(agent("agent2"));
+    await userEvent.click(screen.getByRole("button", { name: "Sign in again" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Codex isn't installed on this computer.");
+    expect(screen.getByRole("button", { name: "Sign in with your browser" })).toBeInTheDocument();
+  });
+
   it("shows how to start the agent, without a name header or usage cards", async () => {
     const user = userEvent.setup();
     mount(agent("agent1"));

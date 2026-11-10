@@ -1,12 +1,17 @@
 //! The app's bridge to roster-core. Every change is previewed first; the exact plan the
 //! person saw is the one applied, and only if the roster file has not changed meanwhile.
 
+use crate::sign_in::{
+    AppSettings, LoginRequest, LoginStarter, LoginUi, LoginWindowSpec, NEEDS_BROWSER, OnEvent,
+    SignInUpdate, SignInWith, WindowHooks, load_settings, save_settings, settings_file,
+};
 use roster_core::desktop::{
     TerminalApp, app_open_command, find_terminals, terminal_command_in, url_open_command,
 };
 use roster_core::detect::RealRunner;
 use roster_core::import::plan_import;
 use roster_core::journal::Journal;
+use roster_core::login::{LoginEvent, LoginHandle};
 use roster_core::model::{AgentColor, Roster, Tool};
 use roster_core::names::CommandLookup;
 use roster_core::ops::{self, AddRequest, Ctx, Plan, StepKind};
@@ -18,10 +23,10 @@ use roster_core::view::{
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 pub const NO_ROSTER_BIN: &str = "Agent Roster's `roster` command wasn't found. If you opened the app from the downloaded disk image, drag it to Applications and open it from there. Otherwise reinstall Agent Roster.";
@@ -148,6 +153,8 @@ pub struct BackendConfig {
     pub lookup: Box<dyn CommandLookup + Send + Sync>,
     pub env: Env,
     pub opener: Opener,
+    /// Starts a tool's own login (`sign_in::real_starter`; a fake in tests).
+    pub login: LoginStarter,
 }
 
 struct Pending {
@@ -174,6 +181,52 @@ pub struct Backend {
     wanted: AtomicBool,
     /// When the overview saw each agent sign in, and the Sign in clicks still waiting.
     watch: Mutex<SignInWatch>,
+    login: LoginStarter,
+    login_ui: OnceLock<Arc<dyn LoginUi>>,
+    logins: Mutex<Logins>,
+    login_seq: AtomicU64,
+    /// A sign-in just finished: the next usage check skips the 30 s wait.
+    check_now: AtomicBool,
+}
+
+/// In-app sign-ins in progress, one per agent at most.
+#[derive(Default)]
+struct Logins {
+    active: HashMap<String, ActiveLogin>,
+    /// Logins whose window closed before their handle came back: canceled when it does.
+    cancel_later: HashSet<u64>,
+}
+
+struct ActiveLogin {
+    /// Tells this login apart from a later one for the same agent.
+    seq: u64,
+    handle: Option<LoginHandle>,
+}
+
+/// The login an event or a window belongs to.
+#[derive(Clone)]
+struct Who {
+    id: String,
+    name: String,
+    tool_label: String,
+    seq: u64,
+}
+
+impl Who {
+    fn update(&self, state: &'static str, reason: Option<String>) -> SignInUpdate {
+        SignInUpdate {
+            id: self.id.clone(),
+            name: self.name.clone(),
+            state,
+            reason,
+        }
+    }
+}
+
+enum Ended {
+    Done,
+    Failed(String),
+    Canceled,
 }
 
 fn kind(k: StepKind) -> &'static str {
@@ -202,7 +255,196 @@ impl Backend {
             usage_gate: UsageGate::default(),
             wanted: AtomicBool::new(false),
             watch: Mutex::new(SignInWatch::default()),
+            login: c.login,
+            login_ui: OnceLock::new(),
+            logins: Mutex::new(Logins::default()),
+            login_seq: AtomicU64::new(1),
+            check_now: AtomicBool::new(false),
         }
+    }
+
+    /// Set once at start-up, when the app can open windows.
+    pub fn set_login_ui(&self, ui: Arc<dyn LoginUi>) {
+        let _ = self.login_ui.set(ui);
+    }
+
+    pub fn settings(&self) -> AppSettings {
+        load_settings(&settings_file(&self.p))
+    }
+
+    pub fn set_sign_in_with(&self, with: SignInWith) -> Result<AppSettings, String> {
+        let mut s = self.settings();
+        s.sign_in_with = with;
+        save_settings(&settings_file(&self.p), &s)?;
+        Ok(s)
+    }
+
+    fn logins(&self) -> std::sync::MutexGuard<'_, Logins> {
+        self.logins.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Signs `name` in inside an Agent Roster window: starts the tool's own login and opens
+    /// the window when the login hands over its link. Clicked again while one is open, it
+    /// brings that window to the front.
+    pub fn sign_in_in_app(self: &Arc<Self>, name: &str) -> Result<(), String> {
+        let ui = self
+            .login_ui
+            .get()
+            .cloned()
+            .ok_or("Agent Roster is still starting. Try again in a moment.")?;
+        let r = self.roster()?;
+        let agent = r
+            .by_name(name)
+            .cloned()
+            .ok_or_else(|| format!("No agent is named {name}."))?;
+        let id = agent.id.clone();
+        let seq = {
+            let mut l = self.logins();
+            if l.active.contains_key(&id) {
+                drop(l);
+                ui.focus(&id);
+                return Ok(());
+            }
+            let seq = self.login_seq.fetch_add(1, Ordering::Relaxed);
+            l.active
+                .insert(id.clone(), ActiveLogin { seq, handle: None });
+            seq
+        };
+        let me = Arc::downgrade(self);
+        let who = Who {
+            id: id.clone(),
+            name: agent.name.clone(),
+            tool_label: agent.tool.display().to_string(),
+            seq,
+        };
+        let on_event: OnEvent = Box::new(move |e| {
+            if let Some(b) = me.upgrade() {
+                b.login_event(&who, e);
+            }
+        });
+        let req = LoginRequest {
+            agent: &agent,
+            roster: &r,
+            paths: &self.p,
+            path_var: &self.path_var,
+        };
+        match (self.login)(&req, on_event) {
+            Ok(h) => {
+                let mut l = self.logins();
+                match l.active.get_mut(&id) {
+                    Some(a) if a.seq == seq => a.handle = Some(h),
+                    _ => {
+                        // It ended before it was handed back; cancel it if the window was closed.
+                        let cancel = l.cancel_later.remove(&seq);
+                        drop(l);
+                        if cancel {
+                            h.cancel();
+                        }
+                    }
+                }
+                Ok(())
+            }
+            Err(e) => {
+                self.take_login(&id, seq);
+                Err(e)
+            }
+        }
+    }
+
+    /// Removes this login if it is still the current one for its agent.
+    fn take_login(&self, id: &str, seq: u64) -> Option<ActiveLogin> {
+        let mut l = self.logins();
+        if l.active.get(id).is_some_and(|a| a.seq == seq) {
+            l.active.remove(id)
+        } else {
+            None
+        }
+    }
+
+    fn login_event(self: &Arc<Self>, who: &Who, e: LoginEvent) {
+        let Some(ui) = self.login_ui.get().cloned() else {
+            return;
+        };
+        match e {
+            LoginEvent::Link(url) => {
+                if !self
+                    .logins()
+                    .active
+                    .get(&who.id)
+                    .is_some_and(|a| a.seq == who.seq)
+                {
+                    return;
+                }
+                let spec = LoginWindowSpec {
+                    agent_id: who.id.clone(),
+                    agent_name: who.name.clone(),
+                    tool_label: who.tool_label.clone(),
+                    url,
+                };
+                let (blocked, closed) = (Arc::downgrade(self), Arc::downgrade(self));
+                let (wb, wc) = (who.clone(), who.clone());
+                let hooks = WindowHooks {
+                    on_blocked: Box::new(move || {
+                        if let Some(b) = blocked.upgrade() {
+                            b.end_login(&wb, Ended::Failed(NEEDS_BROWSER.into()), true);
+                        }
+                    }),
+                    on_closed: Box::new(move || {
+                        if let Some(b) = closed.upgrade() {
+                            b.end_login(&wc, Ended::Canceled, true);
+                        }
+                    }),
+                };
+                match ui.open(&spec, hooks) {
+                    Ok(()) => ui.notify(&who.update("waiting", None)),
+                    Err(reason) => self.end_login(who, Ended::Failed(reason), true),
+                }
+            }
+            LoginEvent::Done => self.end_login(who, Ended::Done, false),
+            LoginEvent::Failed(reason) => self.end_login(who, Ended::Failed(reason), false),
+        }
+    }
+
+    /// Ends this login once: cancels it when asked, closes its window, tells the main window,
+    /// and after a sign-in asks for a usage check right away.
+    fn end_login(&self, who: &Who, how: Ended, cancel: bool) {
+        let Some(a) = self.take_login(&who.id, who.seq) else {
+            return;
+        };
+        if cancel {
+            match a.handle {
+                Some(h) => h.cancel(),
+                None => {
+                    self.logins().cancel_later.insert(who.seq);
+                }
+            }
+        }
+        let Some(ui) = self.login_ui.get().cloned() else {
+            return;
+        };
+        if !matches!(how, Ended::Canceled) {
+            ui.close(&who.id);
+        }
+        let u = match how {
+            Ended::Done => {
+                self.check_soon(&who.id);
+                who.update("done", None)
+            }
+            Ended::Failed(reason) => who.update("failed", Some(reason)),
+            Ended::Canceled => who.update("canceled", None),
+        };
+        ui.notify(&u);
+    }
+
+    /// A sign-in just finished: the usage loop checks now, skipping the 30 s wait once, and
+    /// keeps checking until a check says the sign-in worked.
+    fn check_soon(&self, id: &str) {
+        self.watch
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .sign_in_started(id, now());
+        self.check_now.store(true, Ordering::Relaxed);
+        self.wanted.store(true, Ordering::Relaxed);
     }
 
     fn roster_bin(&self) -> Result<PathBuf, String> {
@@ -261,9 +503,11 @@ impl Backend {
             .agents
             .iter()
             .any(|a| read_health(&self.p, &a.id).is_none());
+        let urgent = urgent || self.check_now.load(Ordering::Relaxed);
         if !self.usage_gate.begin(Instant::now(), urgent) {
             return Ok(false);
         }
+        self.check_now.store(false, Ordering::Relaxed);
         struct End<'a>(&'a UsageGate);
         impl Drop for End<'_> {
             fn drop(&mut self) {

@@ -11,6 +11,7 @@
   import AgentList from "./components/AgentList.svelte";
   import TopBar from "./components/TopBar.svelte";
   import { chrome } from "./lib/platform";
+  import { loadPrefs, onSignInUpdate, type SignInUpdate } from "./lib/signin.svelte";
 
   let view = $state<OverviewView | null>(null);
   let screen = $state<Screen>("agents");
@@ -98,10 +99,17 @@
     const unlisten = listen<Screen>("navigate", (e) => navigate(e.payload));
     // The app asks for usage on start, every 5 minutes and after a sign-in; show each answer.
     const unchecked = listen("usage-checked", () => refresh());
+    // Signing in inside an Agent Roster window: the drawer shows progress; a finished one updates the row.
+    loadPrefs();
+    const unsigned = listen<SignInUpdate>("sign-in", (e) => {
+      onSignInUpdate(e.payload);
+      if (e.payload.state === "done") refresh();
+    });
     return () => {
       stop();
       unlisten.then((f) => f());
       unchecked.then((f) => f());
+      unsigned.then((f) => f());
     };
   });
 </script>

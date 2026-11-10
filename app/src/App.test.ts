@@ -41,6 +41,21 @@ describe("App", () => {
     expect(invoke.mock.calls.at(-1)![0]).toBe("overview");
   });
 
+  it("hears sign-in progress and refreshes when one is done", async () => {
+    invoke.mockImplementation(async (cmd: string) => (cmd === "overview" ? overview : cmd === "settings" ? { sign_in_with: "window" } : null));
+    render(App);
+    await screen.findByRole("button", { name: /^agent2/ });
+    expect(invoke).toHaveBeenCalledWith("settings");
+    const { prefs } = await import("./lib/signin.svelte");
+    await waitFor(() => expect(prefs.signInWith).toBe("window"));
+    const onSignIn = listen.mock.calls.find((c) => c[0] === "sign-in")![1] as (e: { payload: unknown }) => void;
+    const before = invoke.mock.calls.length;
+    onSignIn({ payload: { id: "a2", name: "agent2", state: "done", reason: null } });
+    await waitFor(() => expect(invoke.mock.calls.length).toBeGreaterThan(before));
+    expect(invoke.mock.calls.at(-1)![0]).toBe("overview");
+    prefs.signInWith = "browser";
+  });
+
   it("Hide usage previews disable-limits", async () => {
     invoke.mockImplementation(async (cmd: string) => {
       if (cmd === "overview") return overview;
