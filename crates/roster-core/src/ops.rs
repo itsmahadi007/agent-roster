@@ -746,13 +746,13 @@ pub fn plan_enable_claude_limits(
         let steps = vec![step(
             StepKind::Note,
             format!(
-                "Limits are already on for {}, through {}.",
+                "Usage is already shown for {}, through {}.",
                 a.name,
                 collapse_tilde(&real, &p.home)
             ),
         )];
         return Ok(finish(
-            format!("Turned on limits for {}", a.name),
+            format!("Showing usage for {}", a.name),
             steps,
             after,
             vec![],
@@ -782,7 +782,7 @@ pub fn plan_enable_claude_limits(
     let mut steps = vec![step(
         StepKind::Change,
         format!(
-            "Changes the status line in {} so Agent Roster can read {}'s limits.",
+            "Changes the status line in {} so Agent Roster can read {}'s 5-hour and weekly use.",
             collapse_tilde(&real, &p.home),
             a.name
         ),
@@ -795,10 +795,10 @@ pub fn plan_enable_claude_limits(
     }
     steps.push(step(
         StepKind::Note,
-        "Turning limits off puts the old status line back exactly.",
+        "Hiding usage again puts your old status line back exactly.",
     ));
     Ok(finish(
-        format!("Turned on limits for {}", a.name),
+        format!("Showing usage for {}", a.name),
         steps,
         after,
         vec![Action::WriteFile {
@@ -821,7 +821,7 @@ pub fn plan_disable_claude_limits(
     let real_s = real.display().to_string();
     let Some(entry) = r.statusline.iter().find(|s| s.settings == real_s).cloned() else {
         return Err(OpError::Refused(format!(
-            "Limits aren't on for {}.",
+            "Usage isn't shown for {}.",
             a.name
         )));
     };
@@ -858,7 +858,7 @@ pub fn plan_disable_claude_limits(
         ),
     )];
     Ok(finish(
-        format!("Turned off limits for {}", a.name),
+        format!("Stopped showing usage for {}", a.name),
         steps,
         after,
         vec![Action::WriteFile {

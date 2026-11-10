@@ -54,7 +54,7 @@
       "windows": [],
       "reset_text": null,
       "reset_hot": false,
-      "limits_note": "limits appear after sign in",
+      "limits_note": "usage shows after sign in",
       "claude_limits": false,
       "live": false,
       "tray_text": "sign in",

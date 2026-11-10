@@ -44,7 +44,7 @@
     notice = null;
     try {
       const req: OpRequest = on ? { op: "enable-limits", name } : { op: "disable-limits", name };
-      sheet = { plan: await preview(req), req, label: on ? "Turn on" : "Turn off" };
+      sheet = { plan: await preview(req), req, label: on ? "Show usage" : "Hide usage" };
     } catch (e) {
       notice = message(e);
     }
@@ -106,7 +106,7 @@
     onCancel={() => navigate("agents")}
   />
 {:else}
-  <Agents {view} onNavigate={(s) => navigate(s)} onLimits={limits} onEdit={edit} />
+  <Agents {view} onNavigate={(s) => navigate(s)} onLimits={limits} onEdit={edit} onRefresh={refresh} />
 {/if}
 </div>
 </div>

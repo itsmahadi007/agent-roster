@@ -219,15 +219,13 @@ fn agent_view(s: &AgentStatus, o: &Overview, now: i64) -> AgentView {
     let limits_note = if !windows.is_empty() {
         None
     } else {
-        Some(
-            match (s.state, a.tool, a.limits) {
-                (AgentState::NotInstalled, _, _) => "not installed",
-                (AgentState::NeedsSignIn, _, _) => "limits appear after sign in",
-                (_, Tool::Claude, LimitsSource::Off) => "limits off",
-                _ => "no limit data yet",
-            }
-            .to_string(),
-        )
+        // The tools write their usage down while they run, so numbers come with the next use.
+        Some(match (s.state, a.tool, a.limits) {
+            (AgentState::NotInstalled, _, _) => "not installed".to_string(),
+            (AgentState::NeedsSignIn, _, _) => "usage shows after sign in".to_string(),
+            (_, Tool::Claude, LimitsSource::Off) => "usage not shown".to_string(),
+            _ => format!("usage shows after you use {}", a.name),
+        })
     };
     let (tray_text, tray_hot) = match (s.state, main_window(&windows)) {
         (AgentState::NotInstalled, _) => ("not installed".to_string(), false),

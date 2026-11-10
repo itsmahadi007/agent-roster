@@ -102,13 +102,13 @@ pub fn overview_text(o: &Overview) -> String {
             _ => {
                 let note = match (a.state, a.agent.tool, a.agent.limits) {
                     (AgentState::NotInstalled, _, _) => "",
-                    (AgentState::NeedsSignIn, _, _) => "limits appear after sign in",
+                    (AgentState::NeedsSignIn, _, _) => "usage shows after sign in",
                     (
                         _,
                         roster_core::model::Tool::Claude,
                         roster_core::model::LimitsSource::Off,
-                    ) => "limits off: roster limits enable",
-                    _ => "no limit data yet",
+                    ) => "usage not shown: roster limits enable",
+                    _ => "usage shows after its next use",
                 };
                 let _ = write!(s, "{}", paint(note, dim));
             }

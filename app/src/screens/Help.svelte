@@ -42,12 +42,12 @@
       </p>
     </section>
     <section>
-      <h4>Limits</h4>
+      <h4>Usage and limits</h4>
       <p>
         The bars show how much of each limit an account has used: 5 hr is the 5-hour limit, week the weekly one. They turn
-        red at 90%, and update each time the agent is used. Claude Code limits stay off until you click Turn on limits on
-        its row.
-      </p>
+        red at 90%. Claude Code and Codex write these numbers down while they run, so they update each time you use an
+        agent. An agent you haven't used yet says so. For a Claude Code agent, click Show usage on its row once; it never
+        limits the agent. Refresh, next to Limits on the right, checks again right away.</p>
     </section>
     <section>
       <h4>What a row says</h4>

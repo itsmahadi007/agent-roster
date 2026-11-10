@@ -1,7 +1,24 @@
 <script lang="ts">
   import type { OverviewView } from "../lib/types";
 
-  let { view }: { view: OverviewView } = $props();
+  let { view, onRefresh }: { view: OverviewView; onRefresh?: () => Promise<void> } = $props();
+
+  let checking = $state(false);
+  let checked = $state(false);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  async function refresh() {
+    if (!onRefresh) return;
+    checking = true;
+    checked = false;
+    clearTimeout(timer);
+    try {
+      await onRefresh();
+    } finally {
+      checking = false;
+      checked = true;
+      timer = setTimeout(() => (checked = false), 4000);
+    }
+  }
 </script>
 
 <aside class="side">
@@ -29,14 +46,28 @@
     </div>
   </section>
   <section>
-    <h4>Limits</h4>
+    <div class="lh">
+      <h4>Limits</h4>
+      {#if onRefresh}
+        {#if checked}
+          <span class="ok" role="status">Checked just now</span>
+        {:else}
+          <button
+            class="link"
+            disabled={checking}
+            title="Reads every agent's latest numbers again. The window also does this every 10 seconds."
+            onclick={refresh}>{checking ? "Checking…" : "Refresh"}</button
+          >
+        {/if}
+      {/if}
+    </div>
     {#each view.warnings as w, i (i)}
       <p class="warn"><b class="agent-name hot">{w.name}</b> {w.text}</p>
     {:else}
       <p class="warn">No agent is near its limit</p>
     {/each}
     {#if view.limits_updated}
-      <p class="quiet">Updated each time an agent is used. {view.limits_updated}</p>
+      <p class="quiet">Numbers update each time an agent is used. {view.limits_updated}</p>
     {/if}
   </section>
   <p class="safe">
@@ -45,6 +76,16 @@
 </aside>
 
 <style>
+  .lh {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .lh .ok {
+    font-size: 12px;
+    color: var(--jade);
+  }
   .side {
     background: var(--well);
     border-left: 1px solid var(--line);

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { render, screen, waitFor } from "@testing-library/svelte";
+import { render, screen, waitFor, within } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import App from "./App.svelte";
 import overview from "./lib/fixtures/overview.json";
@@ -9,7 +9,7 @@ import { invoke } from "./test/setup";
 function withAgent2Ready(): OverviewView {
   const v = structuredClone(overview) as OverviewView;
   const a2 = v.agents[1];
-  Object.assign(a2, { state: "ready", status_text: "ready", limits_note: "limits off", email: "you@example.com" });
+  Object.assign(a2, { state: "ready", status_text: "ready", limits_note: "usage not shown", email: "you@example.com" });
   return v;
 }
 
@@ -24,10 +24,10 @@ describe("App", () => {
       throw new Error(cmd);
     });
     render(App);
-    await userEvent.click(await screen.findByRole("button", { name: "Turn on limits" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Show usage" }));
     expect(invoke).toHaveBeenCalledWith("preview", { req: { op: "enable-limits", name: "agent2" } });
     expect(await screen.findByText("Routes the status line.")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Turn on" }));
+    await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Show usage" }));
     expect(invoke).toHaveBeenCalledWith("apply", { token: 5 });
     await waitFor(() => expect(screen.queryByText("Routes the status line.")).not.toBeInTheDocument());
   });
@@ -39,9 +39,9 @@ describe("App", () => {
       throw new Error(cmd);
     });
     render(App);
-    await userEvent.click(await screen.findByRole("button", { name: "Turn off limits" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Hide usage" }));
     expect(invoke).toHaveBeenCalledWith("preview", { req: { op: "disable-limits", name: "agent1" } });
-    expect(await screen.findByRole("button", { name: "Turn off" })).toBeInTheDocument();
+    expect(within(await screen.findByRole("dialog")).getByRole("button", { name: "Hide usage" })).toBeInTheDocument();
   });
 
   it("add agent button opens the add screen", async () => {

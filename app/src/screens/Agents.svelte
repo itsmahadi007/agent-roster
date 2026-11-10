@@ -9,11 +9,13 @@
     onNavigate,
     onLimits,
     onEdit = () => {},
+    onRefresh,
   }: {
     view: OverviewView;
     onNavigate: (s: Screen) => void;
     onLimits: (name: string, on: boolean) => void;
     onEdit?: (name: string) => void;
+    onRefresh?: () => Promise<void>;
   } = $props();
 
   const order = $derived(view.agents.map((a) => a.id));
@@ -82,7 +84,7 @@
       see what it means.
     </p>
   </div>
-  <SidePanel {view} />
+  <SidePanel {view} {onRefresh} />
 </div>
 
 <style>

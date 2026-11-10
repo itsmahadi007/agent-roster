@@ -19,7 +19,7 @@ describe("Agents", () => {
     expect(screen.getByText("Write tests for the login page and run them.")).toBeInTheDocument();
     expect(screen.getByText("started 2m ago in ~/projects/portfolio")).toBeInTheDocument();
     expect(screen.getByText("has used 93% of its week. It resets in 21h 52m.")).toBeInTheDocument();
-    expect(screen.getByText("Updated each time an agent is used. Last update 4m ago.")).toBeInTheDocument();
+    expect(screen.getByText("Numbers update each time an agent is used. Last update 4m ago.")).toBeInTheDocument();
     expect(screen.getByText("No hooks added.")).toBeInTheDocument();
   });
 
@@ -61,6 +61,17 @@ describe("Agents", () => {
   it("no invite once there are two", () => {
     render(Agents, { view, onNavigate: () => {}, onLimits: () => {} });
     expect(screen.queryByText("Add a second account")).not.toBeInTheDocument();
+  });
+
+  it("refresh checks again and says so", async () => {
+    let done!: () => void;
+    const onRefresh = vi.fn(() => new Promise<void>((r) => (done = r)));
+    render(Agents, { view, onNavigate: () => {}, onLimits: () => {}, onRefresh });
+    await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    expect(onRefresh).toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Checking…" })).toBeDisabled();
+    done();
+    expect(await screen.findByText("Checked just now")).toBeInTheDocument();
   });
 
   it("header buttons navigate", async () => {

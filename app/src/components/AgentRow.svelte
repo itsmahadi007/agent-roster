@@ -27,6 +27,14 @@
   }
 
   const active = $derived(agent.state === "working" || agent.live);
+
+  /** Hover text for the line shown where the bars will be. */
+  const noteTitle = $derived.by(() => {
+    if (agent.state === "sign-in") return `Sign in first. Then use ${agent.name} once and its numbers show here.`;
+    if (agent.claude_limits === false) return "Claude Code shows its use in its status line. Agent Roster reads it from there once you click Show usage.";
+    if (agent.state === "not-installed") return `${agent.tool_label} isn't installed on this computer`;
+    return `${agent.tool_label} writes down its 5-hour and weekly use while it runs. Type ${agent.name} in a terminal and send one message, and the numbers show here.`;
+  });
 </script>
 
 <div class="ag" data-agent={agent.name}>
@@ -66,9 +74,13 @@
     {/if}
     {#if agent.limits_note}
       <div class="rs note">
-        {agent.limits_note}
+        <span title={noteTitle}>{agent.limits_note}</span>
         {#if agent.claude_limits === false && agent.state !== "sign-in" && agent.state !== "not-installed"}
-          <button class="link" title="Shows this account's 5-hour and weekly use here. You see a preview first." onclick={() => onLimits(agent.name, true)}>Turn on limits</button>
+          <button
+            class="link"
+            title="Lets Agent Roster read the 5-hour and weekly use that Claude Code shows in its status line. It never limits the agent. You see a preview first."
+            onclick={() => onLimits(agent.name, true)}>Show usage</button
+          >
         {/if}
       </div>
     {/if}
@@ -82,7 +94,7 @@
       </span>
     {/if}
     {#if agent.claude_limits === true}
-      <button class="link off" title="Stops reading this account's limits and puts your old status line back" onclick={() => onLimits(agent.name, false)}>Turn off limits</button>
+      <button class="link off" title="Stops reading this account's usage and puts your old status line back" onclick={() => onLimits(agent.name, false)}>Hide usage</button>
     {/if}
     {#if error}<span class="error" title={error}>{error}</span>{/if}
   </div>
