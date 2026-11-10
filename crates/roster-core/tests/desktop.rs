@@ -327,7 +327,7 @@ fn opening_an_app_and_a_url_per_platform() {
     );
     assert_eq!(
         app_open_command(Platform::Windows, "code"),
-        s(&["cmd.exe", "/c", "start", "", "code"])
+        s(&["cmd.exe", "/c", "code"])
     );
     let url = "https://mahadihassan.com";
     assert_eq!(url_open_command(Platform::Mac, url), s(&["open", url]));

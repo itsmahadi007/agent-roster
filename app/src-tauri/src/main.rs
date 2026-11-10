@@ -18,9 +18,9 @@ fn spawn_detached(argv: &[String]) -> std::io::Result<()> {
         .split_first()
         .ok_or_else(|| std::io::Error::other("empty command"))?;
     let mut c = Command::new(prog);
-    // Windows openers are `cmd.exe /c start ...`: hide the cmd.exe in the middle.
-    // `start` still gives the terminal it launches its own window.
-    if is_cmd_start(prog, args) {
+    // Windows openers run through `cmd.exe /c`: hide that cmd.exe. A terminal opened
+    // with `start` still gets its own window.
+    if is_cmd_c(prog, args) {
         roster_core::proc::hide_console(&mut c);
     }
     c.args(args)
@@ -31,15 +31,13 @@ fn spawn_detached(argv: &[String]) -> std::io::Result<()> {
         .map(|_| ())
 }
 
-fn is_cmd_start(prog: &str, args: &[String]) -> bool {
+fn is_cmd_c(prog: &str, args: &[String]) -> bool {
     let name = std::path::Path::new(prog)
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("");
     name.eq_ignore_ascii_case("cmd.exe")
-        && args.len() >= 2
-        && args[0].eq_ignore_ascii_case("/c")
-        && args[1].eq_ignore_ascii_case("start")
+        && args.first().is_some_and(|a| a.eq_ignore_ascii_case("/c"))
 }
 
 #[cfg(unix)]

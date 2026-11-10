@@ -89,7 +89,7 @@ teammate installs one thing. A `release.yml` workflow builds a universal Mac `.d
 - `pub fn terminal_command_in(platform, app: Option<&str>, env, lookup, argv, scratch) -> Result<Vec<String>, DesktopError>`:
   None → today's `terminal_command`; Mac + runs app → `["open", "-a", <id>, <file.command>]`; Windows "PowerShell" →
   `["powershell.exe", "-NoExit", "-Command", <quoted argv>]` via `cmd /c start`; "Command Prompt" → today's cmd form.
-- `pub fn app_open_command(platform, app_id: &str) -> Vec<String>`: Mac `["open", "-a", id]`; Windows `["cmd.exe","/c","start","",<exe>]`.
+- `pub fn app_open_command(platform, app_id: &str) -> Vec<String>`: Mac `["open", "-a", id]`; Windows `["cmd.exe","/c",<exe>]` (hidden; `start` would leave a `cmd /K` window open for `.cmd` launchers).
 - `pub fn url_open_command(platform, url: &str) -> Vec<String>`: Mac `open`, Windows `cmd /c start "" url`, Linux `xdg-open`.
 
 - [ ] Step 1: tests `finds_installed_mac_terminals_in_order` (Terminal first, Warp copy-mode), `windows_always_has_powershell_and_cmd`,

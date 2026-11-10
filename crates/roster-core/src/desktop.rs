@@ -350,12 +350,12 @@ pub fn terminal_command_in(
 }
 
 /// Opens an app without running anything in it.
+/// On Windows `code` and `cursor` are `.cmd` launchers: `start` would run them as
+/// `cmd /K` in a new console that stays open, so they run in the app's hidden cmd.exe.
 pub fn app_open_command(platform: Platform, id: &str) -> Vec<String> {
     match platform {
         Platform::Mac => vec!["open".into(), "-a".into(), id.into()],
-        Platform::Windows => ["cmd.exe", "/c", "start", "", id]
-            .map(String::from)
-            .to_vec(),
+        Platform::Windows => ["cmd.exe", "/c", id].map(String::from).to_vec(),
         Platform::Linux => vec![id.into()],
     }
 }
