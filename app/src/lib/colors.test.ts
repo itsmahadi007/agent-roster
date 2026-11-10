@@ -21,10 +21,10 @@ describe("agent palette", () => {
   it("shows the stored colors as cobalt, cyan, jade, violet and pink", () => {
     expect(swatches(overview.palette)).toEqual([
       { value: "cobalt", label: "cobalt", hex: "#4f7cff" },
-      { value: "marigold", label: "cyan", hex: "#3cc7e6" },
+      { value: "cyan", label: "cyan", hex: "#3cc7e6" },
       { value: "jade", label: "jade", hex: "#2ec4a0" },
       { value: "orchid", label: "violet", hex: "#b86bff" },
-      { value: "coral", label: "pink", hex: "#ff6bc4" },
+      { value: "pink", label: "pink", hex: "#ff6bc4" },
     ]);
   });
 

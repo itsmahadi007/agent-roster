@@ -41,42 +41,47 @@ impl Tool {
     }
 }
 
+/// An agent's own color: who it is, never how much it has used. No red or yellow, so it can't
+/// be read as a warning (usage has its own colors). `marigold` and `coral` were renamed
+/// `cyan` and `pink` in 0.4.0; old rosters still load and are saved with the new names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AgentColor {
     Cobalt,
-    Marigold,
+    #[serde(alias = "marigold")]
+    Cyan,
     Jade,
     Orchid,
-    Coral,
+    #[serde(alias = "coral")]
+    Pink,
 }
 
 impl AgentColor {
     pub const ORDER: [AgentColor; 5] = [
         AgentColor::Cobalt,
-        AgentColor::Marigold,
+        AgentColor::Cyan,
         AgentColor::Jade,
         AgentColor::Orchid,
-        AgentColor::Coral,
+        AgentColor::Pink,
     ];
 
     pub fn label(&self) -> &'static str {
         match self {
             AgentColor::Cobalt => "cobalt",
-            AgentColor::Marigold => "marigold",
+            AgentColor::Cyan => "cyan",
             AgentColor::Jade => "jade",
             AgentColor::Orchid => "orchid",
-            AgentColor::Coral => "coral",
+            AgentColor::Pink => "pink",
         }
     }
 
     pub fn hex(&self) -> &'static str {
         match self {
-            AgentColor::Cobalt => "#4d7cff",
-            AgentColor::Marigold => "#f0b429",
-            AgentColor::Jade => "#2fbf8f",
-            AgentColor::Orchid => "#c06bf0",
-            AgentColor::Coral => "#ff7a6b",
+            AgentColor::Cobalt => "#4f7cff",
+            AgentColor::Cyan => "#3cc7e6",
+            AgentColor::Jade => "#2ec4a0",
+            AgentColor::Orchid => "#b86bff",
+            AgentColor::Pink => "#ff6bc4",
         }
     }
     pub fn rgb(&self) -> (u8, u8, u8) {
@@ -87,10 +92,10 @@ impl AgentColor {
     pub fn parse(s: &str) -> Option<AgentColor> {
         match s.to_ascii_lowercase().as_str() {
             "cobalt" | "blue" => Some(AgentColor::Cobalt),
-            "marigold" | "yellow" | "amber" => Some(AgentColor::Marigold),
+            "cyan" | "teal" | "marigold" | "yellow" | "amber" => Some(AgentColor::Cyan),
             "jade" | "green" => Some(AgentColor::Jade),
             "orchid" | "purple" | "violet" => Some(AgentColor::Orchid),
-            "coral" | "red" | "orange" => Some(AgentColor::Coral),
+            "pink" | "magenta" | "coral" | "red" | "orange" => Some(AgentColor::Pink),
             _ => None,
         }
     }
@@ -315,6 +320,37 @@ mod tests {
         (d, p)
     }
 
+    #[test]
+    fn agent_colors_never_look_like_a_warning_and_old_names_still_load() {
+        // Red and yellow mean "almost out"; an agent's color must never say that.
+        let names: Vec<&str> = AgentColor::ORDER.iter().map(|c| c.label()).collect();
+        assert_eq!(names, ["cobalt", "cyan", "jade", "orchid", "pink"]);
+        for c in AgentColor::ORDER {
+            let (r, g, b) = c.rgb();
+            // Red / orange: strong red, little green and blue. Yellow: red and green, no blue.
+            assert!(!(r > 200 && g < 140 && b < 140), "{} looks red", c.label());
+            assert!(
+                !(r > 200 && g > 150 && b < 100),
+                "{} looks yellow",
+                c.label()
+            );
+        }
+        // Rosters saved before the change say marigold / coral: they still load.
+        #[derive(Deserialize, Serialize)]
+        struct W {
+            c: AgentColor,
+        }
+        let old: W = toml::from_str("c = \"coral\"").unwrap();
+        assert_eq!(old.c, AgentColor::Pink);
+        let old: W = toml::from_str("c = \"marigold\"").unwrap();
+        assert_eq!(old.c, AgentColor::Cyan);
+        // and are saved with the new name.
+        assert_eq!(toml::to_string(&old).unwrap().trim(), "c = \"cyan\"");
+        assert_eq!(AgentColor::parse("coral"), Some(AgentColor::Pink));
+        assert_eq!(AgentColor::parse("pink"), Some(AgentColor::Pink));
+        assert_eq!(AgentColor::parse("cyan"), Some(AgentColor::Cyan));
+    }
+
     fn agent(id: &str, name: &str, tool: Tool, default: bool) -> Agent {
         Agent {
             id: id.into(),
@@ -391,8 +427,8 @@ mod tests {
 
     #[test]
     fn color_hex() {
-        assert_eq!(AgentColor::Cobalt.hex(), "#4d7cff");
-        assert_eq!(AgentColor::Coral.hex(), "#ff7a6b");
+        assert_eq!(AgentColor::Cobalt.hex(), "#4f7cff");
+        assert_eq!(AgentColor::Pink.hex(), "#ff6bc4");
     }
 
     #[test]

@@ -229,7 +229,7 @@ fn parse_color(c: Option<String>) -> Result<Option<AgentColor>, String> {
     match c {
         None => Ok(None),
         Some(s) => AgentColor::parse(&s).map(Some).ok_or_else(|| {
-            format!("{s} isn't one of the colors: cobalt, marigold, jade, orchid, coral.")
+            format!("{s} isn't one of the colors: cobalt, cyan, jade, orchid, pink.")
         }),
     }
 }

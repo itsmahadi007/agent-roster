@@ -54,7 +54,7 @@ describe("AddAgent", () => {
     await userEvent.type(screen.getByLabelText("Name"), "boss");
     await waitFor(() =>
       expect(invoke).toHaveBeenLastCalledWith("preview", {
-        req: { op: "add", name: "boss", tool: "codex", color: "coral", role: null, share: false },
+        req: { op: "add", name: "boss", tool: "codex", color: "pink", role: null, share: false },
       }),
     );
     for (const s of plan.steps) expect(await screen.findByText(s.text)).toBeInTheDocument();
@@ -133,7 +133,7 @@ describe("AddAgent", () => {
     render(AddAgent, props());
     const radios = screen.getAllByRole("radio").map((r) => r.getAttribute("aria-label"));
     expect(radios).toEqual(["cobalt", "cyan", "jade", "violet", "pink"]);
-    // next_color is coral in the fixture: it shows as pink.
+    // next_color is pink in the fixture.
     expect(screen.getByRole("radio", { name: "pink" })).toHaveAttribute("aria-checked", "true");
   });
 

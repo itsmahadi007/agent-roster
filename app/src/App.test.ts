@@ -250,7 +250,7 @@ describe("App rows", () => {
     render(App);
     await userEvent.click(await screen.findByRole("button", { name: /^agent1/ }));
     await userEvent.click(screen.getByRole("radio", { name: "pink" }));
-    expect(invoke).toHaveBeenCalledWith("preview", { req: { op: "color", name: "agent1", color: "coral" } });
+    expect(invoke).toHaveBeenCalledWith("preview", { req: { op: "color", name: "agent1", color: "pink" } });
     const bar = within(await screen.findByRole("region", { name: "Change waiting" }));
     await userEvent.click(await bar.findByRole("button", { name: "Change color" }));
     expect(await screen.findByText("agent1 is pink now.")).toBeInTheDocument();

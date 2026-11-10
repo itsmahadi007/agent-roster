@@ -109,7 +109,7 @@ fn sample() -> Overview {
                     "a2",
                     "agent2",
                     Tool::Claude,
-                    AgentColor::Marigold,
+                    AgentColor::Cyan,
                     LimitsSource::Off,
                 ),
                 AgentState::NeedsSignIn,
@@ -155,7 +155,7 @@ fn calling_parent_and_working_child() {
     assert!(!v.agents[1].live && !v.agents[3].live);
     assert_eq!(v.calls[0].from_name, "agent1");
     assert_eq!(v.calls[0].to_name, "agent3");
-    assert_eq!(v.calls[0].from_color, "#4d7cff");
+    assert_eq!(v.calls[0].from_color, "#4f7cff");
     assert_eq!(v.calls[0].detail, "started 2m ago in ~/projects/portfolio");
     assert_eq!(
         v.agents[0].default_label.as_deref(),
@@ -289,8 +289,8 @@ fn headline_counts_in_words() {
 fn palette_lists_the_five_colors() {
     let v = overview_view(&sample(), Path::new(HOME), NOW);
     let labels: Vec<&str> = v.palette.iter().map(|c| c.label.as_str()).collect();
-    assert_eq!(labels, ["cobalt", "marigold", "jade", "orchid", "coral"]);
-    assert_eq!(v.palette[3].hex, "#c06bf0");
+    assert_eq!(labels, ["cobalt", "cyan", "jade", "orchid", "pink"]);
+    assert_eq!(v.palette[3].hex, "#b86bff");
 }
 
 fn op(id: u64, summary: &str) -> Op {
@@ -325,7 +325,7 @@ fn changes_newest_first_with_agent_color() {
     let v = changes_view(&ops, &r);
     assert_eq!(v.iter().map(|c| c.id).collect::<Vec<_>>(), [3, 2, 1]);
     assert_eq!(v[0].color, None);
-    assert_eq!(v[1].color.as_deref(), Some("#c06bf0"));
+    assert_eq!(v[1].color.as_deref(), Some("#b86bff"));
     assert_eq!(v[2].color, None);
     assert!(v[2].undone);
     assert_eq!(v[1].summary, "Added boss (Codex)");
@@ -518,10 +518,10 @@ fn fixtures_match() {
 fn next_color_is_the_one_add_would_pick() {
     let mut o = sample();
     let v = overview_view(&o, Path::new(HOME), NOW);
-    assert_eq!(v.next_color, "coral");
+    assert_eq!(v.next_color, "pink");
     o.agents.truncate(1);
     let v = overview_view(&o, Path::new(HOME), NOW);
-    assert_eq!(v.next_color, "marigold");
+    assert_eq!(v.next_color, "cyan");
 }
 
 #[test]
@@ -538,7 +538,7 @@ fn agent_view_carries_what_the_edit_sheet_needs() {
     let b = &v.agents[1];
     assert_eq!(b.role, None);
     assert!(!b.share && !b.default);
-    assert_eq!(b.color_label, "marigold");
+    assert_eq!(b.color_label, "cyan");
 }
 
 #[test]

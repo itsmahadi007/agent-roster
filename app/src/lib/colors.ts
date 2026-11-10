@@ -4,8 +4,9 @@ import type { ColorView } from "./types";
  * Agent colors say who, usage colors say how much. The agent palette has no warning hues
  * (no red, no yellow) so an agent's color never reads as "almost out".
  *
- * roster-core still stores its five original colors. They are shown as the new ones here,
- * one to one, without rewriting the roster file: a pick of "pink" is saved as "coral".
+ * roster-core's colors are these since 0.4.0 (cobalt, cyan, jade, orchid shown as violet,
+ * pink). Rosters saved before still say "marigold" / "coral"; the core reads them as cyan and
+ * pink. The old names and hex values below are only a safety net for stale data.
  */
 export const AGENT_HEX: Record<string, string> = {
   cobalt: "#4f7cff",

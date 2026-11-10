@@ -16,31 +16,52 @@ fn paint(text: &str, st: Style) -> String {
     format!("{st}{text}{st:#}")
 }
 
-/// One limit in the table: "week ████████░░   94%  resets in 21h 52m".
-fn window_line(w: &LimitWindow, color: AgentColor, now: i64) -> String {
-    let dim = Style::new().dimmed();
-    let coral = Style::new().fg_color(Some(rgb(AgentColor::Coral)));
-    let filled = ((w.used_percent / 10.0).round() as usize).min(10);
-    let hot = w.used_percent >= 90.0;
-    let bar_style = if hot {
-        coral
+/// Usage and status colors, the same as the app's. Never an agent's own color: an agent's
+/// color says who it is, these say how much is used or what state it is in.
+const HOT: (u8, u8, u8) = (0xff, 0x5a, 0x4f);
+const WARN: (u8, u8, u8) = (0xf2, 0xb6, 0x32);
+const CALM: (u8, u8, u8) = (0xc3, 0xce, 0xde);
+const READY: (u8, u8, u8) = (0x3c, 0xcf, 0x8e);
+
+fn fg((r, g, b): (u8, u8, u8)) -> Style {
+    Style::new().fg_color(Some(Color::Rgb(RgbColor(r, g, b))))
+}
+
+/// The bar's color from usage alone: under 70 calm, 70–89 amber, 90 and up red.
+pub fn usage_color(used_percent: f64) -> (u8, u8, u8) {
+    if used_percent >= 90.0 {
+        HOT
+    } else if used_percent >= 70.0 {
+        WARN
     } else {
-        Style::new().fg_color(Some(rgb(color)))
-    };
+        CALM
+    }
+}
+
+/// One limit in the table: "week ████████░░   94%  resets in 21h 52m".
+fn window_line(w: &LimitWindow, now: i64) -> String {
+    let dim = Style::new().dimmed();
+    let filled = ((w.used_percent / 10.0).round() as usize).min(10);
+    let level = usage_color(w.used_percent);
+    let hot = level == HOT;
     let pct = format!("{:>3.0}%", w.used_percent);
     format!(
         "{:<5} {}{}  {}  {}",
         w.label,
-        paint(&"█".repeat(filled), bar_style),
+        paint(&"█".repeat(filled), fg(level)),
         paint(&"░".repeat(10 - filled), dim),
-        if hot { paint(&pct, coral) } else { pct },
+        if level == CALM {
+            pct
+        } else {
+            paint(&pct, fg(level))
+        },
         paint(
             &if w.resets_at > 0 {
                 reset_phrase(w.resets_at, now)
             } else {
                 String::new()
             },
-            if hot { coral } else { dim }
+            if hot { fg(HOT) } else { dim }
         )
     )
 }
@@ -85,10 +106,8 @@ pub fn overview_text(o: &Overview) -> String {
             st => st,
         };
         let (dot, state_style) = match state_now {
-            AgentState::Ready => ("●", Style::new().fg_color(Some(rgb(AgentColor::Jade)))),
-            AgentState::NeedsSignIn => {
-                ("●", Style::new().fg_color(Some(rgb(AgentColor::Marigold))))
-            }
+            AgentState::Ready => ("●", fg(READY)),
+            AgentState::NeedsSignIn => ("●", fg(WARN)),
             AgentState::Working => ("●", Style::new().fg_color(Some(rgb(a.agent.color)))),
             AgentState::NotInstalled => ("○", dim),
         };
@@ -102,15 +121,14 @@ pub fn overview_text(o: &Overview) -> String {
         let note = usage_note(a, shown, now()).unwrap_or_default();
         match a.limits.as_ref().and_then(|l| weekly(&l.windows)) {
             Some(w) if shown != Shown::NoSubscription => {
-                s.push_str(&window_line(w, a.agent.color, now()));
+                s.push_str(&window_line(w, now()));
                 if shown == Shown::Unreachable {
                     let at = a.limits.as_ref().map(|l| l.as_of).unwrap_or(0);
                     let _ = write!(s, "  {}", paint(&as_of_local(at, now()), dim));
                 }
                 if shown == Shown::LimitReached {
                     // Which limit, with its own reset (the week line shows the week's).
-                    let coral = Style::new().fg_color(Some(rgb(AgentColor::Coral)));
-                    let _ = write!(s, "  {}", paint(&note, coral));
+                    let _ = write!(s, "  {}", paint(&note, fg(HOT)));
                 }
             }
             // The state column already says it.
@@ -392,8 +410,26 @@ mod tests {
             used_percent: 94.0,
             resets_at: now - 1,
         };
-        let line = window_line(&w, AgentColor::Jade, now);
+        let line = window_line(&w, now);
         assert!(line.contains("resetting now"), "{line}");
         assert!(!line.contains("resets in resetting"), "{line}");
+    }
+
+    #[test]
+    fn bar_color_comes_from_usage_never_from_the_agent() {
+        assert_eq!(usage_color(12.0), CALM);
+        assert_eq!(usage_color(69.9), CALM);
+        assert_eq!(usage_color(70.0), WARN);
+        assert_eq!(usage_color(89.0), WARN);
+        assert_eq!(usage_color(90.0), HOT);
+        assert_eq!(usage_color(100.0), HOT);
+        // No agent color is a usage color, so a row can't look "almost out" by its color.
+        for c in AgentColor::ORDER {
+            assert!(
+                ![HOT, WARN].contains(&c.rgb()),
+                "{} is a warning color",
+                c.label()
+            );
+        }
     }
 }

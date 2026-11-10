@@ -128,8 +128,8 @@ describe("AgentPanel", () => {
     expect(screen.queryByRole("button", { name: "Sign in again" })).not.toBeInTheDocument();
   });
 
-  it("the picker shows the new colors, and an old coral agent shows as pink", () => {
-    mount(agent("boss", { color: "#ff7a6b", color_label: "coral" }));
+  it("the picker shows the new colors, and a pink agent is picked", () => {
+    mount(agent("boss", { color: "#ff6bc4", color_label: "pink" }));
     const group = within(screen.getByRole("radiogroup", { name: "Color" }));
     expect(group.getAllByRole("radio").map((r) => r.getAttribute("aria-label"))).toEqual(["cobalt", "cyan", "jade", "violet", "pink"]);
     expect(group.getByRole("radio", { name: "pink" })).toHaveAttribute("aria-checked", "true");
@@ -266,7 +266,7 @@ describe("AgentPanel", () => {
     answer("Done.");
     mount(agent("boss"));
     await userEvent.click(screen.getByRole("radio", { name: "pink" }));
-    expect(invoke).toHaveBeenLastCalledWith("preview", { req: { op: "color", name: "boss", color: "coral" } });
+    expect(invoke).toHaveBeenLastCalledWith("preview", { req: { op: "color", name: "boss", color: "pink" } });
     await userEvent.click(screen.getByRole("switch", { name: "Share my skills" }));
     expect(invoke).toHaveBeenLastCalledWith("preview", { req: { op: "share", name: "boss", on: true } });
     await userEvent.click(screen.getByRole("button", { name: "Make default for codex" }));

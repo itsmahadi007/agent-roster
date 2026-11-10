@@ -6,7 +6,7 @@
       "name": "agent1",
       "tool": "claude",
       "tool_label": "Claude Code",
-      "color": "#4d7cff",
+      "color": "#4f7cff",
       "color_label": "cobalt",
       "email": "you@example.com",
       "plan": null,
@@ -45,8 +45,8 @@
       "name": "agent2",
       "tool": "claude",
       "tool_label": "Claude Code",
-      "color": "#f0b429",
-      "color_label": "marigold",
+      "color": "#3cc7e6",
+      "color_label": "cyan",
       "email": null,
       "plan": null,
       "default_label": null,
@@ -78,7 +78,7 @@
       "name": "agent3",
       "tool": "codex",
       "tool_label": "Codex",
-      "color": "#2fbf8f",
+      "color": "#2ec4a0",
       "color_label": "jade",
       "email": "you@example.com",
       "plan": null,
@@ -116,7 +116,7 @@
       "name": "boss",
       "tool": "codex",
       "tool_label": "Codex",
-      "color": "#c06bf0",
+      "color": "#b86bff",
       "color_label": "orchid",
       "email": "you@example.com",
       "plan": null,
@@ -154,10 +154,10 @@
     {
       "from_id": "a1",
       "from_name": "agent1",
-      "from_color": "#4d7cff",
+      "from_color": "#4f7cff",
       "to_id": "a3",
       "to_name": "agent3",
-      "to_color": "#2fbf8f",
+      "to_color": "#2ec4a0",
       "task": "Write tests for the login page and run them.",
       "detail": "started 2m ago in ~/projects/portfolio"
     }
@@ -165,7 +165,7 @@
   "warnings": [
     {
       "name": "agent3",
-      "color": "#2fbf8f",
+      "color": "#2ec4a0",
       "text": "has used 93% of its week. It resets in 21h 52m."
     }
   ],
@@ -173,24 +173,24 @@
   "palette": [
     {
       "label": "cobalt",
-      "hex": "#4d7cff"
+      "hex": "#4f7cff"
     },
     {
-      "label": "marigold",
-      "hex": "#f0b429"
+      "label": "cyan",
+      "hex": "#3cc7e6"
     },
     {
       "label": "jade",
-      "hex": "#2fbf8f"
+      "hex": "#2ec4a0"
     },
     {
       "label": "orchid",
-      "hex": "#c06bf0"
+      "hex": "#b86bff"
     },
     {
-      "label": "coral",
-      "hex": "#ff7a6b"
+      "label": "pink",
+      "hex": "#ff6bc4"
     }
   ],
-  "next_color": "coral"
+  "next_color": "pink"
 }
