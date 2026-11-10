@@ -48,6 +48,11 @@ pub fn render_note(r: &Roster, me: &Agent) -> String {
             rest.join(", ")
         )),
     }
+    if !leaders.is_empty() {
+        s.push_str(
+            "Before handing out work, run `roster limits` and skip any agent that is at its limit (it says \"limit reached\"); tell the user if all are.\n",
+        );
+    }
     s.push_str(
         "\nHow to use another agent:\n\
 - When the user says \"run this with <name>\", \"ask <name>\" or \"use <name>\", run that name from the shell in the current directory. Do not do that task yourself.\n\
@@ -257,6 +262,22 @@ pub(crate) mod tests {
         assert!(render_note(&r, &r.agents[0]).contains(
             "`boss` and `worker2` are leaders: give them big tasks; they split them and hand parts to the workers."
         ));
+    }
+
+    /// A leader checks limits before handing out work; with no leader there's no such line.
+    #[test]
+    fn a_leader_checks_limits_before_handing_out_work() {
+        const LINE: &str = "Before handing out work, run `roster limits` and skip any agent that is at its limit (it says \"limit reached\"); tell the user if all are.";
+        let mut r = roster_boss_worker();
+        assert!(!render_note(&r, &r.agents[0]).contains("roster limits"));
+        r.agents[0].role = Some("leader".into());
+        let note = render_note(&r, &r.agents[1]);
+        assert!(
+            note.contains(&format!("hands parts to the workers.\n{LINE}\n")),
+            "{note}"
+        );
+        r.agents[1].role = Some("leader".into());
+        assert!(render_note(&r, &r.agents[0]).contains(&format!("to the workers.\n{LINE}\n")));
     }
 
     #[test]
