@@ -65,6 +65,9 @@ pub struct SignInUpdate {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LoginWindowSpec {
     pub agent_id: String,
+    /// Which of this agent's logins the window belongs to: a later login of the same agent
+    /// has a higher number, and only the window's own login can close or focus it.
+    pub login: u64,
     pub agent_name: String,
     pub tool_label: String,
     pub url: String,
@@ -82,10 +85,13 @@ pub struct WindowHooks {
 
 /// The login windows and the main window's sign-in event, behind a trait so tests can fake them.
 pub trait LoginUi: Send + Sync {
+    /// Opens the window. Its hooks may run before this returns (the page can go somewhere
+    /// it may not while the window is being made).
     fn open(&self, spec: &LoginWindowSpec, hooks: WindowHooks) -> Result<(), String>;
-    /// Brings this agent's login window to the front; false when there is none.
-    fn focus(&self, agent_id: &str) -> bool;
-    fn close(&self, agent_id: &str);
+    /// Brings this login's window to the front; false when there is none.
+    fn focus(&self, agent_id: &str, login: u64) -> bool;
+    /// Closes this login's window, also one still being made (it closes once made).
+    fn close(&self, agent_id: &str, login: u64);
     fn notify(&self, u: &SignInUpdate);
 }
 

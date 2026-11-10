@@ -111,10 +111,83 @@ fn app_origins(app: &AppHandle) -> Vec<Url> {
     v
 }
 
+/// The login windows, by agent and login. A window is entered before it is made, because
+/// its hooks can end the login while it is being made; a login that ended by then gets its
+/// window closed as soon as it exists. An older login of an agent never reaches a newer
+/// one's window.
+#[derive(Default)]
+pub struct WindowTable {
+    slots: HashMap<(String, u64), Slot>,
+}
+
+struct Slot {
+    label: String,
+    /// Its login ended: the window goes (or is never kept, if still being made).
+    closing: bool,
+}
+
+impl WindowTable {
+    fn key(agent: &str, login: u64) -> (String, u64) {
+        (agent.to_string(), login)
+    }
+
+    /// Before the window is made.
+    pub fn opening(&mut self, agent: &str, login: u64, label: &str) {
+        self.slots.insert(
+            Self::key(agent, login),
+            Slot {
+                label: label.to_string(),
+                closing: false,
+            },
+        );
+    }
+
+    /// The window now exists. False: its login ended meanwhile, so it must be closed now.
+    pub fn built(&mut self, agent: &str, login: u64) -> bool {
+        let key = Self::key(agent, login);
+        match self.slots.get(&key) {
+            Some(s) if !s.closing => true,
+            _ => {
+                self.slots.remove(&key);
+                false
+            }
+        }
+    }
+
+    /// The window couldn't be made.
+    pub fn forget(&mut self, agent: &str, login: u64) {
+        self.slots.remove(&Self::key(agent, login));
+    }
+
+    /// This login's window, to focus; none once its login ended.
+    pub fn label(&self, agent: &str, login: u64) -> Option<&str> {
+        self.slots
+            .get(&Self::key(agent, login))
+            .filter(|s| !s.closing)
+            .map(|s| s.label.as_str())
+    }
+
+    /// The login ended: the windows to close now (none while it is still being made, it is
+    /// closed once made).
+    pub fn close(&mut self, agent: &str, login: u64) -> Vec<String> {
+        match self.slots.get_mut(&Self::key(agent, login)) {
+            Some(s) => {
+                s.closing = true;
+                vec![s.label.clone()]
+            }
+            None => vec![],
+        }
+    }
+
+    /// The window is gone.
+    pub fn destroyed(&mut self, agent: &str, login: u64) {
+        self.slots.remove(&Self::key(agent, login));
+    }
+}
+
 pub struct TauriLoginUi {
     app: AppHandle,
-    /// Agent id → the label of its login window.
-    windows: Arc<Mutex<HashMap<String, String>>>,
+    windows: Arc<Mutex<WindowTable>>,
     next: AtomicU64,
 }
 
@@ -127,12 +200,16 @@ impl TauriLoginUi {
         }
     }
 
-    fn label_of(&self, agent_id: &str) -> Option<String> {
-        self.windows
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .get(agent_id)
-            .cloned()
+    fn table(&self) -> std::sync::MutexGuard<'_, WindowTable> {
+        self.windows.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn destroy(&self, labels: &[String]) {
+        for l in labels {
+            if let Some(w) = self.app.get_webview_window(l) {
+                let _ = w.destroy();
+            }
+        }
     }
 }
 
@@ -179,6 +256,9 @@ impl LoginUi for TauriLoginUi {
         let hooks = Arc::new(hooks);
         // One "needs your browser" per window, however many blocked requests follow.
         let blocked = Arc::new(AtomicBool::new(false));
+        let (agent, login) = (spec.agent_id.clone(), spec.login);
+        // Entered before the window is made: its hooks may end the login meanwhile.
+        self.table().opening(&agent, login, &label);
 
         let (nav_app, nav_label, nav_name) =
             (self.app.clone(), label.clone(), spec.agent_name.clone());
@@ -221,39 +301,35 @@ impl LoginUi for TauriLoginUi {
         let window = match built {
             Ok(w) => w,
             Err(_) => {
+                self.table().forget(&agent, login);
                 remove_later(dir);
                 return Err(WINDOW_FAILED.into());
             }
         };
         let windows = Arc::clone(&self.windows);
-        let (agent_id, my_label) = (spec.agent_id.clone(), label.clone());
-        let closed = Arc::new(AtomicBool::new(false));
+        let (gone_agent, closed) = (agent.clone(), Arc::new(AtomicBool::new(false)));
         window.on_window_event(move |e| {
             if let tauri::WindowEvent::Destroyed = e
                 && !closed.swap(true, Ordering::SeqCst)
             {
-                {
-                    let mut m = windows.lock().unwrap_or_else(|e| e.into_inner());
-                    if m.get(&agent_id) == Some(&my_label) {
-                        m.remove(&agent_id);
-                    }
-                }
+                windows
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .destroyed(&gone_agent, login);
                 later(&hooks, false);
                 remove_later(dir.clone());
             }
         });
-        self.windows
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert(spec.agent_id.clone(), label);
+        if !self.table().built(&agent, login) {
+            // Its login ended while the window was being made.
+            let _ = window.destroy();
+        }
         Ok(())
     }
 
-    fn focus(&self, agent_id: &str) -> bool {
-        let Some(w) = self
-            .label_of(agent_id)
-            .and_then(|l| self.app.get_webview_window(&l))
-        else {
+    fn focus(&self, agent_id: &str, login: u64) -> bool {
+        let label = self.table().label(agent_id, login).map(str::to_string);
+        let Some(w) = label.and_then(|l| self.app.get_webview_window(&l)) else {
             return false;
         };
         let _ = w.unminimize();
@@ -262,13 +338,9 @@ impl LoginUi for TauriLoginUi {
         true
     }
 
-    fn close(&self, agent_id: &str) {
-        if let Some(w) = self
-            .label_of(agent_id)
-            .and_then(|l| self.app.get_webview_window(&l))
-        {
-            let _ = w.destroy();
-        }
+    fn close(&self, agent_id: &str, login: u64) {
+        let labels = self.table().close(agent_id, login);
+        self.destroy(&labels);
     }
 
     fn notify(&self, u: &SignInUpdate) {
@@ -368,11 +440,48 @@ mod tests {
         );
         let spec = LoginWindowSpec {
             agent_id: "x".into(),
+            login: 1,
             agent_name: "claude_2".into(),
             tool_label: "Claude Code".into(),
             url: String::new(),
         };
         assert_eq!(first_title(&spec), "Sign in claude_2 · Claude Code");
+    }
+
+    /// A login that ends while its window is still being made: the window is closed as
+    /// soon as it exists, never left open.
+    #[test]
+    fn a_window_closed_while_opening_is_closed_once_made() {
+        let mut t = WindowTable::default();
+        t.opening("a", 1, "login-1");
+        assert_eq!(t.close("a", 1), ["login-1"]);
+        assert!(!t.built("a", 1), "kept a window whose login ended");
+        assert_eq!(t.label("a", 1), None);
+        // An ordinary one stays.
+        t.opening("a", 2, "login-2");
+        assert!(t.built("a", 2));
+        assert_eq!(t.label("a", 2), Some("login-2"));
+    }
+
+    /// Windows are kept by login, not only by agent: an older login of the same agent can't
+    /// close, focus or forget a newer login's window.
+    #[test]
+    fn an_older_login_never_touches_a_newer_ones_window() {
+        let mut t = WindowTable::default();
+        t.opening("a", 1, "login-1");
+        assert!(t.built("a", 1));
+        t.opening("a", 2, "login-2");
+        assert!(t.built("a", 2));
+        assert_eq!(t.close("a", 1), ["login-1"]);
+        assert_eq!(t.label("a", 1), None);
+        assert_eq!(t.label("a", 2), Some("login-2"));
+        // The old window's "destroyed" arrives late.
+        t.destroyed("a", 1);
+        assert_eq!(t.label("a", 2), Some("login-2"));
+        assert!(t.close("a", 3).is_empty());
+        assert_eq!(t.label("b", 2), None);
+        t.destroyed("a", 2);
+        assert_eq!(t.label("a", 2), None);
     }
 
     /// Remote pages get no IPC: every capability grants to the main window only, by label,

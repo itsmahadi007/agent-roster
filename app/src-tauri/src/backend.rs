@@ -313,9 +313,10 @@ impl Backend {
             if l.closing {
                 return Err(CLOSING.into());
             }
-            if l.active.contains_key(&id) {
+            if let Some(a) = l.active.get(&id) {
+                let current = a.seq;
                 drop(l);
-                ui.focus(&id);
+                ui.focus(&id, current);
                 return Ok(());
             }
             let seq = self.login_seq.fetch_add(1, Ordering::Relaxed);
@@ -395,6 +396,7 @@ impl Backend {
                 }
                 let spec = LoginWindowSpec {
                     agent_id: who.id.clone(),
+                    login: who.seq,
                     agent_name: who.name.clone(),
                     tool_label: who.tool_label.clone(),
                     url,
@@ -414,7 +416,18 @@ impl Backend {
                     }),
                 };
                 match ui.open(&spec, hooks) {
-                    Ok(()) => ui.notify(&who.update("waiting", None)),
+                    Ok(()) => {
+                        // The login may have ended while its window was being made: then
+                        // the window goes, and "waiting" never follows "done" or "failed".
+                        // Said under the lock, so an end can only come after it.
+                        let l = self.logins();
+                        if l.active.get(&who.id).is_some_and(|a| a.seq == who.seq) {
+                            ui.notify(&who.update("waiting", None));
+                        } else {
+                            drop(l);
+                            ui.close(&who.id, who.seq);
+                        }
+                    }
                     Err(reason) => self.end_login(who, Ended::Failed(reason), true),
                 }
             }
@@ -440,7 +453,7 @@ impl Backend {
             return;
         };
         if !matches!(how, Ended::Canceled) {
-            ui.close(&who.id);
+            ui.close(&who.id, who.seq);
         }
         let u = match how {
             Ended::Done => {
