@@ -29,6 +29,19 @@ fn hex_rgb(hex: &str) -> (u8, u8, u8) {
     (v(0), v(2), v(4))
 }
 
+/// The window shows the stored colors with a palette that has no warning hues
+/// (app/src/lib/colors.ts); the tray dots follow it so both agree.
+fn shown_hex(hex: &str) -> &str {
+    match hex.to_ascii_lowercase().as_str() {
+        "#4d7cff" => "#4f7cff",
+        "#f0b429" => "#3cc7e6",
+        "#2fbf8f" => "#2ec4a0",
+        "#c06bf0" => "#b86bff",
+        "#ff7a6b" => "#ff6bc4",
+        _ => hex,
+    }
+}
+
 pub fn tray_entries(v: &OverviewView) -> Vec<TrayEntry> {
     v.agents
         .iter()
@@ -39,7 +52,7 @@ pub fn tray_entries(v: &OverviewView) -> Vec<TrayEntry> {
             } else {
                 format!("{}  —  {}", a.name, a.tray_text)
             },
-            rgb: hex_rgb(&a.color),
+            rgb: hex_rgb(shown_hex(&a.color)),
         })
         .collect()
 }
@@ -202,7 +215,7 @@ mod tests {
             ]
         );
         assert_eq!(e[0].id, "agent:a1");
-        assert_eq!(e[0].rgb, (0x4d, 0x7c, 0xff));
+        assert_eq!(e[0].rgb, (0x4f, 0x7c, 0xff));
     }
 
     #[test]
@@ -229,6 +242,13 @@ mod tests {
         assert!(!hides_window_on_close("main", Platform::Linux));
         assert!(!hides_window_on_close("login-1", Platform::Windows));
         assert!(!hides_window_on_close("login-1", Platform::Mac));
+    }
+
+    #[test]
+    fn tray_dots_use_the_shown_palette() {
+        assert_eq!(hex_rgb(shown_hex("#ff7a6b")), (0xff, 0x6b, 0xc4));
+        assert_eq!(hex_rgb(shown_hex("#F0B429")), (0x3c, 0xc7, 0xe6));
+        assert_eq!(shown_hex("#123456"), "#123456");
     }
 
     #[test]
