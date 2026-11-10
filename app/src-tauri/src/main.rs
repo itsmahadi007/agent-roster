@@ -9,6 +9,7 @@ use backend::{Backend, BackendConfig};
 use roster_core::desktop::find_roster_bin;
 use roster_core::names::PathLookup;
 use roster_core::paths::RosterPaths;
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 
@@ -49,6 +50,11 @@ fn backend() -> Backend {
     Backend::new(BackendConfig {
         roster_bin,
         scratch: std::env::temp_dir().join("agent-roster"),
+        app_dirs: vec![
+            PathBuf::from("/Applications"),
+            p.home.join("Applications"),
+            PathBuf::from("/System/Applications/Utilities"),
+        ],
         path_var: std::env::var("PATH").unwrap_or_default(),
         lookup: Box::new(lookup),
         env: Box::new(|k: &str| std::env::var(k).ok()),
@@ -89,6 +95,8 @@ fn main() {
             commands::undo_all,
             commands::sign_in,
             commands::open_terminal_as,
+            commands::terminals,
+            commands::open_site,
         ])
         .build(tauri::generate_context!())
         .expect("Agent Roster could not start");

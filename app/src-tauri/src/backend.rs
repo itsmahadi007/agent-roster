@@ -1,7 +1,9 @@
 //! The app's bridge to roster-core. Every change is previewed first; the exact plan the
 //! person saw is the one applied, and only if the roster file has not changed meanwhile.
 
-use roster_core::desktop::terminal_command;
+use roster_core::desktop::{
+    TerminalApp, app_open_command, find_terminals, terminal_command_in, url_open_command,
+};
 use roster_core::detect::RealRunner;
 use roster_core::import::plan_import;
 use roster_core::journal::Journal;
@@ -65,6 +67,10 @@ pub enum OpRequest {
     Default {
         name: String,
     },
+    GoodAt {
+        name: String,
+        items: Option<Vec<String>>,
+    },
     /// The window only removes from the roster; the login folder always stays.
     Remove {
         name: String,
@@ -91,6 +97,8 @@ pub struct BackendConfig {
     pub p: RosterPaths,
     pub roster_bin: Option<PathBuf>,
     pub scratch: PathBuf,
+    /// Folders holding macOS app bundles, searched for terminal apps.
+    pub app_dirs: Vec<PathBuf>,
     pub path_var: String,
     pub lookup: Box<dyn CommandLookup + Send + Sync>,
     pub env: Env,
@@ -106,6 +114,7 @@ pub struct Backend {
     pub p: RosterPaths,
     roster_bin: Option<PathBuf>,
     scratch: PathBuf,
+    app_dirs: Vec<PathBuf>,
     path_var: String,
     lookup: Box<dyn CommandLookup + Send + Sync>,
     env: Env,
@@ -131,6 +140,7 @@ impl Backend {
             p: c.p,
             roster_bin: c.roster_bin,
             scratch: c.scratch,
+            app_dirs: c.app_dirs,
             path_var: c.path_var,
             lookup: c.lookup,
             env: c.env,
@@ -222,6 +232,7 @@ impl Backend {
             OpRequest::Role { name, role } => ops::plan_set_role(&r, p, &ctx, &name, role),
             OpRequest::Share { name, on } => ops::plan_set_share(&r, p, &ctx, &name, on),
             OpRequest::Default { name } => ops::plan_set_default(&r, p, &ctx, &name),
+            OpRequest::GoodAt { name, items } => ops::plan_set_good_at(&r, p, &ctx, &name, items),
             OpRequest::Remove { name } => ops::plan_remove(&r, p, &ctx, &name, false),
         }
         .map_err(|e| e.to_string())?;
@@ -276,16 +287,40 @@ impl Backend {
             .map_err(|e| e.to_string())
     }
 
-    fn open_in_terminal(&self, argv: Vec<String>) -> Result<(), String> {
-        let cmd = terminal_command(
+    /// Terminal apps found on this computer, in menu order.
+    pub fn terminals(&self) -> Vec<TerminalApp> {
+        let exists = |bundle: &str| self.app_dirs.iter().any(|d| d.join(bundle).is_dir());
+        find_terminals(self.p.platform, &exists, &*self.lookup)
+    }
+
+    /// Runs `argv` in a terminal: the default one, or a found app. Returns false when the app
+    /// can't run a command, so it was only opened and the person pastes the command themselves.
+    fn open_in_terminal(&self, argv: Vec<String>, app: Option<&str>) -> Result<bool, String> {
+        let chosen = match app {
+            None => None,
+            Some(id) => Some(
+                self.terminals()
+                    .into_iter()
+                    .find(|t| t.id == id)
+                    .ok_or_else(|| format!("{id} wasn't found on this computer."))?,
+            ),
+        };
+        if let Some(t) = chosen.as_ref().filter(|t| !t.runs) {
+            (self.opener)(&app_open_command(self.p.platform, &t.id))
+                .map_err(|e| format!("Couldn't open {}: {e}", t.label))?;
+            return Ok(false);
+        }
+        let cmd = terminal_command_in(
             self.p.platform,
+            chosen.as_ref().map(|t| t.id.as_str()),
             &*self.env,
             &*self.lookup,
             &argv,
             &self.scratch,
         )
         .map_err(|e| e.to_string())?;
-        (self.opener)(&cmd).map_err(|e| format!("Couldn't open a terminal: {e}"))
+        (self.opener)(&cmd).map_err(|e| format!("Couldn't open a terminal: {e}"))?;
+        Ok(true)
     }
 
     fn agent_id(&self, name: &str) -> Result<String, String> {
@@ -295,20 +330,30 @@ impl Backend {
             .ok_or_else(|| format!("No agent is named {name}."))
     }
 
-    /// Opens the person's terminal running `roster login <name>`.
-    pub fn sign_in(&self, name: &str) -> Result<(), String> {
+    /// Opens a terminal running `roster login <name>`.
+    pub fn sign_in(&self, name: &str, app: Option<&str>) -> Result<bool, String> {
         let bin = self.roster_bin()?;
         self.agent_id(name)?;
-        self.open_in_terminal(vec![bin.display().to_string(), "login".into(), name.into()])
+        self.open_in_terminal(
+            vec![bin.display().to_string(), "login".into(), name.into()],
+            app,
+        )
     }
 
-    /// Opens the person's terminal running the agent itself.
-    pub fn open_terminal_as(&self, name: &str) -> Result<(), String> {
+    /// Opens a terminal running the agent itself.
+    pub fn open_terminal_as(&self, name: &str, app: Option<&str>) -> Result<bool, String> {
         let bin = self.roster_bin()?;
         let id = self.agent_id(name)?;
-        self.open_in_terminal(vec![bin.display().to_string(), "run".into(), id])
+        self.open_in_terminal(vec![bin.display().to_string(), "run".into(), id], app)
+    }
+
+    /// The author's site, from the credit line. The address is fixed here, never passed in.
+    pub fn open_site(&self) -> Result<(), String> {
+        (self.opener)(&url_open_command(self.p.platform, SITE)).map_err(|e| e.to_string())
     }
 }
+
+pub const SITE: &str = "https://mahadihassan.com";
 
 #[cfg(test)]
 #[path = "backend_tests.rs"]
