@@ -4,21 +4,31 @@
   import { rememberedTerminal } from "../lib/terminal";
   import TerminalButton from "./TerminalButton.svelte";
   import RolePicker from "./RolePicker.svelte";
+  import { onDestroy } from "svelte";
 
   let {
     agent,
     palette,
     terminals,
+    nudge = 0,
     onApplied,
+    onDirty,
+    onClose,
   }: {
     agent: AgentView;
     palette: ColorView[];
     terminals: TerminalApp[];
+    /** Goes up each time the person tries to close or switch rows while a change waits. */
+    nudge?: number;
     /** A change went through: what to tell the person, and which kind it was. */
     onApplied: (notice: string, op: OpRequest["op"]) => void;
+    /** Whether a change is waiting in the save bar. */
+    onDirty: (dirty: boolean) => void;
+    /** Escape with nothing waiting. */
+    onClose: () => void;
   } = $props();
 
-  // The page is mounted again after every change, so starting from the agent is enough.
+  // The drawer is mounted again after every change, so starting from the agent is enough.
   // svelte-ignore state_referenced_locally
   let name = $state(agent.name);
   // svelte-ignore state_referenced_locally
@@ -113,6 +123,18 @@
   // The list refreshes every 10 seconds with fresh objects; compare by value so a waiting
   // preview isn't redone each time.
   const reqKey = $derived(req ? JSON.stringify(req) : "");
+
+  // svelte-ignore state_referenced_locally
+  const nudgeAtStart = nudge;
+  /** The nudge count when the current change began; a higher one means "apply or cancel first". */
+  let nudgeSeen = $state(nudgeAtStart);
+  const nudged = $derived(req !== null && nudge > nudgeSeen);
+  $effect(() => {
+    const dirty = reqKey !== "";
+    onDirty(dirty);
+    if (!dirty) nudgeSeen = nudge;
+  });
+  onDestroy(() => onDirty(false));
   $effect(() => {
     void reqKey;
     applyError = null;
@@ -187,7 +209,6 @@
     newTag = "";
   }
 
-  const win = (label: string) => agent.windows.find((w) => w.label === label) ?? null;
   const signedOut = $derived(agent.state === "sign-in");
   const usageOff = $derived(agent.claude_limits === false && !signedOut && agent.state !== "not-installed");
   const noNumbers = $derived(agent.windows.length === 0);
@@ -196,25 +217,24 @@
 
 <svelte:window
   onkeydown={(e) => {
-    // Escape closes an open menu first; only then does it drop a waiting change.
-    if (e.key === "Escape" && req && !document.querySelector('[role="menu"]')) reset();
+    // Escape closes an open menu first, then drops a waiting change, and only then closes the drawer.
+    if (e.key !== "Escape" || document.querySelector('[role="menu"]')) return;
+    if (req) reset();
+    else onClose();
   }}
 />
 
-<div class="page-wrap">
-  <div class="scroll">
+<div class="drawer">
+  <div class="body">
     <header class="top">
-      <div class="who">
-        <h2 class="agent-name ink" style:color={agent.color} style:--c={agent.color}>{agent.name}</h2>
-        <div class="meta">
-          <b>{agent.tool_label}</b>
-          {#if agent.email}<span>{agent.email}</span>{:else if signedOut}<span>not signed in yet</span>{/if}
-          {#if agent.plan}<span>{agent.plan}</span>{/if}
-          {#if agent.default_label}<span>{agent.default_label}</span>{/if}
-          <span class="st" class:ink={live} style:--c={agent.color} style:color={live ? agent.color : "var(--mut)"}>
-            <i style:background={live ? agent.color : "var(--line-2)"}></i>{agent.status_text}
-          </span>
-        </div>
+      <div class="meta">
+        <b>{agent.tool_label}</b>
+        {#if agent.email}<span>{agent.email}</span>{:else if signedOut}<span>not signed in yet</span>{/if}
+        {#if agent.plan}<span>{agent.plan}</span>{/if}
+        {#if agent.default_label}<span>{agent.default_label}</span>{/if}
+        <span class="st" class:ink={live} style:--c={agent.color} style:color={live ? agent.color : "var(--mut)"}>
+          <i style:background={live ? agent.color : "var(--line-2)"}></i>{agent.status_text}
+        </span>
       </div>
       <TerminalButton name={agent.name} {terminals} />
     </header>
@@ -224,43 +244,23 @@
       <button class="link" onclick={copyName}>{copied ? "Copied" : "Copy"}</button>
     </p>
 
-    <div class="cards">
-      {#each [["5 hr", "5-hour use"], ["week", "Weekly use"]] as [label, title], i (label)}
-        {@const w = win(label)}
-        <div class="card">
-          <div class="lab">{title}</div>
-          {#if w}
-            <div class="val num" class:hot={w.hot}>{w.used_percent}%</div>
-            <span class="track"><i style:width="{w.used_percent}%" style:background={w.hot ? "var(--coral)" : agent.color}></i></span>
-            {#if agent.reset_text && agent.windows[agent.windows.length - 1]?.label === label}
-              <div class="sub num" class:hot={agent.reset_hot}>{agent.reset_text}</div>
-            {/if}
-          {:else if signedOut}
-            <div class="val dim">Shows after sign in</div>
-          {:else if usageOff}
-            <div class="val dim">Not shown yet</div>
-          {:else if noNumbers}
-            <div class="val dim">Shows after you use {agent.name}</div>
-            <div class="sub">
-              {i === 0 ? `Type ${agent.name} in a terminal and send one message` : "Refresh, in the list, checks again right away"}
-            </div>
-          {:else}
-            <div class="val dim">Not reported</div>
-            <div class="sub">{agent.tool_label} didn't report this limit</div>
-          {/if}
-        </div>
-      {/each}
-    </div>
-    {#if usageOff}
+    {#if signedOut}
+      <p class="usage-line">Weekly use shows after sign in.</p>
+    {:else if usageOff}
       <p class="usage-line">
         Claude Code shows its use in its status line. Agent Roster can read it there; it never limits the agent.
         <button class="btn sm" onclick={() => reset({ op: "enable-limits", name: agent.name })}>Show usage</button>
       </p>
-    {:else if agent.claude_limits === true}
-      <p class="usage-line quiet">
-        Agent Roster reads this account's use from Claude Code's status line.
-        <button class="link" onclick={() => reset({ op: "disable-limits", name: agent.name })}>Hide usage</button>
-      </p>
+    {:else}
+      {#if noNumbers && agent.state !== "not-installed"}
+        <p class="usage-line">Weekly use shows after you use {agent.name}. Type {agent.name} in a terminal and send one message.</p>
+      {/if}
+      {#if agent.claude_limits === true}
+        <p class="usage-line quiet">
+          Agent Roster reads this account's use from Claude Code's status line.
+          <button class="link" onclick={() => reset({ op: "disable-limits", name: agent.name })}>Hide usage</button>
+        </p>
+      {/if}
     {/if}
 
     <div class="grid">
@@ -406,6 +406,7 @@
   {#if req}
     <section class="save" aria-label="Change waiting">
       <div class="what" aria-live="polite">
+        {#if nudged}<p class="nudge">Apply or cancel this change first.</p>{/if}
         {#if applyError}<p class="error">{applyError}</p>{/if}
         {#if error}
           <p class="error">{error}</p>
@@ -425,46 +426,33 @@
 </div>
 
 <style>
-  .page-wrap {
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
+  .drawer {
+    border: 1px solid var(--line-2);
+    border-top: 1px dashed var(--line);
+    border-radius: 0 0 10px 10px;
+    background: var(--well);
+    margin-bottom: 8px;
   }
-  .scroll {
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
-    padding: 24px 32px 32px;
+  .body {
+    padding: 14px 16px 16px;
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 12px;
   }
   .top {
     display: flex;
     justify-content: space-between;
-    align-items: flex-start;
+    align-items: center;
     gap: 16px;
   }
-  .who {
-    min-width: 0;
-  }
-  h2 {
-    margin: 0;
-    font-size: 34px;
-    line-height: 40px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
   .meta {
-    margin-top: 6px;
     display: flex;
     flex-wrap: wrap;
     gap: 4px 12px;
     font-size: 12px;
     line-height: 16px;
     color: var(--mut);
+    min-width: 0;
   }
   .meta b {
     color: var(--txt);
@@ -482,7 +470,7 @@
     border-radius: 50%;
   }
   .callout {
-    margin: -4px 0 0;
+    margin: 0;
     font-size: 13px;
     color: var(--mut);
     display: flex;
@@ -497,54 +485,8 @@
     background: var(--raise);
     border: 1px solid var(--line);
   }
-  .cards {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
-  }
-  .card {
-    background: var(--raise);
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    padding: 12px 16px;
-    min-height: 92px;
-  }
-  .lab {
-    font-size: 12px;
-    color: var(--mut);
-  }
-  .val {
-    font-size: 24px;
-    line-height: 32px;
-    font-weight: 500;
-    margin: 2px 0 6px;
-  }
-  .val.dim {
-    font-size: 14px;
-    line-height: 20px;
-    color: var(--mut);
-    font-weight: 400;
-    margin: 8px 0 4px;
-  }
-  .track {
-    display: block;
-    height: 6px;
-    border-radius: 3px;
-    background: var(--hole);
-    overflow: hidden;
-  }
-  .track i {
-    display: block;
-    height: 100%;
-  }
-  .sub {
-    font-size: 12px;
-    line-height: 16px;
-    color: var(--dim);
-    margin-top: 6px;
-  }
   .usage-line {
-    margin: -4px 0 0;
+    margin: 0;
     font-size: 12px;
     line-height: 16px;
     color: var(--mut);
@@ -561,8 +503,8 @@
     gap: 16px 20px;
     align-items: start;
     border-top: 1px solid var(--line);
-    padding-top: 20px;
-    margin-top: 4px;
+    padding-top: 16px;
+    margin-top: 2px;
   }
   .k {
     font-size: 13px;
@@ -714,10 +656,13 @@
     color: var(--jade);
   }
   .save {
-    flex: none;
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
     border-top: 1px solid var(--line-2);
-    background: var(--well);
-    padding: 12px 32px;
+    border-radius: 0 0 10px 10px;
+    background: var(--raise);
+    padding: 12px 16px;
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 16px;
@@ -736,8 +681,13 @@
     color: var(--txt);
     font-weight: 500;
   }
-  .what .error {
+  .what .error,
+  .what .nudge {
     margin: 0;
+  }
+  .what .nudge {
+    color: var(--coral);
+    font-weight: 500;
   }
   .dim {
     color: var(--dim);

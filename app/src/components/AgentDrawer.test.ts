@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
-import AgentPage from "./AgentPage.svelte";
+import AgentDrawer from "./AgentDrawer.svelte";
 import overview from "../lib/fixtures/overview.json";
 import type { AgentView, OverviewView } from "../lib/types";
 import { invoke } from "../test/setup";
@@ -10,32 +10,68 @@ const view = overview as OverviewView;
 const agent = (name: string, over: Partial<AgentView> = {}) => ({ ...view.agents.find((a) => a.name === name)!, ...over });
 const plan = (text: string) => ({ token: 9, summary: "s", steps: [{ kind: "change", text }] });
 
-function mount(a: AgentView) {
+function mount(a: AgentView, nudge = 0) {
   const onApplied = vi.fn();
-  const r = render(AgentPage, { agent: a, palette: view.palette, terminals: [], onApplied });
-  return { onApplied, rerender: r.rerender };
+  const onDirty = vi.fn();
+  const onClose = vi.fn();
+  const r = render(AgentDrawer, { agent: a, palette: view.palette, terminals: [], nudge, onApplied, onDirty, onClose });
+  return { onApplied, onDirty, onClose, rerender: r.rerender };
 }
 function answer(text: string) {
   invoke.mockImplementation(async (cmd: string) => (cmd === "preview" ? plan(text) : cmd === "apply" ? 4 : true));
 }
 const bar = () => within(screen.getByRole("region", { name: "Change waiting" }));
 
-describe("AgentPage", () => {
-  it("shows the agent, how to start it, and its usage", async () => {
+describe("AgentDrawer", () => {
+  it("shows how to start the agent, without a name header or usage cards", async () => {
     const user = userEvent.setup();
     mount(agent("agent1"));
-    expect(screen.getByRole("heading", { name: "agent1" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "agent1" })).not.toBeInTheDocument();
+    expect(screen.getByText("you@example.com")).toBeInTheDocument();
     expect(screen.getByText(/in any terminal/)).toHaveTextContent("Or type agent1 in any terminal");
     await user.click(screen.getByRole("button", { name: "Copy" }));
     expect(await navigator.clipboard.readText()).toBe("agent1");
-    expect(screen.getByText("61%")).toBeInTheDocument();
-    expect(screen.getByText("resets in 3d 16h")).toBeInTheDocument();
+    expect(screen.queryByText("5-hour use")).not.toBeInTheDocument();
+    expect(screen.queryByText("Weekly use")).not.toBeInTheDocument();
   });
 
   it("an agent without numbers says how to get them", () => {
     mount(agent("boss", { windows: [], reset_text: null, limits_note: "usage shows after you use boss" }));
-    expect(screen.getAllByText("Shows after you use boss").length).toBe(2);
-    expect(screen.getByText("Type boss in a terminal and send one message")).toBeInTheDocument();
+    expect(
+      screen.getByText("Weekly use shows after you use boss. Type boss in a terminal and send one message."),
+    ).toBeInTheDocument();
+  });
+
+  it("a signed-out agent says usage comes after sign in", () => {
+    mount(agent("agent2"));
+    expect(screen.getByText("Weekly use shows after sign in.")).toBeInTheDocument();
+  });
+
+  it("Escape cancels a waiting change first, then closes", async () => {
+    answer("Renames.");
+    const { onClose, onDirty } = mount(agent("agent1"));
+    const input = screen.getByLabelText("Name");
+    await userEvent.clear(input);
+    await userEvent.type(input, "lead");
+    await waitFor(() => expect(onDirty).toHaveBeenLastCalledWith(true));
+    await userEvent.keyboard("{Escape}");
+    expect(screen.getByLabelText("Name")).toHaveValue("agent1");
+    expect(onClose).not.toHaveBeenCalled();
+    await waitFor(() => expect(onDirty).toHaveBeenLastCalledWith(false));
+    await userEvent.keyboard("{Escape}");
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("says to apply or cancel when nudged", async () => {
+    answer("Renames.");
+    const { rerender } = mount(agent("agent1"));
+    const input = screen.getByLabelText("Name");
+    await userEvent.clear(input);
+    await userEvent.type(input, "lead");
+    await bar().findByText("Renames.");
+    expect(screen.queryByText("Apply or cancel this change first.")).not.toBeInTheDocument();
+    await rerender({ nudge: 1 });
+    expect(await bar().findByText("Apply or cancel this change first.")).toBeInTheDocument();
   });
 
   it("Show usage waits in the save bar", async () => {

@@ -1,33 +1,50 @@
 <script lang="ts">
-  import type { OverviewView, Screen } from "../lib/types";
+  import type { ColorView, OpRequest, OverviewView, Screen, TerminalApp } from "../lib/types";
+  import AgentDrawer from "./AgentDrawer.svelte";
   import Updates from "./Updates.svelte";
 
   let {
     view,
-    selected,
-    onSelect,
+    open,
+    palette,
+    terminals,
+    round,
+    nudge,
+    onToggle,
     onNavigate,
     onRefresh,
     onSite,
+    onApplied,
+    onDirty,
+    onClose,
   }: {
     view: OverviewView;
-    /** The id of the agent whose page is open, or null on other screens. */
-    selected: string | null;
-    onSelect: (id: string) => void;
+    /** The id of the agent whose row is open, or null. */
+    open: string | null;
+    palette: ColorView[];
+    terminals: TerminalApp[];
+    /** Bumped after each change so the open drawer starts fresh from the new state. */
+    round: number;
+    /** Bumped when a close or switch is refused because a change waits. */
+    nudge: number;
+    onToggle: (id: string) => void;
     onNavigate: (s: Screen) => void;
     onRefresh: () => Promise<void>;
     onSite: () => void;
+    onApplied: (notice: string, op: OpRequest["op"]) => void;
+    onDirty: (dirty: boolean) => void;
+    onClose: () => void;
   } = $props();
 
-  const week = (a: OverviewView["agents"][number]) => a.windows.find((w) => w.label === "week") ?? a.windows.at(-1) ?? null;
+  /** The weekly limit; core sends no other window. */
+  const week = (a: OverviewView["agents"][number]) => a.windows.find((w) => w.label === "week") ?? null;
 
+  let items: HTMLElement | undefined = $state();
   function move(e: KeyboardEvent, i: number) {
     const next = e.key === "ArrowDown" ? i + 1 : e.key === "ArrowUp" ? i - 1 : -1;
     if (next < 0 || next >= view.agents.length || (e.key !== "ArrowDown" && e.key !== "ArrowUp")) return;
     e.preventDefault();
-    onSelect(view.agents[next].id);
-    const items = (e.currentTarget as HTMLElement).parentElement?.querySelectorAll<HTMLButtonElement>("button.item");
-    items?.[next]?.focus();
+    items?.querySelectorAll<HTMLButtonElement>("button.item")[next]?.focus();
   }
 
   let checking = $state(false);
@@ -53,24 +70,28 @@
     <button class="btn sm pri" onclick={() => onNavigate("add")}>Add agent</button>
   </div>
 
-  <div class="items">
+  <div class="items" bind:this={items}>
     {#each view.agents as a, i (a.id)}
       {@const w = week(a)}
+      {@const isOpen = a.id === open}
       <button
         class="item"
-        aria-current={a.id === selected ? "true" : undefined}
-        class:sel={a.id === selected}
-        onclick={() => onSelect(a.id)}
+        class:open={isOpen}
+        aria-expanded={isOpen}
+        onclick={() => onToggle(a.id)}
         onkeydown={(e) => move(e, i)}
       >
         <span class="sq" style:background={a.color}></span>
         <span class="who">
           <span class="nm agent-name ink" style:color={a.color} style:--c={a.color}>{a.name}</span>
-          <span class="meta">{a.role ? `${a.role} · ` : ""}{a.tool_label}</span>
+          <span class="meta">{a.role ? `${a.role} · ` : ""}{a.tool_label} · {a.status_text}</span>
         </span>
         <span class="use">
           {#if w}
-            <span class="pc num" class:hot={w.hot}>{w.used_percent}% week</span>
+            <span class="line">
+              <span class="pc num" class:hot={w.hot}>{w.used_percent}% week</span>
+              {#if a.reset_text}<span class="rs num" class:hot={w.hot}>{a.reset_text}</span>{/if}
+            </span>
             <span class="track"><i style:width="{w.used_percent}%" style:background={w.hot ? "var(--coral)" : a.color}></i></span>
           {:else if a.state === "sign-in"}
             <span class="pc dim">sign in</span>
@@ -78,7 +99,13 @@
             <span class="pc dim">not used yet</span>
           {/if}
         </span>
+        <svg class="chev" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M4.5 2.5 8 6l-3.5 3.5" /></svg>
       </button>
+      {#if isOpen}
+        {#key `${a.id}:${round}`}
+          <AgentDrawer agent={a} {palette} {terminals} {nudge} {onApplied} {onDirty} {onClose} />
+        {/key}
+      {/if}
     {/each}
   </div>
 
@@ -128,18 +155,14 @@
 
 <style>
   .list {
-    height: 100%;
-    min-height: 0;
     display: flex;
     flex-direction: column;
-    background: var(--well);
-    border-right: 1px solid var(--line);
   }
   .lh {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 20px 20px 12px;
+    padding: 24px 0 12px;
   }
   h3 {
     margin: 0;
@@ -154,38 +177,36 @@
     color: var(--mut);
   }
   .items {
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
-    padding: 0 12px 8px;
     display: flex;
     flex-direction: column;
-    gap: 4px;
   }
   .item {
     display: grid;
-    grid-template-columns: 10px minmax(0, 1fr) auto;
+    grid-template-columns: 10px minmax(0, 1fr) minmax(150px, 220px) 12px;
     align-items: center;
-    gap: 12px;
-    min-height: 58px;
-    padding: 8px 12px;
-    border: 0;
-    border-radius: 8px;
-    background: none;
+    gap: 14px;
+    min-height: 64px;
+    padding: 12px 14px;
+    margin-bottom: 8px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--raise);
     color: var(--txt);
     text-align: left;
-    transition: background-color 150ms var(--ease);
+    transition: border-color 150ms var(--ease);
   }
   .item:hover {
-    background: var(--raise);
+    border-color: var(--line-2);
   }
-  .item.sel {
-    background: var(--raise);
-    box-shadow: inset 0 0 0 1px var(--line-2);
+  .item.open {
+    border-color: var(--line-2);
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    margin-bottom: 0;
   }
   .item:focus-visible {
     outline: 2px solid var(--txt);
-    outline-offset: -2px;
+    outline-offset: 2px;
   }
   .sq {
     width: 10px;
@@ -198,14 +219,14 @@
     min-width: 0;
   }
   .nm {
-    font-size: 16px;
-    line-height: 20px;
+    font-size: 17px;
+    line-height: 22px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
   .meta {
-    font-size: 11px;
+    font-size: 12px;
     line-height: 16px;
     color: var(--mut);
     white-space: nowrap;
@@ -215,23 +236,33 @@
   .use {
     display: flex;
     flex-direction: column;
-    align-items: flex-end;
-    gap: 4px;
-    min-width: 72px;
+    align-items: stretch;
+    gap: 6px;
+    min-width: 0;
   }
-  .pc {
+  .line {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
     font-size: 12px;
-    color: var(--mut);
     white-space: nowrap;
   }
+  .pc {
+    font-weight: 500;
+    color: var(--txt);
+  }
   .pc.dim {
+    font-weight: 400;
     color: var(--dim);
+    text-align: right;
+  }
+  .rs {
+    color: var(--mut);
   }
   .track {
     display: block;
-    width: 64px;
-    height: 3px;
-    border-radius: 2px;
+    height: 5px;
+    border-radius: 3px;
     background: var(--hole);
     overflow: hidden;
   }
@@ -239,9 +270,21 @@
     display: block;
     height: 100%;
   }
+  .chev {
+    fill: none;
+    stroke: var(--mut);
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transition: transform 150ms var(--ease);
+  }
+  .item.open .chev {
+    transform: rotate(90deg);
+  }
   .foot {
     border-top: 1px solid var(--line);
-    padding: 12px 20px 16px;
+    margin-top: 16px;
+    padding: 16px 0 24px;
     display: flex;
     flex-direction: column;
     gap: 6px;
