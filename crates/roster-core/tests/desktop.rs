@@ -1,6 +1,7 @@
 use roster_core::desktop::{
-    DesktopError, app_candidates, app_launch_command, find_app, find_roster_bin, has_desktop,
-    terminal_command,
+    DesktopError, TerminalApp, app_candidates, app_launch_command, app_open_command, find_app,
+    find_roster_bin, find_terminals, has_desktop, terminal_command, terminal_command_in,
+    url_open_command,
 };
 use roster_core::names::CommandLookup;
 use roster_core::paths::{Platform, RosterPaths};
@@ -225,5 +226,117 @@ fn terminal_env_naming_gnome_terminal_gets_its_own_flag() {
             "login",
             "agent2"
         ])
+    );
+}
+
+fn t(id: &str, label: &str, runs: bool) -> TerminalApp {
+    TerminalApp {
+        id: id.into(),
+        label: label.into(),
+        runs,
+    }
+}
+
+#[test]
+fn finds_installed_mac_terminals_in_order() {
+    let have = [
+        "Terminal.app",
+        "Warp.app",
+        "cmux.app",
+        "Visual Studio Code.app",
+    ];
+    let found = find_terminals(Platform::Mac, &|b| have.contains(&b), &none());
+    assert_eq!(
+        found,
+        [
+            t("Terminal", "Terminal", true),
+            t("Warp", "Warp", false),
+            t("cmux", "cmux", false),
+            t("Visual Studio Code", "VS Code", false),
+        ]
+    );
+}
+
+#[test]
+fn iterm_runs_the_command_file() {
+    let d = tempfile::tempdir().unwrap();
+    let argv = s(&["/usr/local/bin/roster", "run", "a1"]);
+    let cmd = terminal_command_in(
+        Platform::Mac,
+        Some("iTerm"),
+        &no_env,
+        &none(),
+        &argv,
+        d.path(),
+    )
+    .unwrap();
+    assert_eq!(cmd[..3], s(&["open", "-a", "iTerm"]));
+    assert!(cmd[3].ends_with(".command"));
+    let def = terminal_command_in(Platform::Mac, None, &no_env, &none(), &argv, d.path()).unwrap();
+    assert_eq!(def[0], "open");
+    assert_eq!(def.len(), 2);
+}
+
+#[test]
+fn windows_always_has_powershell_and_cmd() {
+    let lookup = FakeLookup(HashMap::from([
+        ("wt", PathBuf::from("C:\\wt.exe")),
+        ("code", PathBuf::from("C:\\code.cmd")),
+    ]));
+    let found = find_terminals(Platform::Windows, &|_| false, &lookup);
+    assert_eq!(
+        found,
+        [
+            t("wt", "Windows Terminal", true),
+            t("powershell", "PowerShell", true),
+            t("cmd", "Command Prompt", true),
+            t("code", "VS Code", false),
+        ]
+    );
+    let d = tempfile::tempdir().unwrap();
+    let argv = s(&["C:\\Roster Files\\roster.exe", "run", "a1"]);
+    let ps = terminal_command_in(
+        Platform::Windows,
+        Some("powershell"),
+        &no_env,
+        &lookup,
+        &argv,
+        d.path(),
+    )
+    .unwrap();
+    assert_eq!(
+        ps,
+        s(&[
+            "cmd.exe",
+            "/c",
+            "start",
+            "",
+            "powershell.exe",
+            "-NoExit",
+            "-Command",
+            "& 'C:\\Roster Files\\roster.exe' 'run' 'a1'"
+        ])
+    );
+}
+
+#[test]
+fn opening_an_app_and_a_url_per_platform() {
+    assert_eq!(
+        app_open_command(Platform::Mac, "Warp"),
+        s(&["open", "-a", "Warp"])
+    );
+    assert_eq!(
+        app_open_command(Platform::Windows, "code"),
+        s(&["cmd.exe", "/c", "start", "", "code"])
+    );
+    let url = "https://mahadihassan.com";
+    assert_eq!(url_open_command(Platform::Mac, url), s(&["open", url]));
+    assert_eq!(
+        url_open_command(Platform::Windows, url),
+        s(&["cmd.exe", "/c", "start", "", url])
+    );
+    assert_eq!(
+        url_open_command(Platform::Linux, url),
+        s(&["xdg-open", url])
     );
 }

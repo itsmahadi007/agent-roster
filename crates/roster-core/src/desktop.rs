@@ -110,6 +110,29 @@ fn sh_quote(s: &str) -> String {
 
 static NEXT_FILE: AtomicU64 = AtomicU64::new(0);
 
+/// Writes a `.command` file that runs `argv`; macOS terminal apps open and run it.
+fn command_file(argv: &[String], scratch: &Path) -> Result<PathBuf, DesktopError> {
+    let io = |e: std::io::Error| DesktopError::Io(e.to_string());
+    std::fs::create_dir_all(scratch).map_err(io)?;
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let file = scratch.join(format!(
+        "agent-roster-{}-{stamp}-{}.command",
+        std::process::id(),
+        NEXT_FILE.fetch_add(1, Ordering::Relaxed)
+    ));
+    let line: Vec<String> = argv.iter().map(|a| sh_quote(a)).collect();
+    std::fs::write(&file, format!("#!/bin/sh\nexec {}\n", line.join(" "))).map_err(io)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).map_err(io)?;
+    }
+    Ok(file)
+}
+
 /// The command that opens a new terminal window running `argv`.
 /// On macOS this writes a `.command` file into `scratch`, opened by the user's terminal app.
 pub fn terminal_command(
@@ -121,27 +144,10 @@ pub fn terminal_command(
 ) -> Result<Vec<String>, DesktopError> {
     let io = |e: std::io::Error| DesktopError::Io(e.to_string());
     match platform {
-        Platform::Mac => {
-            std::fs::create_dir_all(scratch).map_err(io)?;
-            let stamp = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or(0);
-            let file = scratch.join(format!(
-                "agent-roster-{}-{stamp}-{}.command",
-                std::process::id(),
-                NEXT_FILE.fetch_add(1, Ordering::Relaxed)
-            ));
-            let line: Vec<String> = argv.iter().map(|a| sh_quote(a)).collect();
-            std::fs::write(&file, format!("#!/bin/sh\nexec {}\n", line.join(" "))).map_err(io)?;
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755))
-                    .map_err(io)?;
-            }
-            Ok(vec!["open".into(), file.display().to_string()])
-        }
+        Platform::Mac => Ok(vec![
+            "open".into(),
+            command_file(argv, scratch)?.display().to_string(),
+        ]),
         Platform::Windows => {
             let mut cmd = match lookup.find("wt") {
                 Some(wt) => vec![wt.display().to_string()],
@@ -187,5 +193,159 @@ pub fn terminal_command(
             cmd.extend(argv.iter().cloned());
             Ok(cmd)
         }
+    }
+}
+
+/// A terminal (or editor with a terminal) found on this computer.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct TerminalApp {
+    pub id: String,
+    pub label: String,
+    /// True when Agent Roster can start a command in it; false means open it and copy the command.
+    pub runs: bool,
+}
+
+/// macOS terminal apps (bundle name, label, runs a `.command` file), in menu order.
+const MAC_TERMINALS: &[(&str, &str, bool)] = &[
+    ("Terminal", "Terminal", true),
+    ("iTerm", "iTerm", true),
+    ("Warp", "Warp", false),
+    ("Ghostty", "Ghostty", false),
+    ("WezTerm", "WezTerm", false),
+    ("kitty", "kitty", false),
+    ("Alacritty", "Alacritty", false),
+    ("cmux", "cmux", false),
+    ("Hyper", "Hyper", false),
+    ("Tabby", "Tabby", false),
+    ("Visual Studio Code", "VS Code", false),
+    ("Cursor", "Cursor", false),
+    ("Windsurf", "Windsurf", false),
+    ("Zed", "Zed", false),
+];
+
+const LINUX_TERMINALS: &[&str] = &["x-terminal-emulator", "gnome-terminal", "konsole", "xterm"];
+
+fn app(id: &str, label: &str, runs: bool) -> TerminalApp {
+    TerminalApp {
+        id: id.into(),
+        label: label.into(),
+        runs,
+    }
+}
+
+/// Terminal apps found on this computer. `app_exists` answers for a macOS bundle name like "Warp.app".
+pub fn find_terminals(
+    platform: Platform,
+    app_exists: &dyn Fn(&str) -> bool,
+    lookup: &dyn CommandLookup,
+) -> Vec<TerminalApp> {
+    match platform {
+        Platform::Mac => MAC_TERMINALS
+            .iter()
+            .filter(|(b, _, _)| app_exists(&format!("{b}.app")))
+            .map(|(b, l, r)| app(b, l, *r))
+            .collect(),
+        Platform::Windows => {
+            let mut v = vec![];
+            if lookup.find("wt").is_some() {
+                v.push(app("wt", "Windows Terminal", true));
+            }
+            v.push(app("powershell", "PowerShell", true));
+            v.push(app("cmd", "Command Prompt", true));
+            for (cmd, label) in [("code", "VS Code"), ("cursor", "Cursor")] {
+                if lookup.find(cmd).is_some() {
+                    v.push(app(cmd, label, false));
+                }
+            }
+            v
+        }
+        Platform::Linux => LINUX_TERMINALS
+            .iter()
+            .filter(|t| lookup.find(t).is_some())
+            .map(|t| app(t, t, true))
+            .collect(),
+    }
+}
+
+fn ps_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "''"))
+}
+
+/// Like `terminal_command`, in the chosen app. `None` uses the system's default terminal.
+pub fn terminal_command_in(
+    platform: Platform,
+    app: Option<&str>,
+    env: &dyn Fn(&str) -> Option<String>,
+    lookup: &dyn CommandLookup,
+    argv: &[String],
+    scratch: &Path,
+) -> Result<Vec<String>, DesktopError> {
+    let Some(app) = app else {
+        return terminal_command(platform, env, lookup, argv, scratch);
+    };
+    match platform {
+        Platform::Mac => Ok(vec![
+            "open".into(),
+            "-a".into(),
+            app.into(),
+            command_file(argv, scratch)?.display().to_string(),
+        ]),
+        Platform::Windows => match app {
+            "powershell" => {
+                let line: Vec<String> = argv.iter().map(|a| ps_quote(a)).collect();
+                Ok([
+                    "cmd.exe",
+                    "/c",
+                    "start",
+                    "",
+                    "powershell.exe",
+                    "-NoExit",
+                    "-Command",
+                ]
+                .map(String::from)
+                .into_iter()
+                .chain([format!("& {}", line.join(" "))])
+                .collect())
+            }
+            "cmd" => Ok(["cmd.exe", "/c", "start", "", "cmd.exe", "/k"]
+                .map(String::from)
+                .into_iter()
+                .chain(argv.iter().cloned())
+                .collect()),
+            _ => terminal_command(platform, env, lookup, argv, scratch),
+        },
+        Platform::Linux => {
+            let t = lookup
+                .find(app)
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|| app.to_string());
+            let flag = if app == "gnome-terminal" { "--" } else { "-e" };
+            Ok([t, flag.to_string()]
+                .into_iter()
+                .chain(argv.iter().cloned())
+                .collect())
+        }
+    }
+}
+
+/// Opens an app without running anything in it.
+pub fn app_open_command(platform: Platform, id: &str) -> Vec<String> {
+    match platform {
+        Platform::Mac => vec!["open".into(), "-a".into(), id.into()],
+        Platform::Windows => ["cmd.exe", "/c", "start", "", id]
+            .map(String::from)
+            .to_vec(),
+        Platform::Linux => vec![id.into()],
+    }
+}
+
+/// Opens a web page in the default browser.
+pub fn url_open_command(platform: Platform, url: &str) -> Vec<String> {
+    match platform {
+        Platform::Mac => vec!["open".into(), url.into()],
+        Platform::Windows => ["cmd.exe", "/c", "start", "", url]
+            .map(String::from)
+            .to_vec(),
+        Platform::Linux => vec!["xdg-open".into(), url.into()],
     }
 }
