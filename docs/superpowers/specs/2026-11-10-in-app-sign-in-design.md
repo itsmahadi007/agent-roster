@@ -159,6 +159,26 @@ tests. Redact URLs, RPC errors and child output everywhere (logs, errors, crash 
   hosts (exact accounts.google.com, accounts.youtube.com, accounts.google.<cc|com.cc|co.cc>).
   Microsoft/Apple/company SSO stay browser-only until tested. macOS still to test on the Mac.
 
+## 6c. Release 0.4.0: Windows only (owner, 2026-11-11)
+
+CI on macOS found that the Claude link hand-off fails there: the fake `claude` runs, `roster`
+connects to the Unix socket, sends and exits 0, but the app side never gets the link (Linux,
+same code, passes; Windows uses a named pipe and passes, including a live check with the real
+Claude Code). Owner's ruling: release 0.4.0 for Windows only (`.github/release-platforms` =
+`windows`; macOS and Linux keep 0.3.4, their downloads are carried over and stay out of
+`latest.json`), and fix macOS for the next release with both platforms together. Open for that
+release: this macOS hand-off bug; callback paths not pinned (host and port are); quitting during
+a login start not waiting for its process on Unix; a person-run Google popup sign-in with the
+final build; **downgrade safety**: 0.4.0 saves agent colors as `cyan` / `pink`, which 0.3.x
+can't read ("unknown variant `cyan`"), so keep writing `marigold` / `coral` on disk (display stays
+cyan / pink) before macOS and Linux get 0.4.x.
+
+Published 2026-11-11 from build-only run 42880085468 (the gh token lacked `workflow` scope, so the
+release.yml change in 7cce0b2 couldn't be pushed): Windows files from that run, `latest.json`
+Windows-only, v0.3.4's macOS/Linux downloads carried over, the tag-triggered run cancelled.
+Verified: Latest, latest.json 0.4.0 windows-x86_64 + windows-aarch64, downloads 200/206, and a
+real in-app update 0.3.4 → 0.4.0 on the owner's PC (installed roster.exe identical to the release).
+
 ## 7. Review (codex_1, gpt-6.1-sol, high effort, read-only) and the one decision
 
 Blockers it raised, now in the plan above: embedded OAuth is discouraged by RFC 8252 (promise
