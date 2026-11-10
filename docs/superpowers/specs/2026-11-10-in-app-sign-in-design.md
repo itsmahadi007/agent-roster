@@ -142,6 +142,23 @@ Defender stays quiet. **Real macOS sign-in test before the release** (WKWebView 
 Cut from 0.4.0: Console and SSO logins in the window (browser only), exhaustive trivial-state
 tests. Redact URLs, RPC errors and child output everywhere (logs, errors, crash reports).
 
+## 6b. Phase 0 results (Windows, WebView2 via wry 0.57.1, owner signing in, throwaway folders)
+
+- **Claude Code: signed in fully in the window** (auth status `loggedIn: true`, plan max).
+  Path: claude.com/cai/oauth/authorize → claude.ai/oauth/authorize → Google sign-in **popup**
+  (accounts.google.com, worked) → http://localhost:<port>/callback →
+  platform.claude.com/oauth/code/success. The last page is not the loopback, so the window
+  closes on the tool's "done", not on a page.
+- **Codex: signed in fully in the window, including OpenAI 2FA** (`account/login/completed`
+  success, account chatgpt, plan pro). Path: auth.openai.com/oauth/authorize → /log-in → Google
+  as **top-level navigations** (accounts.google.com, accounts.youtube.com, the country domain
+  accounts.google.com.bd) → auth.openai.com/api/accounts/callback/google →
+  auth.openai.com/mfa-challenge → http://127.0.0.1:1455/auth/callback → /success.
+- Closing the window mid-login → Codex "Login cancelled" (correct). No default browser opened.
+- So Google sign-in works on Windows (WebView2 is Edge); the allowlist includes Google's sign-in
+  hosts (exact accounts.google.com, accounts.youtube.com, accounts.google.<cc|com.cc|co.cc>).
+  Microsoft/Apple/company SSO stay browser-only until tested. macOS still to test on the Mac.
+
 ## 7. Review (codex_1, gpt-6.1-sol, high effort, read-only) and the one decision
 
 Blockers it raised, now in the plan above: embedded OAuth is discouraged by RFC 8252 (promise
