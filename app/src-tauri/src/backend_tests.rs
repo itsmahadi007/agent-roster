@@ -3,7 +3,7 @@ use crate::sign_in::{
     LoginUi, LoginWindowSpec, NEEDS_BROWSER, OnEvent, SignInUpdate, SignInWith, WindowHooks,
 };
 use roster_core::detect::SignIn;
-use roster_core::login::{LoginEvent, LoginHandle};
+use roster_core::login::{EndSignal, LoginEvent, LoginHandle};
 use roster_core::model::Tool;
 use roster_core::names::CommandLookup;
 use roster_core::paths::{Platform, RosterPaths};
@@ -116,6 +116,9 @@ struct FakeLogin {
     /// When set, the next start hands over its link at once, then waits for this before it
     /// hands back its handle.
     hold: Mutex<Option<std::sync::mpsc::Receiver<()>>>,
+    /// How long a canceled login takes to stop what it started; `None`: it never does.
+    cleanup: Mutex<Option<Duration>>,
+    stopped: Arc<AtomicUsize>,
 }
 
 impl FakeLogin {
@@ -133,10 +136,31 @@ impl FakeLogin {
                 let _ = release.recv();
             }
             let cancels = Arc::clone(&me.cancels);
-            Ok(LoginHandle::new(Box::new(move || {
-                cancels.fetch_add(1, Ordering::SeqCst);
-                on_event(LoginEvent::Failed("canceled".into()));
-            })))
+            let (end, stopped) = (EndSignal::default(), Arc::clone(&me.stopped));
+            let cleanup = *me.cleanup.lock().unwrap();
+            let ended = end.clone();
+            Ok(LoginHandle::with_end(
+                Box::new(move || {
+                    cancels.fetch_add(1, Ordering::SeqCst);
+                    on_event(LoginEvent::Failed("canceled".into()));
+                    let (end, stopped) = (end.clone(), Arc::clone(&stopped));
+                    match cleanup {
+                        Some(d) if d.is_zero() => {
+                            stopped.fetch_add(1, Ordering::SeqCst);
+                            end.signal();
+                        }
+                        Some(d) => {
+                            std::thread::spawn(move || {
+                                std::thread::sleep(d);
+                                stopped.fetch_add(1, Ordering::SeqCst);
+                                end.signal();
+                            });
+                        }
+                        None => {}
+                    }
+                }),
+                ended,
+            ))
         })
     }
     fn send(&self, e: LoginEvent) {
@@ -166,6 +190,7 @@ fn world_with(roster_bin: Option<PathBuf>) -> World {
     let rec = opened.clone();
     let scratch = d.path().join("scratch");
     let login = Arc::new(FakeLogin::default());
+    *login.cleanup.lock().unwrap() = Some(Duration::ZERO);
     let b = Backend::new(BackendConfig {
         login: login.starter(),
         path_var: p.bin_dir().display().to_string(),
@@ -910,4 +935,44 @@ fn a_handle_returned_while_its_cancel_is_in_flight_is_canceled() {
     go.send(()).unwrap();
     closing.join().unwrap();
     assert_eq!(w.login.cancels(), 1, "the login was left running");
+}
+
+/// Quitting Agent Roster cancels every sign-in in progress and waits for each to stop what
+/// it started (on macOS and Linux nothing else would stop the tool's processes).
+#[test]
+fn quitting_cancels_every_sign_in_and_waits_for_it_to_stop() {
+    let w = world();
+    w.add("boss");
+    w.add("kid");
+    *w.login.cleanup.lock().unwrap() = Some(Duration::from_millis(200));
+    w.b.sign_in_in_app("boss").unwrap();
+    w.login
+        .send(LoginEvent::Link("https://auth.openai.com/a".into()));
+    w.b.sign_in_in_app("kid").unwrap();
+    w.login
+        .send(LoginEvent::Link("https://auth.openai.com/b".into()));
+    assert_eq!(w.b.cancel_all_logins(Duration::from_secs(3)), 2);
+    assert_eq!(w.login.cancels(), 2);
+    assert_eq!(
+        w.login.stopped.load(Ordering::SeqCst),
+        2,
+        "returned before the logins stopped"
+    );
+    // Nothing new starts while the app closes.
+    assert!(w.b.sign_in_in_app("boss").is_err());
+    assert_eq!(w.login.started(), 2);
+}
+
+#[test]
+fn quitting_waits_for_a_stuck_sign_in_only_so_long() {
+    let w = world();
+    w.add("boss");
+    *w.login.cleanup.lock().unwrap() = None;
+    w.b.sign_in_in_app("boss").unwrap();
+    w.login
+        .send(LoginEvent::Link("https://auth.openai.com/a".into()));
+    let t = Instant::now();
+    assert_eq!(w.b.cancel_all_logins(Duration::from_millis(300)), 1);
+    assert!(t.elapsed() < Duration::from_secs(2));
+    assert_eq!(w.login.cancels(), 1);
 }

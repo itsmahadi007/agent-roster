@@ -27,6 +27,8 @@ use crate::paths::RosterPaths;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::channel;
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::Duration;
 
 /// What a running login reports, in order: one `Link`, then `Done` or `Failed`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -43,15 +45,51 @@ pub enum LoginEvent {
 /// A login in progress. Dropping it does not stop it; call `cancel`.
 pub struct LoginHandle {
     cancel: Box<dyn Fn() + Send + Sync>,
+    end: Option<EndSignal>,
 }
 
 impl LoginHandle {
+    /// A handle with nothing to wait for once canceled.
     pub fn new(cancel: Box<dyn Fn() + Send + Sync>) -> Self {
-        LoginHandle { cancel }
+        LoginHandle { cancel, end: None }
+    }
+    /// A handle whose `wait_ended` waits for `end`: signalled once the login has stopped
+    /// everything it started.
+    pub fn with_end(cancel: Box<dyn Fn() + Send + Sync>, end: EndSignal) -> Self {
+        LoginHandle {
+            cancel,
+            end: Some(end),
+        }
     }
     /// Stops the login and everything it started. A `Failed("canceled")` follows.
     pub fn cancel(&self) {
         (self.cancel)()
+    }
+    /// Waits, at most `within`, for the login to have stopped everything it started. True
+    /// once it has (or when there is nothing to wait for).
+    pub fn wait_ended(&self, within: Duration) -> bool {
+        self.end.as_ref().is_none_or(|e| e.wait(within))
+    }
+}
+
+/// Set once a login's process tree is stopped, so app exit can wait for it.
+#[derive(Clone, Default)]
+pub struct EndSignal(Arc<(Mutex<bool>, Condvar)>);
+
+impl EndSignal {
+    pub fn signal(&self) {
+        let (done, cv) = &*self.0;
+        *done.lock().unwrap_or_else(|e| e.into_inner()) = true;
+        cv.notify_all();
+    }
+    /// True once signalled; false when `within` passed first.
+    pub fn wait(&self, within: Duration) -> bool {
+        let (done, cv) = &*self.0;
+        let guard = done.lock().unwrap_or_else(|e| e.into_inner());
+        let (guard, _) = cv
+            .wait_timeout_while(guard, within, |d| !*d)
+            .unwrap_or_else(|e| e.into_inner());
+        *guard
     }
 }
 
@@ -140,11 +178,20 @@ pub fn start_login_with(
             }
             let (tx, rx) = channel();
             let cancel = tx.clone();
-            codex::run(tool_path, &env, &cwd, tx, rx, on_event, Box::new(release))
+            let end = EndSignal::default();
+            let ended = end.clone();
+            let on_end = Box::new(move || {
+                release();
+                ended.signal();
+            });
+            codex::run(tool_path, &env, &cwd, tx, rx, on_event, on_end)
                 .inspect_err(|_| release())?;
-            Ok(LoginHandle::new(Box::new(move || {
-                let _ = cancel.send(codex::Input::Cancel);
-            })))
+            Ok(LoginHandle::with_end(
+                Box::new(move || {
+                    let _ = cancel.send(codex::Input::Cancel);
+                }),
+                end,
+            ))
         }
         Tool::Claude => {
             let roster_bin = roster_bin.ok_or_else(|| {
@@ -155,6 +202,8 @@ pub fn start_login_with(
             })?;
             let (tx, rx) = channel();
             let cancel = tx.clone();
+            let end = EndSignal::default();
+            let ended = end.clone();
             claude::run(
                 tool_path,
                 &env,
@@ -163,11 +212,14 @@ pub fn start_login_with(
                 tx,
                 rx,
                 on_event,
-                Box::new(|| {}),
+                Box::new(move || ended.signal()),
             )?;
-            Ok(LoginHandle::new(Box::new(move || {
-                let _ = cancel.send(claude::Input::Cancel);
-            })))
+            Ok(LoginHandle::with_end(
+                Box::new(move || {
+                    let _ = cancel.send(claude::Input::Cancel);
+                }),
+                end,
+            ))
         }
     }
 }

@@ -34,6 +34,9 @@ pub const STALE: &str =
     "Your roster changed since this preview. Look at the new preview before applying.";
 const MAX_PENDING: usize = 16;
 pub const EXPIRED: &str = "That preview has expired. Look at it again.";
+pub const CLOSING: &str = "Agent Roster is closing.";
+/// How long quitting waits for sign-ins in progress to stop what they started.
+pub const EXIT_WAIT: Duration = Duration::from_secs(3);
 /// How often the app asks every tool for usage on its own.
 pub const USAGE_EVERY: Duration = Duration::from_secs(5 * 60);
 /// The shortest time between two usage checks (Refresh clicked again and again).
@@ -198,6 +201,8 @@ struct Logins {
     active: HashMap<String, ActiveLogin>,
     /// Logins whose window closed before their handle came back: canceled when it does.
     cancel_later: HashSet<u64>,
+    /// The app is quitting: no new sign-in starts.
+    closing: bool,
 }
 
 struct ActiveLogin {
@@ -305,6 +310,9 @@ impl Backend {
         let id = agent.id.clone();
         let seq = {
             let mut l = self.logins();
+            if l.closing {
+                return Err(CLOSING.into());
+            }
             if l.active.contains_key(&id) {
                 drop(l);
                 ui.focus(&id);
@@ -443,6 +451,36 @@ impl Backend {
             Ended::Canceled => who.update("canceled", None),
         };
         ui.notify(&u);
+    }
+
+    /// For app exit: cancels every sign-in in progress and waits, at most `within` in all,
+    /// for each to stop the processes it started (on macOS and Linux nothing else stops them).
+    /// No sign-in starts afterwards. Returns how many were canceled.
+    pub fn cancel_all_logins(&self, within: Duration) -> usize {
+        let deadline = Instant::now() + within;
+        let handles: Vec<LoginHandle> = {
+            let mut l = self.logins();
+            l.closing = true;
+            let all: Vec<ActiveLogin> = l.active.drain().map(|(_, a)| a).collect();
+            let mut handles = vec![];
+            for a in all {
+                match a.handle {
+                    Some(h) => handles.push(h),
+                    // Still starting: canceled the moment its handle comes back.
+                    None => {
+                        l.cancel_later.insert(a.seq);
+                    }
+                }
+            }
+            handles
+        };
+        for h in &handles {
+            h.cancel();
+        }
+        for h in &handles {
+            h.wait_ended(deadline.saturating_duration_since(Instant::now()));
+        }
+        handles.len()
     }
 
     /// A sign-in just finished: the usage loop checks now, skipping the 30 s wait once, and

@@ -171,7 +171,13 @@ fn main() {
         if let tauri::RunEvent::Reopen { .. } = event {
             tray::show_main(handle);
         }
-        let _ = (handle, event);
+        // Quit (tray menu, last window on Linux, an update's restart): stop every sign-in in
+        // progress first. On macOS and Linux nothing else stops the tools' processes.
+        if let tauri::RunEvent::Exit = event {
+            handle
+                .state::<Arc<Backend>>()
+                .cancel_all_logins(backend::EXIT_WAIT);
+        }
     });
 }
 

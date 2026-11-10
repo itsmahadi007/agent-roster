@@ -144,8 +144,14 @@ fn cancel_after_the_link_stops_claude() {
     let tool = fake_claude(s.d.path(), "claude-hang", LINK, 60);
     let (rx, h) = start(&s, &tool);
     assert_eq!(next(&rx, 20), LoginEvent::Link(LINK.into()));
+    assert!(
+        !h.wait_ended(Duration::from_millis(200)),
+        "ended while running"
+    );
     h.cancel();
     assert_eq!(next(&rx, 10), LoginEvent::Failed("canceled".into()));
+    // App exit waits on this: the process tree is stopped.
+    assert!(h.wait_ended(Duration::from_secs(10)), "never stopped");
     assert!(
         rx.recv_timeout(Duration::from_secs(1)).is_err(),
         "one end only"
