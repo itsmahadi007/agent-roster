@@ -71,13 +71,35 @@ describe("AgentList", () => {
       windows: [{ label: "week", used_percent: 100, hot: true }],
       reset_text: "resets in 2d 3h",
       reset_hot: true,
-      limits_note: "limit reached, resets in 2d 3h",
+      limits_note: "weekly limit reached, resets in 2d 3h",
     });
     render(AgentList, props({ view: v }));
     const boss = row(/^boss/);
     expect(boss).toHaveTextContent("limit reached");
     expect(boss).toHaveTextContent("resets in 2d 3h");
     expect(boss.querySelector(".pc")).toHaveClass("hot");
+  });
+
+  it("a used-up five-hour limit says so with its own reset, not the week's", () => {
+    const v = structuredClone(view);
+    Object.assign(v.agents[3], {
+      health: "limit-reached",
+      windows: [{ label: "week", used_percent: 40, hot: false }],
+      reset_text: "resets in 5d 2h",
+      limits_note: "5-hour limit reached, resets in 2h 0m",
+    });
+    render(AgentList, props({ view: v }));
+    const boss = row(/^boss/);
+    expect(boss).toHaveTextContent("5-hour limit reached, resets in 2h 0m");
+    expect(boss).not.toHaveTextContent("resets in 5d 2h");
+    expect(boss.querySelector(".pc")).toHaveClass("hot");
+  });
+
+  it("an expired login the check found says sign in, though the tool says ready", () => {
+    const v = structuredClone(view);
+    Object.assign(v.agents[3], { windows: [], reset_text: null, state: "ready", health: "sign-in", limits_note: "sign in" });
+    render(AgentList, props({ view: v }));
+    expect(row(/^boss/)).toHaveTextContent("sign in");
   });
 
   it("numbers from an earlier check say when they're from", () => {

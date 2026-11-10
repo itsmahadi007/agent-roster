@@ -11,7 +11,7 @@ use roster_core::model::{AgentColor, Roster, Tool};
 use roster_core::names::CommandLookup;
 use roster_core::ops::{self, AddRequest, Ctx, Plan, StepKind};
 use roster_core::paths::RosterPaths;
-use roster_core::status::overview;
+use roster_core::status::{Overview, SignInWatch, overview};
 use roster_core::usage::{read_health, refresh_all, usage_runner};
 use roster_core::view::{
     ChangeView, FirstRunView, OverviewView, changes_view, first_run_view, now, overview_view,
@@ -67,7 +67,8 @@ impl UsageGate {
     }
 }
 
-/// The list shows an agent as "checking": a usage check should run soon.
+/// The list shows an agent as "checking": a usage check should run soon. One finished check
+/// ends "checking" for good (`view::shown_health`), so this never asks over and over.
 pub fn needs_check(v: &OverviewView) -> bool {
     v.agents.iter().any(|a| a.health == "checking")
 }
@@ -168,8 +169,11 @@ pub struct Backend {
     /// One change or undo at a time.
     writing: Mutex<()>,
     usage_gate: UsageGate,
-    /// Set by `overview` when a row says "checking"; the usage loop picks it up.
+    /// Set by `overview` when a row says "checking" or a sign-in from the app waits for a
+    /// check; the usage loop picks it up.
     wanted: AtomicBool,
+    /// When the overview saw each agent sign in, and the Sign in clicks still waiting.
+    watch: Mutex<SignInWatch>,
 }
 
 fn kind(k: StepKind) -> &'static str {
@@ -197,6 +201,7 @@ impl Backend {
             writing: Mutex::new(()),
             usage_gate: UsageGate::default(),
             wanted: AtomicBool::new(false),
+            watch: Mutex::new(SignInWatch::default()),
         }
     }
 
@@ -229,11 +234,22 @@ impl Backend {
     pub fn overview(&self) -> Result<OverviewView, String> {
         let r = self.roster()?;
         let o = overview(&r, &self.p, &self.path_var, &RealRunner::default());
-        let v = overview_view(&o, &self.p.home, now());
-        if needs_check(&v) {
+        Ok(self.view_of(o, now()))
+    }
+
+    /// The window's view of `o`; asks the usage loop for a check when a row says "checking"
+    /// or a sign-in started here waits for one.
+    pub(crate) fn view_of(&self, mut o: Overview, now: i64) -> OverviewView {
+        let awaiting = {
+            let mut w = self.watch.lock().unwrap_or_else(|e| e.into_inner());
+            w.observe(&mut o, now);
+            w.awaiting_sign_in(&o, now)
+        };
+        let v = overview_view(&o, &self.p.home, now);
+        if needs_check(&v) || awaiting {
             self.wanted.store(true, Ordering::Relaxed);
         }
-        Ok(v)
+        v
     }
 
     /// Asks every tool for usage and account health, and saves the answers where
@@ -416,14 +432,20 @@ impl Backend {
             .ok_or_else(|| format!("No agent is named {name}."))
     }
 
-    /// Opens a terminal running `roster login <name>`.
+    /// Opens a terminal running `roster login <name>`. Until a check says the sign-in worked
+    /// (at most `SIGN_IN_WAIT`), the usage loop keeps checking, 30 s apart.
     pub fn sign_in(&self, name: &str, app: Option<&str>) -> Result<bool, String> {
         let bin = self.roster_bin()?;
-        self.agent_id(name)?;
-        self.open_in_terminal(
+        let id = self.agent_id(name)?;
+        let opened = self.open_in_terminal(
             vec![bin.display().to_string(), "login".into(), name.into()],
             app,
-        )
+        )?;
+        self.watch
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .sign_in_started(&id, now());
+        Ok(opened)
     }
 
     /// Opens a terminal running the agent itself.

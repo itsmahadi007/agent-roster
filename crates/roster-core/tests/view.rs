@@ -60,6 +60,8 @@ fn status(a: Agent, state: AgentState, windows: Vec<LimitWindow>) -> AgentStatus
             plan: None,
             windows,
         }),
+        sign_in_known: true,
+        signed_in_at: None,
     }
 }
 
@@ -246,6 +248,7 @@ fn notes_when_no_limits() {
 
     o.agents[1].state = AgentState::Ready;
     o.agents[1].sign_in.signed_in = true;
+    o.agents[1].signed_in_at = Some(NOW - 100);
     let v = overview_view(&o, Path::new(HOME), NOW);
     // Signed in since the last check, which said signed out: the next check is awaited.
     assert_eq!(v.agents[1].limits_note.as_deref(), Some("checking"));
@@ -611,11 +614,15 @@ fn a_full_week_is_limit_reached_in_coral() {
     assert_eq!(boss.health, "limit-reached");
     assert_eq!(
         boss.limits_note.as_deref(),
-        Some("limit reached, resets in 2d 3h")
+        Some("weekly limit reached, resets in 2d 3h")
+    );
+    assert_eq!(
+        boss.limit_text.as_deref(),
+        Some("boss has used its weekly limit; it resets in 2d 3h.")
     );
     assert_eq!(boss.reset_text.as_deref(), Some("resets in 2d 3h"));
     assert!(boss.reset_hot && boss.windows[0].hot);
-    assert_eq!(boss.tray_text, "limit reached");
+    assert_eq!(boss.tray_text, "weekly limit reached");
     assert!(boss.tray_hot);
 }
 
@@ -678,4 +685,100 @@ fn as_of_reads_as_a_clock_time_today_and_a_date_before() {
     );
     assert_eq!(as_of_text(now + 2 * 3600, now, &tz), "as of 3:00 pm");
     assert_eq!(as_of_text(now - 86_400, now, &tz), "as of Nov 9");
+}
+
+#[test]
+fn a_check_that_said_signed_out_is_believed_over_the_status_command() {
+    // An expired Codex login: `codex login status` still says "Logged in" (the state is
+    // Ready), but the check through app-server said signed out. No sign-in was seen since.
+    let mut o = sample();
+    o.agents[3].health = Some(saved(Health::SignedOut));
+    let v = overview_view(&o, Path::new(HOME), NOW);
+    let boss = &v.agents[3];
+    assert_eq!(boss.health, "sign-in");
+    assert_eq!(boss.status_text, "sign in");
+    assert_eq!(boss.tray_text, "sign in");
+    o.agents[3].limits = None;
+    let v = overview_view(&o, Path::new(HOME), NOW);
+    assert_eq!(v.agents[3].health, "sign-in");
+    assert_eq!(v.agents[3].limits_note.as_deref(), Some("sign in"));
+    // "no subscription" from a check holds the same way.
+    o.agents[3].health = Some(saved(Health::NoSubscription));
+    let v = overview_view(&o, Path::new(HOME), NOW);
+    assert_eq!(v.agents[3].health, "no-subscription");
+}
+
+#[test]
+fn checking_waits_only_for_a_check_newer_than_the_sign_in() {
+    let mut o = sample();
+    o.agents[3].limits = None;
+    o.agents[3].health = Some(saved(Health::SignedOut)); // checked at NOW - 200
+    // Signed in after that check: the next one is awaited.
+    o.agents[3].signed_in_at = Some(NOW - 100);
+    let v = overview_view(&o, Path::new(HOME), NOW);
+    assert_eq!(v.agents[3].health, "checking");
+    // Signed in before it: the check knows better.
+    o.agents[3].signed_in_at = Some(NOW - 300);
+    let v = overview_view(&o, Path::new(HOME), NOW);
+    assert_eq!(v.agents[3].health, "sign-in");
+    // A check that said not installed, with the tool found now.
+    o.agents[3].health = Some(saved(Health::NotInstalled));
+    o.agents[3].signed_in_at = None;
+    let v = overview_view(&o, Path::new(HOME), NOW);
+    assert_eq!(v.agents[3].health, "unreachable");
+    assert_eq!(v.agents[3].limits_note.as_deref(), Some("couldn't check"));
+    o.agents[3].signed_in_at = Some(NOW - 100);
+    let v = overview_view(&o, Path::new(HOME), NOW);
+    assert_eq!(v.agents[3].health, "checking");
+}
+
+#[test]
+fn a_full_five_hour_window_says_so_with_its_own_reset() {
+    let mut o = sample();
+    o.agents[3].limits.as_mut().unwrap().windows = vec![
+        win("5 hr", 100.0, 2 * 3600),
+        win("week", 40.0, 5 * 86_400 + 2 * 3600),
+    ];
+    o.agents[3].health = Some(saved(Health::LimitReached));
+    let v = overview_view(&o, Path::new(HOME), NOW);
+    let boss = &v.agents[3];
+    assert_eq!(boss.health, "limit-reached");
+    assert_eq!(
+        boss.limits_note.as_deref(),
+        Some("5-hour limit reached, resets in 2h 0m")
+    );
+    assert_eq!(
+        boss.limit_text.as_deref(),
+        Some("boss has used its 5-hour limit; it resets in 2h 0m.")
+    );
+    assert_eq!(boss.tray_text, "5-hour limit reached");
+    assert!(boss.tray_hot);
+    // The week's own bar and reset stay as they are.
+    assert_eq!(boss.windows[0].used_percent, 40);
+    assert_eq!(boss.reset_text.as_deref(), Some("resets in 5d 2h"));
+    // Numbers newer than any check (a status line) say the same.
+    o.agents[3].health = Some(saved(Health::Ok));
+    let v = overview_view(&o, Path::new(HOME), NOW);
+    assert_eq!(v.agents[3].health, "limit-reached");
+    // Once the five hours have passed, it no longer holds.
+    o.agents[3].limits.as_mut().unwrap().windows[0].resets_at = NOW - 60;
+    let v = overview_view(&o, Path::new(HOME), NOW);
+    assert_eq!(v.agents[3].health, "ok");
+}
+
+#[test]
+fn a_limit_the_tool_reports_with_no_full_window_names_none() {
+    let mut o = sample();
+    o.agents[3].health = Some(saved(Health::LimitReached));
+    let v = overview_view(&o, Path::new(HOME), NOW);
+    let boss = &v.agents[3];
+    assert_eq!(boss.health, "limit-reached");
+    assert_eq!(boss.limits_note.as_deref(), Some("limit reached"));
+    assert_eq!(
+        boss.limit_text.as_deref(),
+        Some("boss has reached a usage limit.")
+    );
+    assert_eq!(boss.tray_text, "limit reached");
+    // Nothing used up: no limit text.
+    assert_eq!(v.agents[0].limit_text, None);
 }

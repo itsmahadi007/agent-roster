@@ -78,7 +78,13 @@ pub fn overview_text(o: &Overview) -> String {
         .max(6);
     for a in &o.agents {
         let color = Style::new().fg_color(Some(rgb(a.agent.color))).bold();
-        let (dot, state_style) = match a.state {
+        let shown = shown_health(a, now());
+        // `codex login status` says "Logged in" for an expired login; the check knows better.
+        let state_now = match a.state {
+            AgentState::Ready if shown == Shown::SignIn => AgentState::NeedsSignIn,
+            st => st,
+        };
+        let (dot, state_style) = match state_now {
             AgentState::Ready => ("●", Style::new().fg_color(Some(rgb(AgentColor::Jade)))),
             AgentState::NeedsSignIn => {
                 ("●", Style::new().fg_color(Some(rgb(AgentColor::Marigold))))
@@ -86,14 +92,13 @@ pub fn overview_text(o: &Overview) -> String {
             AgentState::Working => ("●", Style::new().fg_color(Some(rgb(a.agent.color)))),
             AgentState::NotInstalled => ("○", dim),
         };
-        let state = format!("{dot} {:<13}", a.state.label());
+        let state = format!("{dot} {:<13}", state_now.label());
         let lead_painted = format!(
             "  {}  {:<11}  ",
             paint(&format!("{:<name_w$}", a.agent.name), color),
             a.agent.tool.display()
         );
         let _ = write!(s, "{lead_painted}{}", paint(&state, state_style));
-        let shown = shown_health(a, now());
         let note = usage_note(a, shown, now()).unwrap_or_default();
         match a.limits.as_ref().and_then(|l| weekly(&l.windows)) {
             Some(w) if shown != Shown::NoSubscription => {
@@ -101,6 +106,11 @@ pub fn overview_text(o: &Overview) -> String {
                 if shown == Shown::Unreachable {
                     let at = a.limits.as_ref().map(|l| l.as_of).unwrap_or(0);
                     let _ = write!(s, "  {}", paint(&as_of_local(at, now()), dim));
+                }
+                if shown == Shown::LimitReached {
+                    // Which limit, with its own reset (the week line shows the week's).
+                    let coral = Style::new().fg_color(Some(rgb(AgentColor::Coral)));
+                    let _ = write!(s, "  {}", paint(&note, coral));
                 }
             }
             // The state column already says it.
@@ -227,6 +237,8 @@ mod tests {
                     windows: vec![w("5 hr", 22.0), w("week", 61.0)],
                 }),
                 health: None,
+                sign_in_known: true,
+                signed_in_at: None,
             }],
             calls: vec![],
             tools: vec![],
@@ -268,6 +280,8 @@ mod tests {
                 checked_at: now(),
                 known: Some(h),
             }),
+            sign_in_known: true,
+            signed_in_at: None,
         };
         let o = Overview {
             agents: vec![
@@ -284,6 +298,90 @@ mod tests {
         let json = overview_json(&o);
         assert_eq!(json["agents"][0]["health"], "checking");
         assert_eq!(json["agents"][1]["health"], "no-subscription");
+    }
+
+    fn codex_row(health: roster_core::usage::Health, windows: Vec<LimitWindow>) -> Overview {
+        use roster_core::detect::SignIn;
+        use roster_core::limits::AgentLimits;
+        use roster_core::model::{Agent, LimitsSource, Tool};
+        use roster_core::status::AgentStatus;
+        use roster_core::usage::SavedHealth;
+        Overview {
+            agents: vec![AgentStatus {
+                agent: Agent {
+                    id: "x1".into(),
+                    name: "boss".into(),
+                    tool: Tool::Codex,
+                    config_dir: "~/.codex".into(),
+                    color: AgentColor::Orchid,
+                    role: None,
+                    default: false,
+                    share: false,
+                    limits: LimitsSource::Off,
+                    advanced_links: vec![],
+                    good_at: None,
+                },
+                state: AgentState::Ready,
+                sign_in: SignIn {
+                    signed_in: true,
+                    email: None,
+                    plan: None,
+                },
+                limits: Some(AgentLimits {
+                    as_of: now() - 60,
+                    plan: None,
+                    windows,
+                }),
+                health: Some(SavedHealth {
+                    health,
+                    checked_at: now() - 30,
+                    known: Some(health),
+                }),
+                sign_in_known: true,
+                signed_in_at: None,
+            }],
+            calls: vec![],
+            tools: vec![],
+        }
+    }
+
+    #[test]
+    fn an_expired_login_says_sign_in_even_with_numbers() {
+        use roster_core::usage::Health;
+        let week = LimitWindow {
+            label: "week".into(),
+            used_percent: 30.0,
+            resets_at: now() + 86_400,
+        };
+        let text = overview_text(&codex_row(Health::SignedOut, vec![week]));
+        assert!(text.contains("sign in"), "{text}");
+        assert!(!text.contains("ready"), "{text}");
+        assert_eq!(
+            overview_json(&codex_row(Health::SignedOut, vec![]))["agents"][0]["health"],
+            "sign-in"
+        );
+    }
+
+    #[test]
+    fn a_used_up_five_hour_limit_says_which_and_its_reset() {
+        use roster_core::usage::Health;
+        let w = |label: &str, used: f64, secs: i64| LimitWindow {
+            label: label.into(),
+            used_percent: used,
+            resets_at: now() + secs,
+        };
+        let text = overview_text(&codex_row(
+            Health::LimitReached,
+            vec![
+                w("5 hr", 100.0, 2 * 3600 + 120),
+                w("week", 40.0, 5 * 86_400 + 7200),
+            ],
+        ));
+        assert!(
+            text.contains("5-hour limit reached, resets in 2h"),
+            "{text}"
+        );
+        assert!(text.contains("week"), "{text}");
     }
 
     #[test]
