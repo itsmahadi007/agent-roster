@@ -112,15 +112,25 @@ pub fn find_tool(tool: Tool, path_var: &str, p: &RosterPaths) -> Option<PathBuf>
 }
 
 /// The usual install folders for this person. `%APPDATA%` and `%LOCALAPPDATA%` are the
-/// folders that hold Agent Roster's own config and data, so tests stay inside their temp home.
+/// folders that hold Agent Roster's own config and data. The rest of the environment and the
+/// folders shared by every user (Homebrew) count only for the real home, so a test with a
+/// temp home never finds the machine's real tools.
 fn usual_tool_dirs(p: &RosterPaths) -> Vec<PathBuf> {
+    let real_home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .is_some_and(|h| Path::new(&h) == p.home);
     let parent = |d: &Path| d.parent().map(|x| x.as_os_str().to_owned());
     let env = |k: &str| match k {
         "APPDATA" => parent(&p.config_dir),
         "LOCALAPPDATA" => parent(&p.data_dir),
-        _ => std::env::var_os(k),
+        _ if real_home => std::env::var_os(k),
+        _ => None,
     };
-    crate::usage::sys::tool_dirs_with(&p.home, &env)
+    let mut dirs = crate::usage::sys::tool_dirs_with(&p.home, &env);
+    if real_home {
+        dirs.extend(crate::usage::sys::system_tool_dirs());
+    }
+    dirs
 }
 
 /// `find_tool` with the extra folders given.
@@ -337,6 +347,19 @@ mod tests {
         let path_var = std::env::join_paths([on_path.parent().unwrap()]).unwrap();
         let found = find_tool_in(Tool::Codex, &path_var.to_string_lossy(), &ours, &[npm]);
         assert_eq!(found, Some(on_path));
+    }
+
+    #[test]
+    fn a_roster_in_a_temp_home_only_searches_inside_it() {
+        // Tests use a temp home: they must never find (and run) the machine's real tools in
+        // Homebrew, /usr/local/bin or the real npm folder.
+        let d = tempfile::tempdir().unwrap();
+        let p = RosterPaths::for_home(d.path(), crate::paths::Platform::current(), &|_| None);
+        let dirs = usual_tool_dirs(&p);
+        assert!(!dirs.is_empty());
+        for dir in dirs {
+            assert!(dir.starts_with(d.path()), "{} is outside", dir.display());
+        }
     }
 
     struct FakeRunner {

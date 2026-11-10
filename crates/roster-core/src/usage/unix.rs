@@ -27,10 +27,10 @@ pub fn spawn_piped(cmd: &mut Command) -> std::io::Result<Child> {
 
 /// Stops the child's whole process group, then waits for the child.
 pub fn kill_tree(child: &mut Child) {
-    // While the child is unreaped its id can't be reused, so the group is still ours.
-    if child.try_wait().ok().flatten().is_none()
-        && let Ok(pgid) = libc::pid_t::try_from(child.id())
-    {
+    // Signal the group before reaping the child: a leader that already exited still leaves
+    // its group (and the group id) to the processes it started, and reaping it first would
+    // skip them. Until it is reaped below, its id can't be reused.
+    if let Ok(pgid) = libc::pid_t::try_from(child.id()) {
         // SAFETY: a plain signal to the group the child leads (see `hide`).
         unsafe {
             libc::kill(-pgid, libc::SIGKILL);
@@ -43,18 +43,24 @@ pub fn kill_tree(child: &mut Child) {
 /// Folders where Claude Code and Codex usually live that the app's PATH may lack (an app
 /// started from the Dock or a desktop menu does not get the shell's PATH).
 pub fn extra_tool_dirs(home: &Path) -> Vec<PathBuf> {
-    tool_dirs_with(home, &|k| std::env::var_os(k))
+    let mut dirs = tool_dirs_with(home, &|k| std::env::var_os(k));
+    dirs.extend(system_tool_dirs());
+    dirs
 }
 
-/// `extra_tool_dirs` with the environment passed in, so it can be tested.
-/// `NPM_CONFIG_PREFIX` adds npm's global folder when it was moved.
-pub fn tool_dirs_with(home: &Path, env: &dyn Fn(&str) -> Option<OsString>) -> Vec<PathBuf> {
-    let mut dirs = vec![
-        home.join(".local/bin"),
+/// Install folders shared by every user (Homebrew on Apple silicon and on Intel). Kept apart
+/// from `tool_dirs_with` so a test with a temp home never finds the machine's real tools.
+pub fn system_tool_dirs() -> Vec<PathBuf> {
+    vec![
         PathBuf::from("/opt/homebrew/bin"),
         PathBuf::from("/usr/local/bin"),
-        home.join(".npm-global/bin"),
-    ];
+    ]
+}
+
+/// The person's own install folders, with the environment passed in so it can be tested.
+/// `NPM_CONFIG_PREFIX` adds npm's global folder when it was moved.
+pub fn tool_dirs_with(home: &Path, env: &dyn Fn(&str) -> Option<OsString>) -> Vec<PathBuf> {
+    let mut dirs = vec![home.join(".local/bin"), home.join(".npm-global/bin")];
     if let Some(prefix) = env("NPM_CONFIG_PREFIX").filter(|v| !v.is_empty()) {
         let bin = PathBuf::from(prefix).join("bin");
         if !dirs.contains(&bin) {
@@ -76,8 +82,6 @@ mod tests {
             tool_dirs_with(Path::new("/home/you"), &|_| None),
             vec![
                 PathBuf::from("/home/you/.local/bin"),
-                PathBuf::from("/opt/homebrew/bin"),
-                PathBuf::from("/usr/local/bin"),
                 PathBuf::from("/home/you/.npm-global/bin"),
             ]
         );
@@ -85,6 +89,28 @@ mod tests {
         assert_eq!(
             tool_dirs_with(Path::new("/home/you"), &env).last(),
             Some(&PathBuf::from("/opt/npm/bin"))
+        );
+    }
+
+    /// The leader exits at once and leaves `sleep` holding stdout in its group: the group
+    /// must still be stopped.
+    #[test]
+    fn kill_tree_stops_the_group_after_the_leader_exits() {
+        let mut cmd = Command::new("sh");
+        cmd.args(["-c", "sleep 30 & exit 0"]);
+        let mut child = spawn_piped(&mut cmd).unwrap();
+        let mut out = child.stdout.take().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut b = vec![];
+            let _ = out.read_to_end(&mut b);
+            let _ = tx.send(());
+        });
+        std::thread::sleep(Duration::from_millis(300));
+        kill_tree(&mut child);
+        assert!(
+            rx.recv_timeout(Duration::from_secs(5)).is_ok(),
+            "the leader's child still holds stdout"
         );
     }
 

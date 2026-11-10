@@ -114,6 +114,11 @@ pub fn extra_tool_dirs(home: &Path) -> Vec<PathBuf> {
     tool_dirs_with(home, &|k| std::env::var_os(k))
 }
 
+/// Install folders shared by every user. None on Windows: npm and WinGet install per user.
+pub fn system_tool_dirs() -> Vec<PathBuf> {
+    Vec::new()
+}
+
 /// `extra_tool_dirs` with the environment passed in, so it can be tested.
 /// npm's global folder, WinGet's links, and the native installers' `~\.local\bin`.
 pub fn tool_dirs_with(home: &Path, env: &dyn Fn(&str) -> Option<OsString>) -> Vec<PathBuf> {
