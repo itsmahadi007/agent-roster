@@ -42,7 +42,7 @@ case "$(uname -s)" in
     rm -rf "$app"
     cp -R "$mnt/Agent Roster.app" "$dest/"
     hdiutil detach -quiet "$mnt" || true
-    xattr -r -d com.apple.quarantine "$app" >/dev/null 2>&1 || true
+    /usr/bin/xattr -dr com.apple.quarantine "$app" >/dev/null 2>&1 || true
     ln -sf "$app/Contents/MacOS/roster" "$BIN/roster"
     say "Installed $app"
     open "$app"
