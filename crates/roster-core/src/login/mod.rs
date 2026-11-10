@@ -8,11 +8,23 @@
 //! - Claude Code: `claude auth login --claudeai` with `BROWSER` set to `roster.exe` and a
 //!   one-time authenticated channel; `roster.exe` hands the link back over that channel.
 //!
-//! STUB: the signatures are final; the bodies are being written.
+//! The tool's process tree is always stopped at the end (done, failed or canceled). Every
+//! spawn is hidden. URLs, codes and the tools' output are never logged, and `Failed` texts are
+//! fixed (`msg`).
 
-use crate::model::{Agent, Roster};
+pub mod allow;
+pub mod bridge;
+pub mod claude;
+pub mod codex;
+
+pub use allow::{allowed_popup, callback_matches, is_first_page, redirect_port};
+
+use crate::model::{Agent, Roster, Tool};
+use crate::names::PathLookup;
 use crate::paths::RosterPaths;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::channel;
 
 /// What a running login reports, in order: one `Link`, then `Done` or `Failed`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42,22 +54,148 @@ impl LoginHandle {
 }
 
 /// Starts signing `agent` in. `on_event` is called from a background thread.
+///
+/// Claude Code needs `roster` as its `BROWSER`: the copy next to this program first (same
+/// version, so it knows the hand-off), else the user's own (see `roster_for_bridge`).
 pub fn start_login(
-    _agent: &Agent,
-    _r: &Roster,
-    _p: &RosterPaths,
-    _tool_path: &Path,
-    _on_event: Box<dyn Fn(LoginEvent) + Send + Sync>,
+    agent: &Agent,
+    r: &Roster,
+    p: &RosterPaths,
+    tool_path: &Path,
+    on_event: Box<dyn Fn(LoginEvent) + Send + Sync>,
 ) -> std::io::Result<LoginHandle> {
-    Err(std::io::Error::new(
-        std::io::ErrorKind::Unsupported,
-        "signing in inside Agent Roster is not built yet",
-    ))
+    let roster_bin = match agent.tool {
+        Tool::Claude => Some(roster_for_bridge(p).ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "the roster command is missing",
+            )
+        })?),
+        Tool::Codex => None,
+    };
+    start_login_with(agent, r, p, tool_path, roster_bin.as_deref(), on_event)
+}
+
+/// The `roster` program Claude Code's `BROWSER` points at: the one shipped next to the
+/// running program, else the user's own `roster`.
+pub fn roster_for_bridge(p: &RosterPaths) -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    if exe
+        .file_stem()
+        .is_some_and(|s| s.eq_ignore_ascii_case("roster"))
+    {
+        return Some(exe);
+    }
+    crate::desktop::bundled_roster(p.platform, &exe).or_else(|| {
+        let lookup = PathLookup {
+            exclude: Some(p.bin_dir()),
+        };
+        crate::desktop::find_roster_bin(p, &lookup)
+    })
+}
+
+/// Only one Codex sign-in at a time: they all need port 1455.
+static CODEX_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+/// Gives one `Failed` from a background thread, and a handle with nothing to cancel.
+fn failed_now(why: &'static str, on_event: Box<dyn Fn(LoginEvent) + Send + Sync>) -> LoginHandle {
+    std::thread::spawn(move || on_event(LoginEvent::Failed(why.into())));
+    LoginHandle::new(Box::new(|| {}))
+}
+
+/// Is something already listening on Codex's callback port? Only checked by trying to
+/// listen there for a moment; whatever is there is left alone.
+fn codex_port_busy() -> bool {
+    std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, codex::CALLBACK_PORT)).is_err()
+}
+
+/// `start_login` with `roster_bin` (Claude Code's `BROWSER`) passed in, so tests can use
+/// a fake. `None` is fine for Codex.
+pub fn start_login_with(
+    agent: &Agent,
+    r: &Roster,
+    p: &RosterPaths,
+    tool_path: &Path,
+    roster_bin: Option<&Path>,
+    on_event: Box<dyn Fn(LoginEvent) + Send + Sync>,
+) -> std::io::Result<LoginHandle> {
+    let env = crate::run::build_env(agent, r, p, None);
+    let dir = r.config_dir_of(agent, p);
+    let cwd = if dir.is_dir() {
+        dir
+    } else {
+        std::env::temp_dir()
+    };
+    match agent.tool {
+        Tool::Codex => {
+            if CODEX_ACTIVE.swap(true, Ordering::SeqCst) {
+                return Ok(failed_now(msg::CODEX_BUSY, on_event));
+            }
+            let release = || CODEX_ACTIVE.store(false, Ordering::SeqCst);
+            if codex_port_busy() {
+                release();
+                return Ok(failed_now(msg::PORT_BUSY, on_event));
+            }
+            let (tx, rx) = channel();
+            let cancel = tx.clone();
+            codex::run(tool_path, &env, &cwd, tx, rx, on_event, Box::new(release))
+                .inspect_err(|_| release())?;
+            Ok(LoginHandle::new(Box::new(move || {
+                let _ = cancel.send(codex::Input::Cancel);
+            })))
+        }
+        Tool::Claude => {
+            let roster_bin = roster_bin.ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "the roster command is missing",
+                )
+            })?;
+            let (tx, rx) = channel();
+            let cancel = tx.clone();
+            claude::run(
+                tool_path,
+                &env,
+                &cwd,
+                roster_bin,
+                tx,
+                rx,
+                on_event,
+                Box::new(|| {}),
+            )?;
+            Ok(LoginHandle::new(Box::new(move || {
+                let _ = cancel.send(claude::Input::Cancel);
+            })))
+        }
+    }
 }
 
 /// Is this page allowed in the login window? First page and every later one. Only https on the
-/// tested provider sites, or the tool's own loopback callback (`http://localhost|127.0.0.1`).
-/// Everything else (Google, Microsoft, Apple, company sign-in) must go to the browser.
-pub fn allowed_in_window(_url: &str) -> bool {
-    false
+/// tested provider sites (and Google's own sign-in), or the tool's own loopback callback
+/// (`http://localhost|127.0.0.1:<port>`). Everything else (Microsoft, Apple, company sign-in)
+/// must go to the browser. See `allow`.
+pub fn allowed_in_window(url: &str) -> bool {
+    allow::allowed_in_window(url)
+}
+
+/// What people are told when a login ends without signing in. Fixed texts: never a URL, a
+/// code, a token or anything a tool printed.
+pub mod msg {
+    pub const CANCELED: &str = "canceled";
+    pub const PORT_BUSY: &str =
+        "Another Codex sign-in is using the sign-in port. Finish or close it, then try again.";
+    pub const CODEX_BUSY: &str =
+        "Another Codex sign-in is open in Agent Roster. Finish or close it, then try again.";
+    pub const CODEX_START_FAILED: &str =
+        "Codex couldn't start signing in. Try again, or use Sign in with your browser.";
+    pub const CODEX_STOPPED: &str = "Codex stopped before the sign-in finished. Try again.";
+    pub const NOT_FINISHED: &str = "The sign-in didn't finish. Try again.";
+    pub const TIMED_OUT: &str = "The sign-in took too long. Try again.";
+    pub const BAD_LINK: &str =
+        "The sign-in link wasn't on the expected site. Use Sign in with your browser.";
+    pub const NO_CLAUDE_LINK: &str =
+        "Claude Code didn't hand over a sign-in link. Use Sign in with your browser.";
+    pub const CLAUDE_FAILED: &str = "Claude Code couldn't finish signing in. Try again.";
+    pub const CLAUDE_START_FAILED: &str =
+        "Claude Code couldn't start signing in. Try again, or use Sign in with your browser.";
 }
