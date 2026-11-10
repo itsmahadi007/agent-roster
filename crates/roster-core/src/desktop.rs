@@ -35,6 +35,16 @@ pub fn roster_bin_candidates(p: &RosterPaths) -> Vec<PathBuf> {
     }
 }
 
+/// The `roster` copy shipped inside the app, next to the app's own program file.
+pub fn bundled_roster(platform: Platform, exe: &Path) -> Option<PathBuf> {
+    let name = if platform == Platform::Windows {
+        "roster.exe"
+    } else {
+        "roster"
+    };
+    Some(exe.parent()?.join(name)).filter(|b| b.is_file())
+}
+
 pub fn find_roster_bin(p: &RosterPaths, lookup: &dyn CommandLookup) -> Option<PathBuf> {
     lookup
         .find("roster")

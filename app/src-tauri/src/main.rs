@@ -6,7 +6,7 @@ mod env;
 mod tray;
 
 use backend::{Backend, BackendConfig};
-use roster_core::desktop::find_roster_bin;
+use roster_core::desktop::{bundled_roster, find_roster_bin};
 use roster_core::names::PathLookup;
 use roster_core::paths::RosterPaths;
 use std::path::PathBuf;
@@ -46,7 +46,12 @@ fn backend() -> Backend {
     let lookup = PathLookup {
         exclude: Some(p.bin_dir()),
     };
-    let roster_bin = find_roster_bin(&p, &lookup);
+    // The user's own `roster` first; otherwise the copy shipped inside this app.
+    let roster_bin = find_roster_bin(&p, &lookup).or_else(|| {
+        std::env::current_exe()
+            .ok()
+            .and_then(|exe| bundled_roster(p.platform, &exe))
+    });
     Backend::new(BackendConfig {
         roster_bin,
         scratch: std::env::temp_dir().join("agent-roster"),

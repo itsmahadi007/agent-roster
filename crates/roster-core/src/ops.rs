@@ -809,7 +809,13 @@ pub fn plan_enable_claude_limits(
         ));
     }
     let mut settings = read_settings(&real)?;
-    let our_cmd = format!("{} statusline", ctx.roster_bin.display());
+    // Claude runs this through a shell, so a path with spaces (like the copy inside the app) is quoted.
+    let bin = ctx.roster_bin.display().to_string();
+    let our_cmd = if bin.contains(' ') {
+        format!("\"{bin}\" statusline")
+    } else {
+        format!("{bin} statusline")
+    };
     let mut line = settings
         .get("statusLine")
         .and_then(|v| v.as_object())

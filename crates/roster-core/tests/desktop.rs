@@ -1,7 +1,7 @@
 use roster_core::desktop::{
-    DesktopError, TerminalApp, app_candidates, app_launch_command, app_open_command, find_app,
-    find_roster_bin, find_terminals, has_desktop, terminal_command, terminal_command_in,
-    url_open_command,
+    DesktopError, TerminalApp, app_candidates, app_launch_command, app_open_command,
+    bundled_roster, find_app, find_roster_bin, find_terminals, has_desktop, terminal_command,
+    terminal_command_in, url_open_command,
 };
 use roster_core::names::CommandLookup;
 use roster_core::paths::{Platform, RosterPaths};
@@ -338,5 +338,22 @@ fn opening_an_app_and_a_url_per_platform() {
     assert_eq!(
         url_open_command(Platform::Linux, url),
         s(&["xdg-open", url])
+    );
+}
+
+#[test]
+fn bundled_roster_sits_next_to_the_app() {
+    let d = tempfile::tempdir().unwrap();
+    let exe = d.path().join("agent-roster-app");
+    assert_eq!(bundled_roster(Platform::Mac, &exe), None);
+    touch(&d.path().join("roster"));
+    assert_eq!(
+        bundled_roster(Platform::Mac, &exe),
+        Some(d.path().join("roster"))
+    );
+    touch(&d.path().join("roster.exe"));
+    assert_eq!(
+        bundled_roster(Platform::Windows, &d.path().join("agent-roster-app.exe")),
+        Some(d.path().join("roster.exe"))
     );
 }
