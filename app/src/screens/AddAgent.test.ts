@@ -77,7 +77,7 @@ describe("AddAgent", () => {
     const cmds = invoke.mock.calls.map((c) => c[0]);
     expect(cmds.slice(-2)).toEqual(["apply", "sign_in"]);
     expect(invoke).toHaveBeenCalledWith("apply", { token: 3 });
-    expect(invoke).toHaveBeenCalledWith("sign_in", { name: "boss" });
+    expect(invoke).toHaveBeenCalledWith("sign_in", { name: "boss", app: null });
   });
 
   it("has a title and a way back", async () => {

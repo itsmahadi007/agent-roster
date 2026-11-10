@@ -22,6 +22,8 @@ export interface AgentView {
   default: boolean;
   role: string | null;
   share: boolean;
+  good_at: string[];
+  good_at_custom: boolean;
   state: "ready" | "sign-in" | "working" | "not-installed";
   status_text: string;
   windows: WindowView[];
@@ -111,6 +113,16 @@ export type OpRequest =
   | { op: "role"; name: string; role: string | null }
   | { op: "share"; name: string; on: boolean }
   | { op: "default"; name: string }
-  | { op: "remove"; name: string };
+  | { op: "remove"; name: string }
+  | { op: "good-at"; name: string; items: string[] | null };
+
+export interface TerminalApp {
+  id: string;
+  label: string;
+  /** False: Agent Roster opens it and copies the command for you to paste. */
+  runs: boolean;
+}
+
+export const ROLE_PRESETS = ["Leader", "Worker 1", "Worker 2", "Worker 3", "Reviewer", "Tester", "Designer"];
 
 export type Screen = "agents" | "add" | "changes" | "first-run" | "help";

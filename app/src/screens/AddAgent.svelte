@@ -2,6 +2,7 @@
   import type { ColorView, PlanView, Tool } from "../lib/types";
   import { apply, message, preview, signIn } from "../lib/api";
   import PageHead from "../components/PageHead.svelte";
+  import RolePicker from "../components/RolePicker.svelte";
 
   let {
     palette,
@@ -131,11 +132,9 @@
         </div>
       </div>
 
-      <label class="lbl role">
-        Role (optional)
-        <span class="hint">Other agents read this to decide what to hand it</span>
-        <input bind:value={role} placeholder="what others should ask it for" spellcheck="false" />
-      </label>
+      <div class="lbl">Role (optional)</div>
+      <p class="hint">Other agents read this to decide what to hand it</p>
+      <RolePicker value={role} onChange={(v) => (role = v)} />
     </div>
     <div class="out">
       <div class="lbl first">What will happen</div>
@@ -203,9 +202,6 @@
     font-size: 12px;
     line-height: 16px;
     color: var(--dim);
-  }
-  .role .hint {
-    margin: -4px 0 0;
   }
   .sw {
     display: flex;
@@ -293,24 +289,6 @@
     color: var(--dim);
     font-size: 12px;
     line-height: 16px;
-  }
-  .role {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-  .role input {
-    height: 36px;
-    background: var(--raise);
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    padding: 0 12px;
-    color: var(--txt);
-    font: inherit;
-    font-size: 13px;
-  }
-  .role input::placeholder {
-    color: var(--dim);
   }
   .will {
     background: var(--well);

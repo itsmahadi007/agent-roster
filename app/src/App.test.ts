@@ -14,25 +14,28 @@ function withAgent2Ready(): OverviewView {
 }
 
 describe("App", () => {
-  it("turn_on_limits_opens_plan_sheet", async () => {
+  it("Show usage waits in the save bar, then applies", async () => {
     const v = withAgent2Ready();
+    Object.assign(v.agents[1], { claude_limits: false, limits_note: "usage not shown" });
     invoke.mockImplementation(async (cmd: string) => {
       if (cmd === "overview") return v;
       if (cmd === "preview")
-        return { token: 5, summary: "Turned on Claude limits for agent2", steps: [{ kind: "change", text: "Routes the status line." }] };
+        return { token: 5, summary: "Showing usage for agent2", steps: [{ kind: "change", text: "Routes the status line." }] };
       if (cmd === "apply") return 6;
       throw new Error(cmd);
     });
     render(App);
-    await userEvent.click(await screen.findByRole("button", { name: "Show usage" }));
+    await userEvent.click(await screen.findByRole("button", { name: /agent2/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Show usage" }));
     expect(invoke).toHaveBeenCalledWith("preview", { req: { op: "enable-limits", name: "agent2" } });
-    expect(await screen.findByText("Routes the status line.")).toBeInTheDocument();
-    await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Show usage" }));
+    const bar = within(await screen.findByRole("region", { name: "Change waiting" }));
+    await bar.findByText("Routes the status line.");
+    await userEvent.click(bar.getByRole("button", { name: "Show usage" }));
     expect(invoke).toHaveBeenCalledWith("apply", { token: 5 });
-    await waitFor(() => expect(screen.queryByText("Routes the status line.")).not.toBeInTheDocument());
+    expect(await screen.findByText(/Showing agent2's usage/)).toBeInTheDocument();
   });
 
-  it("turn off limits previews disable-limits", async () => {
+  it("Hide usage previews disable-limits", async () => {
     invoke.mockImplementation(async (cmd: string) => {
       if (cmd === "overview") return overview;
       if (cmd === "preview") return { token: 8, summary: "s", steps: [{ kind: "change", text: "Puts back your status line." }] };
@@ -41,7 +44,7 @@ describe("App", () => {
     render(App);
     await userEvent.click(await screen.findByRole("button", { name: "Hide usage" }));
     expect(invoke).toHaveBeenCalledWith("preview", { req: { op: "disable-limits", name: "agent1" } });
-    expect(within(await screen.findByRole("dialog")).getByRole("button", { name: "Hide usage" })).toBeInTheDocument();
+    expect(within(await screen.findByRole("region", { name: "Change waiting" })).getByRole("button", { name: "Hide usage" })).toBeInTheDocument();
   });
 
   it("add agent button opens the add screen", async () => {
@@ -77,7 +80,7 @@ describe("App history", () => {
 });
 
 describe("App rename and help", () => {
-  it("renaming from a row refreshes and says how to start it", async () => {
+  it("renaming on the agent page says how to start it", async () => {
     invoke.mockImplementation(async (cmd: string) => {
       if (cmd === "overview") return overview;
       if (cmd === "preview") return { token: 2, summary: "Renamed agent1 to lead", steps: [{ kind: "change", text: "Renames the agent1 command to lead." }] };
@@ -85,16 +88,17 @@ describe("App rename and help", () => {
       throw new Error(cmd);
     });
     render(App);
-    await userEvent.click(await screen.findByRole("button", { name: "Edit agent1" }));
+    expect(await screen.findByRole("heading", { name: "agent1" })).toBeInTheDocument();
     const input = screen.getByLabelText("Name");
     await userEvent.clear(input);
     await userEvent.type(input, "lead");
-    await screen.findByText("Renames the agent1 command to lead.");
-    await userEvent.click(screen.getByRole("button", { name: "Rename" }));
+    const bar = within(await screen.findByRole("region", { name: "Change waiting" }));
+    await bar.findByText("Renames the agent1 command to lead.");
+    await userEvent.click(bar.getByRole("button", { name: "Rename" }));
     expect(await screen.findByText("agent1 is now lead. Type lead in any terminal to start it.")).toBeInTheDocument();
   });
 
-  it("removing an agent closes its settings", async () => {
+  it("removing an agent opens the one above it", async () => {
     invoke.mockImplementation(async (cmd: string) => {
       if (cmd === "overview") return overview;
       if (cmd === "preview") return { token: 3, summary: "Removed boss", steps: [{ kind: "remove", text: "Removes the boss command." }] };
@@ -102,11 +106,12 @@ describe("App rename and help", () => {
       throw new Error(cmd);
     });
     render(App);
-    await userEvent.click(await screen.findByRole("button", { name: "Edit boss" }));
+    await userEvent.click(await screen.findByRole("button", { name: /boss/ }));
     await userEvent.click(screen.getByRole("button", { name: "Remove boss" }));
-    await userEvent.click(await screen.findByRole("button", { name: "Remove" }));
+    const bar = within(await screen.findByRole("region", { name: "Change waiting" }));
+    await userEvent.click(await bar.findByRole("button", { name: "Remove" }));
     expect(await screen.findByText(/boss was removed/)).toBeInTheDocument();
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "agent3" })).toBeInTheDocument();
   });
 
   it("how it works explains the app and goes back", async () => {
@@ -115,8 +120,8 @@ describe("App rename and help", () => {
     await userEvent.click(await screen.findByRole("button", { name: "How it works" }));
     expect(await screen.findByRole("heading", { name: "How Agent Roster works" })).toBeInTheDocument();
     expect(screen.getByText(/Type its name in any terminal/)).toBeInTheDocument();
-    expect(screen.getByText(/Click an agent's name to open its settings/)).toBeInTheDocument();
+    expect(screen.getByText(/Click an agent in the list to open its page/)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Back to your agents" }));
-    expect(await screen.findByRole("heading", { name: "Your agents" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "agent1" })).toBeInTheDocument();
   });
 });

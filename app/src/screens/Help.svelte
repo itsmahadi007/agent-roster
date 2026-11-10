@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { OverviewView } from "../lib/types";
   import PageHead from "../components/PageHead.svelte";
+  import { openSite } from "../lib/api";
 
   let { view, onBack }: { view: OverviewView; onBack: () => void } = $props();
 
@@ -69,9 +70,9 @@
     <section>
       <h4>Change an agent</h4>
       <p>
-        Click an agent's name to open its settings. There you can rename it, change its color or role, share your skills
-        with it, make it the default, open a terminal as it, sign in again or remove it. Removing keeps its login folder.
-      </p>
+        Click an agent in the list to open its page. There you can rename it, change its color, pick a ready-made role
+        like Leader or Worker 1, edit what it's good at, share your skills with it, make it the default, sign in again or
+        remove it. Each change waits in a bar at the bottom until you save it. Removing keeps its login folder.</p>
     </section>
     <section>
       <h4>Nothing changes without asking</h4>
@@ -100,9 +101,30 @@
       </p>
     </section>
   </div>
+  <p class="credit">
+    Created by Mahadi Hassan ·
+    <a
+      href="https://mahadihassan.com"
+      onclick={(e) => {
+        e.preventDefault();
+        openSite();
+      }}>mahadihassan.com</a
+    >
+  </p>
 </div>
 
 <style>
+  .credit {
+    margin-top: 32px;
+    font-size: 12px;
+    color: var(--dim);
+  }
+  .credit a {
+    color: var(--mut);
+    text-decoration: underline;
+    text-decoration-color: var(--line-2);
+    text-underline-offset: 3px;
+  }
   .help {
     max-width: 1040px;
   }
