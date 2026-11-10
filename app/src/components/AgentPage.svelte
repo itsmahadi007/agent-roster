@@ -35,6 +35,8 @@
   let busy = $state(false);
   let retry = $state(0);
   let actionError = $state<string | null>(null);
+  /** Why the last Apply failed; kept while the same change is looked at again. */
+  let applyError = $state<string | null>(null);
   let copied = $state(false);
 
   const same = (a: string[], b: string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
@@ -108,9 +110,17 @@
     }
   }
 
+  // The list refreshes every 10 seconds with fresh objects; compare by value so a waiting
+  // preview isn't redone each time.
+  const reqKey = $derived(req ? JSON.stringify(req) : "");
+  $effect(() => {
+    void reqKey;
+    applyError = null;
+  });
+
   let seq = 0;
   $effect(() => {
-    const r = req;
+    const r: OpRequest | null = reqKey ? JSON.parse(reqKey) : null;
     void retry;
     const wait = typing ? 250 : 0;
     const mine = ++seq;
@@ -137,16 +147,18 @@
     if (!plan || !req) return;
     const r = req;
     busy = true;
+    applyError = null;
     try {
       await apply(plan.token);
-      onApplied(notice(r), r.op);
     } catch (e) {
       // The preview is used up or stale: say why and look again.
-      error = message(e);
-      retry += 1;
-    } finally {
+      applyError = message(e);
       busy = false;
+      retry += 1;
+      return;
     }
+    // Stays busy: this page is replaced once the list has the new state.
+    onApplied(notice(r), r.op);
   }
 
   async function signInAgain() {
@@ -184,7 +196,8 @@
 
 <svelte:window
   onkeydown={(e) => {
-    if (e.key === "Escape" && req) reset();
+    // Escape closes an open menu first; only then does it drop a waiting change.
+    if (e.key === "Escape" && req && !document.querySelector('[role="menu"]')) reset();
   }}
 />
 
@@ -309,7 +322,7 @@
       <span class="k">Good at</span>
       <div>
         <div class="tags">
-          {#each good as t (t)}
+          {#each good as t, i (i)}
             <span class="tag">
               {t}
               <button
@@ -393,6 +406,7 @@
   {#if req}
     <section class="save" aria-label="Change waiting">
       <div class="what" aria-live="polite">
+        {#if applyError}<p class="error">{applyError}</p>{/if}
         {#if error}
           <p class="error">{error}</p>
         {:else if plan}

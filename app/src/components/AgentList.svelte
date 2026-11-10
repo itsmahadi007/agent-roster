@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { OverviewView, Screen } from "../lib/types";
+  import Updates from "./Updates.svelte";
 
   let {
     view,
@@ -111,6 +112,7 @@
       <button class="link" onclick={() => onNavigate("help")}>How it works</button>
       <button class="link" onclick={() => onNavigate("changes")}>What changed</button>
     </div>
+    <Updates />
     <p class="credit">
       Created by Mahadi Hassan ·
       <a
@@ -279,7 +281,7 @@
     color: var(--jade);
   }
   .credit {
-    margin-top: 6px !important;
+    margin-top: 0 !important;
     color: var(--dim);
     font-size: 11px;
   }

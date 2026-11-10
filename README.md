@@ -9,14 +9,15 @@ macOS, Windows and Linux. Never installs hooks, previews every change, and can u
 
 Get the latest version from [Releases](https://github.com/itsmahadi007/agent-roster/releases/latest).
 
-- **Mac:** download `Agent Roster_<version>_universal.dmg`, open it and drag Agent Roster to
+- **Mac:** download `Agent-Roster_<version>_universal.dmg`, open it and drag Agent Roster to
   Applications. The app isn't signed by Apple yet, so the first time macOS blocks it: open
   System Settings > Privacy & Security, scroll down, and click **Open Anyway** next to Agent
   Roster. Or run `xattr -dr com.apple.quarantine "/Applications/Agent Roster.app"` once.
-- **Windows:** download `Agent Roster_<version>_x64-setup.exe` and run it. Windows SmartScreen may
+- **Windows:** download `Agent-Roster_<version>_x64-setup.exe` and run it. Windows SmartScreen may
   say it protected your PC: click **More info**, then **Run anyway**.
 
-The `roster` command comes inside the app, so there's nothing else to install. You need Claude
+Once installed, the app checks for new versions itself and offers to update: one click installs
+it and restarts. The `roster` command comes inside the app, so there's nothing else to install. You need Claude
 Code or Codex installed and signed in once.
 
 To use `roster` in a terminal too, download the plain `roster` file for your system from the same

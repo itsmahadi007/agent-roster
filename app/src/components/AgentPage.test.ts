@@ -12,8 +12,8 @@ const plan = (text: string) => ({ token: 9, summary: "s", steps: [{ kind: "chang
 
 function mount(a: AgentView) {
   const onApplied = vi.fn();
-  render(AgentPage, { agent: a, palette: view.palette, terminals: [], onApplied });
-  return { onApplied };
+  const r = render(AgentPage, { agent: a, palette: view.palette, terminals: [], onApplied });
+  return { onApplied, rerender: r.rerender };
 }
 function answer(text: string) {
   invoke.mockImplementation(async (cmd: string) => (cmd === "preview" ? plan(text) : cmd === "apply" ? 4 : true));
@@ -118,5 +118,41 @@ describe("AgentPage", () => {
     mount(agent("agent1"));
     await userEvent.click(screen.getByRole("button", { name: "Sign in again" }));
     expect(invoke).toHaveBeenCalledWith("sign_in", { name: "agent1", app: null });
+  });
+
+  it("an apply that fails says why and stays visible", async () => {
+    invoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "preview") return plan("Changes the color.");
+      if (cmd === "apply") throw "That preview has expired. Look at it again.";
+    });
+    mount(agent("boss"));
+    await userEvent.click(screen.getByRole("radio", { name: "coral" }));
+    await userEvent.click(await bar().findByRole("button", { name: "Change color" }));
+    expect(await screen.findByText("That preview has expired. Look at it again.")).toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.getByText("That preview has expired. Look at it again.")).toBeInTheDocument();
+  });
+
+  it("after a change is applied, Apply stays off until the page reloads", async () => {
+    answer("Changes the color.");
+    mount(agent("boss"));
+    await userEvent.click(screen.getByRole("radio", { name: "coral" }));
+    const btn = await bar().findByRole("button", { name: "Change color" });
+    await userEvent.click(btn);
+    await waitFor(() => expect(btn).toBeDisabled());
+  });
+
+  it("the regular refresh doesn't restart a waiting preview", async () => {
+    answer("Renames.");
+    const { rerender } = mount(agent("agent1"));
+    const input = screen.getByLabelText("Name");
+    await userEvent.clear(input);
+    await userEvent.type(input, "lead");
+    await bar().findByText("Renames.");
+    const before = invoke.mock.calls.filter((c) => c[0] === "preview").length;
+    await rerender({ agent: { ...agent("agent1") } });
+    await new Promise((r) => setTimeout(r, 400));
+    expect(invoke.mock.calls.filter((c) => c[0] === "preview").length).toBe(before);
+    expect(bar().getByText("Renames.")).toBeInTheDocument();
   });
 });

@@ -35,6 +35,15 @@ pub fn roster_bin_candidates(p: &RosterPaths) -> Vec<PathBuf> {
     }
 }
 
+/// True when the app runs from a disk image or a copy macOS moved aside (App Translocation).
+/// Launchers must not point there: the path disappears later.
+pub fn is_temporary_app_location(exe: &Path) -> bool {
+    exe.starts_with("/Volumes")
+        || exe
+            .components()
+            .any(|c| c.as_os_str() == "AppTranslocation")
+}
+
 /// The `roster` copy shipped inside the app, next to the app's own program file.
 pub fn bundled_roster(platform: Platform, exe: &Path) -> Option<PathBuf> {
     let name = if platform == Platform::Windows {
@@ -42,6 +51,9 @@ pub fn bundled_roster(platform: Platform, exe: &Path) -> Option<PathBuf> {
     } else {
         "roster"
     };
+    if is_temporary_app_location(exe) {
+        return None;
+    }
     Some(exe.parent()?.join(name)).filter(|b| b.is_file())
 }
 

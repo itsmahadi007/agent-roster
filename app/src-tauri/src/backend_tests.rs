@@ -152,7 +152,7 @@ fn preview_refuses_without_roster_binary() {
     let w = world_with(None);
     assert_eq!(
         w.b.preview(add_req("boss")).unwrap_err(),
-        "Agent Roster's `roster` command wasn't found. Install it, then open the app again."
+        "Agent Roster's `roster` command wasn't found. If you opened the app from the downloaded disk image, drag it to Applications and open it from there. Otherwise reinstall Agent Roster."
     );
 }
 
@@ -395,4 +395,20 @@ fn open_site_opens_only_the_fixed_url() {
         last_open(&w).last().map(String::as_str),
         Some("https://mahadihassan.com")
     );
+}
+
+#[test]
+fn old_previews_are_dropped_after_many_new_ones() {
+    let w = world();
+    w.add("boss");
+    let req = || -> OpRequest {
+        serde_json::from_str(r#"{"op":"color","name":"boss","color":"coral"}"#).unwrap()
+    };
+    let first = w.b.preview(req()).unwrap().token;
+    for _ in 0..40 {
+        w.b.preview(req()).unwrap();
+    }
+    assert_eq!(w.b.apply(first).unwrap_err(), EXPIRED);
+    let last = w.b.preview(req()).unwrap().token;
+    assert!(w.b.apply(last).is_ok());
 }

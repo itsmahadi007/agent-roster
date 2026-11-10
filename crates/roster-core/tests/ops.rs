@@ -427,3 +427,19 @@ fn set_good_at_plans_applies_and_undoes() {
         Some(vec!["coding".to_string(), "tests".to_string()])
     );
 }
+
+#[test]
+fn good_at_drops_repeats_after_cleaning() {
+    let mut w = World::new();
+    w.adopt_both();
+    let ctx = w.ctx();
+    let items = ["coding", "coding", "a|b", "a/b"]
+        .map(String::from)
+        .to_vec();
+    let plan = plan_set_good_at(&w.roster(), &w.p, &ctx, "agent1", Some(items)).unwrap();
+    apply(plan, &w.p, &mut w.j, &ctx).unwrap();
+    assert_eq!(
+        w.roster().by_name("agent1").unwrap().good_at,
+        Some(vec!["coding".to_string(), "a/b".to_string()])
+    );
+}

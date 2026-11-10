@@ -243,3 +243,21 @@ fn statusline_command_quotes_a_roster_path_with_spaces() {
         format!("\"{}\" statusline", bin.display())
     );
 }
+
+#[test]
+fn another_tools_statusline_command_is_kept_as_the_chain() {
+    let (d, p, mut j) = world();
+    fs::write(
+        d.path().join(".claude/settings.json"),
+        r#"{"statusLine":{"type":"command","command":"npx ccusage statusline"}}"#,
+    )
+    .unwrap();
+    adopt(&p, &mut j);
+    let c = ctx(&p);
+    let plan = plan_enable_claude_limits(&Roster::load(&p).unwrap(), &p, &c, "agent1").unwrap();
+    apply(plan, &p, &mut j, &c).unwrap();
+    assert_eq!(
+        Roster::load(&p).unwrap().statusline[0].chain.as_deref(),
+        Some("npx ccusage statusline")
+    );
+}

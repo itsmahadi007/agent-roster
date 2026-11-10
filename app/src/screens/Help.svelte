@@ -90,6 +90,14 @@
       </p>
     </section>
     <section>
+      <h4>Updates</h4>
+      <p>
+        Agent Roster checks for a new version when it starts and every few hours. When one is out, the bottom of the list
+        offers it: click Update now and the app installs it and restarts. Your agents and settings stay as they are. The
+        version you have is shown there too, with Check for updates.
+      </p>
+    </section>
+    <section>
       <h4>Light and dark</h4>
       <p>The window follows your system's light or dark setting. Change it there and the window follows.</p>
     </section>

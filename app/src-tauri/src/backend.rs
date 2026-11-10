@@ -22,10 +22,10 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-pub const NO_ROSTER_BIN: &str =
-    "Agent Roster's `roster` command wasn't found. Install it, then open the app again.";
+pub const NO_ROSTER_BIN: &str = "Agent Roster's `roster` command wasn't found. If you opened the app from the downloaded disk image, drag it to Applications and open it from there. Otherwise reinstall Agent Roster.";
 pub const STALE: &str =
     "Your roster changed since this preview. Look at the new preview before applying.";
+const MAX_PENDING: usize = 16;
 pub const EXPIRED: &str = "That preview has expired. Look at it again.";
 
 #[derive(Debug, Deserialize)]
@@ -251,6 +251,11 @@ impl Backend {
         };
         let mut pending = self.pending.lock().map_err(|e| e.to_string())?;
         pending.insert(token, Pending { plan, roster_sha });
+        // A preview left open keeps being redone; keep only the newest few.
+        while pending.len() > MAX_PENDING {
+            let oldest = *pending.keys().min().expect("not empty");
+            pending.remove(&oldest);
+        }
         Ok(view)
     }
 

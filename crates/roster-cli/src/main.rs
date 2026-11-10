@@ -89,6 +89,7 @@ enum Cmd {
     /// Set what other agents read this agent is good at. --reset goes back to the tool's usual list.
     GoodAt {
         name: String,
+        #[arg(required_unless_present = "reset")]
         items: Vec<String>,
         #[arg(long, conflicts_with = "items")]
         reset: bool,

@@ -462,6 +462,17 @@ pub fn plan_set_color(
     ))
 }
 
+/// A status line command that is one of ours (any `roster` path, quoted or not). Chaining to
+/// it would loop; another tool's `... statusline` command is kept as the chain.
+fn is_roster_statusline(cmd: &str) -> bool {
+    let Some(prog) = cmd.trim().strip_suffix(" statusline") else {
+        return false;
+    };
+    let prog = prog.trim().trim_matches('"').trim_matches('\'');
+    let file = prog.rsplit(['/', '\\']).next().unwrap_or(prog);
+    file == "roster" || file == "roster.exe"
+}
+
 pub fn plan_set_good_at(
     r: &Roster,
     p: &RosterPaths,
@@ -473,7 +484,12 @@ pub fn plan_set_good_at(
         v.iter()
             .map(|x| x.trim().replace('|', "/").replace('\n', " "))
             .filter(|x| !x.is_empty())
-            .collect()
+            .fold(Vec::<String>::new(), |mut v, x| {
+                if !v.contains(&x) {
+                    v.push(x);
+                }
+                v
+            })
     });
     let (after, a) = edit(r, name, |a| a.good_at = items.clone())?;
     let (summary, text) = match &items {
@@ -825,7 +841,7 @@ pub fn plan_enable_claude_limits(
         .get("command")
         .and_then(|c| c.as_str())
         .map(String::from)
-        .filter(|c| !c.ends_with(" statusline"));
+        .filter(|c| !is_roster_statusline(c));
     line.insert("type".into(), "command".into());
     line.insert("command".into(), our_cmd.into());
     settings.insert("statusLine".into(), serde_json::Value::Object(line));

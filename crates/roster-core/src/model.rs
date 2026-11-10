@@ -137,7 +137,13 @@ pub fn default_good_at(tool: Tool) -> Vec<&'static str> {
 /// The agent's "good at" list: what someone set, or the tool's defaults.
 pub fn good_at_of(a: &Agent) -> Vec<String> {
     match &a.good_at {
-        Some(v) => v.clone(),
+        // A hand-edited roster.toml may repeat an item; show each once.
+        Some(v) => v.iter().fold(Vec::new(), |mut out, x| {
+            if !out.contains(x) {
+                out.push(x.clone());
+            }
+            out
+        }),
         None => default_good_at(a.tool)
             .into_iter()
             .map(String::from)

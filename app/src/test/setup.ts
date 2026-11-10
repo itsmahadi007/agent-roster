@@ -16,8 +16,19 @@ export const win = {
 };
 vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => win }));
 
+export const updater = {
+  check: vi.fn(async (): Promise<unknown> => null),
+  relaunch: vi.fn(async () => {}),
+  getVersion: vi.fn(async () => "0.2.0"),
+};
+vi.mock("@tauri-apps/plugin-updater", () => ({ check: () => updater.check() }));
+vi.mock("@tauri-apps/plugin-process", () => ({ relaunch: () => updater.relaunch() }));
+vi.mock("@tauri-apps/api/app", () => ({ getVersion: () => updater.getVersion() }));
+
 beforeEach(() => {
   invoke.mockReset();
   listen.mockClear();
   for (const f of Object.values(win)) f.mockClear();
+  updater.check.mockReset().mockResolvedValue(null);
+  updater.relaunch.mockClear();
 });

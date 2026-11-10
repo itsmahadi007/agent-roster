@@ -36,5 +36,16 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDdBQTQwRTQxRTEwREYyNDQKUldSRThnM2hRUTZrZXV6cHU0WlpwVWk4YmkxUHJzTEJWN0x0eE11OGw0UEFvNjQ5UW9oQnZGaVUK",
+      "endpoints": [
+        "https://github.com/itsmahadi007/agent-roster/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

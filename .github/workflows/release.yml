@@ -33,17 +33,24 @@ jobs:
           mkdir -p app/src-tauri/binaries
           lipo -create -output app/src-tauri/binaries/roster-universal-apple-darwin \
             target/aarch64-apple-darwin/release/roster target/x86_64-apple-darwin/release/roster
-      - run: cargo tauri build --target universal-apple-darwin --bundles dmg --config tauri.release.conf.json
+      - run: cargo tauri build --target universal-apple-darwin --bundles app,dmg --config tauri.release.conf.json
         working-directory: app/src-tauri
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
       - name: Check roster is inside the app
         run: |
           app=$(ls -d target/universal-apple-darwin/release/bundle/macos/*.app | head -1)
           test -x "$app/Contents/MacOS/roster"
           "$app/Contents/MacOS/roster" --help | head -1
-      - name: Collect files
+      - name: Collect files (no spaces in names, so download links stay stable)
         run: |
           mkdir out
-          cp target/universal-apple-darwin/release/bundle/dmg/*.dmg out/
+          v=$(node -p "require('./app/package.json').version")
+          b=target/universal-apple-darwin/release/bundle
+          cp "$(ls $b/dmg/*.dmg | head -1)" "out/Agent-Roster_${v}_universal.dmg"
+          cp "$b/macos/Agent Roster.app.tar.gz" "out/Agent-Roster_${v}_universal.app.tar.gz"
+          cp "$b/macos/Agent Roster.app.tar.gz.sig" "out/Agent-Roster_${v}_universal.app.tar.gz.sig"
           cp app/src-tauri/binaries/roster-universal-apple-darwin out/roster-mac
           ls -la out
       - uses: actions/upload-artifact@v4
@@ -73,6 +80,9 @@ jobs:
           Copy-Item target/release/roster.exe app/src-tauri/binaries/roster-x86_64-pc-windows-msvc.exe
       - run: cargo tauri build --bundles nsis --config tauri.release.conf.json
         working-directory: app/src-tauri
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
       - name: Installer puts the app and roster where the app looks
         shell: pwsh
         run: |
@@ -87,7 +97,10 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory out | Out-Null
-          Copy-Item target/release/bundle/nsis/*-setup.exe out/
+          $v = node -p "require('./app/package.json').version"
+          $setup = Get-ChildItem target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
+          Copy-Item $setup.FullName "out/Agent-Roster_${v}_x64-setup.exe"
+          Copy-Item "$($setup.FullName).sig" "out/Agent-Roster_${v}_x64-setup.exe.sig"
           Copy-Item target/release/roster.exe out/roster-windows.exe
           Get-ChildItem out
       - uses: actions/upload-artifact@v4
@@ -110,11 +123,26 @@ jobs:
         run: |
           ls -la dist
           if [ "${GITHUB_REF_TYPE}" != "tag" ]; then echo "Not a tag: built only, nothing published."; exit 0; fi
+          # latest.json is what installed apps read to find and verify an update.
+          v="${TAG#v}"
+          base="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}"
+          mac="Agent-Roster_${v}_universal.app.tar.gz"
+          win="Agent-Roster_${v}_x64-setup.exe"
+          jq -n --arg v "$v" --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg macurl "$base/$mac" --arg macsig "$(cat "dist/$mac.sig")" \
+            --arg winurl "$base/$win" --arg winsig "$(cat "dist/$win.sig")" \
+            '{version: $v, notes: "See the release page for what changed.", pub_date: $date, platforms: {
+               "darwin-aarch64": {url: $macurl, signature: $macsig},
+               "darwin-x86_64": {url: $macurl, signature: $macsig},
+               "windows-x86_64": {url: $winurl, signature: $winsig}}}' > dist/latest.json
+          cat dist/latest.json
           cat > notes.md <<'NOTES'
           Download the file for your computer:
 
-          - **Mac (Apple chip or Intel):** the `.dmg`. Open it, drag Agent Roster to Applications. First launch: System Settings > Privacy & Security > **Open Anyway** (the app isn't signed by Apple yet).
+          - **Mac (Apple chip or Intel):** the `.dmg` (not the `.app.tar.gz`, that one is for automatic updates). Open it, drag Agent Roster to Applications. First launch: System Settings > Privacy & Security > **Open Anyway** (the app isn't signed by Apple yet).
           - **Windows:** the `-setup.exe`. If SmartScreen appears, click **More info** > **Run anyway**.
+
+          Already have Agent Roster 0.2.0 or later? It offers this update by itself.
 
           The `roster` command is inside the app. `roster-mac` and `roster-windows.exe` are the same command on its own, for using it in a terminal.
 

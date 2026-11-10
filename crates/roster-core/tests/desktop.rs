@@ -1,7 +1,7 @@
 use roster_core::desktop::{
     DesktopError, TerminalApp, app_candidates, app_launch_command, app_open_command,
-    bundled_roster, find_app, find_roster_bin, find_terminals, has_desktop, terminal_command,
-    terminal_command_in, url_open_command,
+    bundled_roster, find_app, find_roster_bin, find_terminals, has_desktop,
+    is_temporary_app_location, terminal_command, terminal_command_in, url_open_command,
 };
 use roster_core::names::CommandLookup;
 use roster_core::paths::{Platform, RosterPaths};
@@ -356,4 +356,21 @@ fn bundled_roster_sits_next_to_the_app() {
         bundled_roster(Platform::Windows, &d.path().join("agent-roster-app.exe")),
         Some(d.path().join("roster.exe"))
     );
+}
+
+#[test]
+fn bundled_roster_is_not_used_from_a_disk_image_or_a_moved_copy() {
+    let d = tempfile::tempdir().unwrap();
+    let bin = d.path().join("AppTranslocation/X1/d");
+    touch(&bin.join("roster"));
+    assert_eq!(
+        bundled_roster(Platform::Mac, &bin.join("agent-roster-app")),
+        None
+    );
+    assert!(is_temporary_app_location(Path::new(
+        "/Volumes/Agent Roster/Agent Roster.app/Contents/MacOS/agent-roster-app"
+    )));
+    assert!(!is_temporary_app_location(Path::new(
+        "/Applications/Agent Roster.app/Contents/MacOS/agent-roster-app"
+    )));
 }
