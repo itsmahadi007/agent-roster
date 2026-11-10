@@ -10,17 +10,38 @@ permissions:
   contents: write
 
 jobs:
+  # Which platforms this release builds. `.github/release-platforms` (one word: mac, windows or
+  # linux per line) limits it; without that file every platform is built.
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.m.outputs.matrix }}
+      only: ${{ steps.m.outputs.only }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: m
+        run: |
+          all='[
+            {"slug":"mac-apple-silicon","os":"macos-latest","target":"aarch64-apple-darwin","bundles":"app,dmg"},
+            {"slug":"mac-intel","os":"macos-latest","target":"x86_64-apple-darwin","bundles":"app,dmg"},
+            {"slug":"windows-x64","os":"windows-latest","target":"x86_64-pc-windows-msvc","bundles":"nsis"},
+            {"slug":"windows-arm64","os":"windows-latest","target":"aarch64-pc-windows-msvc","bundles":"nsis"},
+            {"slug":"linux-x64","os":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","bundles":"appimage,deb"}]'
+          only=""
+          [ -f .github/release-platforms ] && only=$(grep -Eo '^(mac|windows|linux)' .github/release-platforms | sort -u | paste -sd, -)
+          if [ -z "$only" ]; then m="$all"; else
+            m=$(echo "$all" | jq -c --arg o "$only" '[.[] | select(.slug | split("-")[0] as $p | ($o | split(",") | index($p)))]')
+          fi
+          echo "matrix={\"include\":$(echo "$m" | jq -c .)}" >> "$GITHUB_OUTPUT"
+          echo "only=$only" >> "$GITHUB_OUTPUT"
+          echo "platforms: ${only:-all}"
+
   build:
     name: ${{ matrix.slug }}
+    needs: plan
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - { slug: mac-apple-silicon, os: macos-latest, target: aarch64-apple-darwin, bundles: "app,dmg" }
-          - { slug: mac-intel, os: macos-latest, target: x86_64-apple-darwin, bundles: "app,dmg" }
-          - { slug: windows-x64, os: windows-latest, target: x86_64-pc-windows-msvc, bundles: nsis }
-          - { slug: windows-arm64, os: windows-latest, target: aarch64-pc-windows-msvc, bundles: nsis }
-          - { slug: linux-x64, os: ubuntu-22.04, target: x86_64-unknown-linux-gnu, bundles: "appimage,deb" }
+      matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -100,7 +121,7 @@ jobs:
           path: out/
 
   release:
-    needs: build
+    needs: [plan, build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -117,19 +138,37 @@ jobs:
           if [ "${GITHUB_REF_TYPE}" != "tag" ]; then echo "Not a tag: built only, nothing published."; exit 0; fi
           v="${TAG#v}"
           base="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}"
-          entry() { jq -n --arg url "$base/$1" --arg sig "$(cat "dist/$1.sig")" '{url: $url, signature: $sig}'; }
-          # latest.json is what installed apps read to find and verify an update.
-          jq -n --arg v "$v" --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            --argjson ma "$(entry Agent-Roster-mac-apple-silicon.app.tar.gz)" \
-            --argjson mi "$(entry Agent-Roster-mac-intel.app.tar.gz)" \
-            --argjson wx "$(entry Agent-Roster-windows-x64-setup.exe)" \
-            --argjson wa "$(entry Agent-Roster-windows-arm64-setup.exe)" \
-            --argjson lx "$(entry Agent-Roster-linux-x64.AppImage)" \
-            '{version: $v, notes: "See the release page for what changed.", pub_date: $date, platforms: {
-               "darwin-aarch64": $ma, "darwin-x86_64": $mi,
-               "windows-x86_64": $wx, "windows-aarch64": $wa, "linux-x86_64": $lx}}' > dist/latest.json
+          # latest.json is what installed apps read to find and verify an update. Only the
+          # platforms built here go in it: a platform left out keeps its installed version.
+          platforms='{}'
+          for pair in darwin-aarch64:Agent-Roster-mac-apple-silicon.app.tar.gz darwin-x86_64:Agent-Roster-mac-intel.app.tar.gz \
+                      windows-x86_64:Agent-Roster-windows-x64-setup.exe windows-aarch64:Agent-Roster-windows-arm64-setup.exe \
+                      linux-x86_64:Agent-Roster-linux-x64.AppImage; do
+            key=${pair%%:*}; f=${pair#*:}
+            [ -f "dist/$f.sig" ] || continue
+            platforms=$(echo "$platforms" | jq --arg k "$key" --arg url "$base/$f" --arg sig "$(cat "dist/$f.sig")" '. + {($k): {url: $url, signature: $sig}}')
+          done
+          jq -n --arg v "$v" --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson p "$platforms" \
+            '{version: $v, notes: "See the release page for what changed.", pub_date: $date, platforms: $p}' > dist/latest.json
           cat dist/latest.json
           sed "s/{{VERSION}}/$v/g" .github/release-notes.md > notes.md
+          only="${{ needs.plan.outputs.only }}"
+          if [ -n "$only" ]; then
+            # Platforms not built this time keep working download links: carry the previous
+            # release's files over (they stay out of latest.json, so nobody is updated to them).
+            prev=$(gh release view --json tagName -q .tagName 2>/dev/null || true)
+            if [ -n "$prev" ] && [ "$prev" != "$TAG" ]; then
+              mkdir -p carry
+              for p in mac linux; do
+                case ",$only," in *",$p,"*) continue ;; esac
+                gh release download "$prev" -D carry -p "Agent-Roster-$p-*" -p "roster-$p-*" || true
+              done
+              for f in carry/*; do [ -e "$f" ] && [ ! -e "dist/$(basename "$f")" ] && cp "$f" dist/; done
+              { printf '> **This release is for %s only.** Other systems stay on %s for now (their downloads below are %s) and get these changes in the next release.\n\n' \
+                  "$(echo "$only" | sed 's/mac/macOS/; s/windows/Windows/; s/linux/Linux/; s/,/ and /g')" "$prev" "$prev"; cat notes.md; } > notes2.md
+              mv notes2.md notes.md
+            fi
+          fi
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/* --clobber
             gh release edit "$TAG" --notes-file notes.md
