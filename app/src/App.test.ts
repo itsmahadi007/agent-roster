@@ -103,6 +103,16 @@ describe("App history", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "What changed" })).toHaveFocus();
   });
+
+  it("the agent panel's header shows its role, like its row", async () => {
+    const v = structuredClone(overview);
+    Object.assign(v.agents[0], { role: "Leader" });
+    invoke.mockImplementation(async (cmd: string) => (cmd === "overview" ? v : null));
+    render(App);
+    await userEvent.click(await screen.findByRole("button", { name: /^agent1/ }));
+    const panel = await screen.findByRole("dialog", { name: "agent1" });
+    expect(within(panel).getByText(/^Leader · /)).toBeInTheDocument();
+  });
 });
 
 describe("App rename and help", () => {

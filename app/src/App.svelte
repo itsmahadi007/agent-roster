@@ -191,7 +191,7 @@
             <div class="ahw">
               <h2 class="agent-name ink" style:color={c} style:--c={c}>{a.name}</h2>
               <p class="st">
-                {a.tool_label} ·
+                {a.role ? `${a.role} · ` : ""}{a.tool_label} ·
                 <span class:ink={live} style:--c={c} style:color={live ? c : null}>{a.status_text}</span>
               </p>
             </div>
