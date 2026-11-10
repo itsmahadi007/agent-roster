@@ -18,6 +18,7 @@ pub fn login_path(shell: &str) -> Option<String> {
     use roster_core::detect::{CommandRunner, RealRunner};
     let runner = RealRunner {
         timeout: std::time::Duration::from_secs(3),
+        ..Default::default()
     };
     // `printenv` prints the exported, colon-joined PATH whatever the shell (fish keeps
     // PATH as a list and would join "$PATH" with spaces).

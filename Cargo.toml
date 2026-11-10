@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/roster-core", "crates/roster-cli", "app/src-tauri"]
 
 [workspace.package]
-version = "0.3.2"
+version = "0.3.4"
 edition = "2024"
 license = "MIT"
 authors = ["Mahadi Hassan"]
@@ -26,6 +26,7 @@ tempfile = "3.27.0"
 assert_cmd = "2.2.2"
 predicates = "3.1.4"
 winreg = "0.56.0"
+jiff = "0.2.41"
 windows-sys = { version = "0.61.2", features = ["Win32_UI_WindowsAndMessaging", "Win32_System_Console", "Win32_Foundation", "Win32_System_Threading"] }
 roster-core = { path = "crates/roster-core" }
 tauri = { version = "2.12.5", features = ["tray-icon", "image-png"] }

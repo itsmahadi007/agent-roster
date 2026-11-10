@@ -18,12 +18,15 @@ pub trait CommandRunner {
 
 pub struct RealRunner {
     pub timeout: std::time::Duration,
+    /// Folder the program runs in. `None` keeps this process's folder.
+    pub cwd: Option<PathBuf>,
 }
 
 impl Default for RealRunner {
     fn default() -> Self {
         RealRunner {
             timeout: std::time::Duration::from_secs(5),
+            cwd: None,
         }
     }
 }
@@ -43,6 +46,9 @@ impl CommandRunner for RealRunner {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        if let Some(dir) = &self.cwd {
+            c.current_dir(dir);
+        }
         for (k, v) in env {
             match v {
                 Some(v) => c.env(k, v),
@@ -333,6 +339,7 @@ mod timeout_tests {
         std::fs::set_permissions(&f, std::fs::Permissions::from_mode(0o755)).unwrap();
         let runner = RealRunner {
             timeout: std::time::Duration::from_millis(500),
+            ..Default::default()
         };
         let start = std::time::Instant::now();
         assert!(runner.run(&f, &[], &[]).is_err());

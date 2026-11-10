@@ -34,7 +34,11 @@ fn window_line(w: &LimitWindow, color: AgentColor, now: i64) -> String {
         paint(&"░".repeat(10 - filled), dim),
         if hot { paint(&pct, coral) } else { pct },
         paint(
-            &reset_phrase(w.resets_at, now),
+            &if w.resets_at > 0 {
+                reset_phrase(w.resets_at, now)
+            } else {
+                String::new()
+            },
             if hot { coral } else { dim }
         )
     )
@@ -94,11 +98,6 @@ pub fn overview_text(o: &Overview) -> String {
                 let note = match (a.state, a.agent.tool, a.agent.limits) {
                     (AgentState::NotInstalled, _, _) => "",
                     (AgentState::NeedsSignIn, _, _) => "usage shows after sign in",
-                    (
-                        _,
-                        roster_core::model::Tool::Claude,
-                        roster_core::model::LimitsSource::Off,
-                    ) => "usage not shown: roster limits enable",
                     _ => "usage shows after its next use",
                 };
                 let _ = write!(s, "{}", paint(note, dim));

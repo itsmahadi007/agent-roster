@@ -200,6 +200,7 @@ fn agent_view(s: &AgentStatus, o: &Overview, now: i64) -> AgentView {
     };
     let (reset_text, reset_hot) = match windows.first() {
         None => (None, false),
+        Some(w) if w.resets_at <= 0 => (None, rounded(w) >= HOT),
         Some(w) => (Some(reset_phrase(w.resets_at, now)), rounded(w) >= HOT),
     };
     let limits_note = if !windows.is_empty() {
@@ -209,7 +210,6 @@ fn agent_view(s: &AgentStatus, o: &Overview, now: i64) -> AgentView {
         Some(match (s.state, a.tool, a.limits) {
             (AgentState::NotInstalled, _, _) => "not installed".to_string(),
             (AgentState::NeedsSignIn, _, _) => "usage shows after sign in".to_string(),
-            (_, Tool::Claude, LimitsSource::Off) => "usage not shown".to_string(),
             _ => format!("usage shows after you use {}", a.name),
         })
     };

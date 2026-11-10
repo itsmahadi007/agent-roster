@@ -234,7 +234,12 @@ fn notes_when_no_limits() {
     o.agents[1].state = AgentState::Ready;
     o.agents[1].sign_in.signed_in = true;
     let v = overview_view(&o, Path::new(HOME), NOW);
-    assert_eq!(v.agents[1].limits_note.as_deref(), Some("usage not shown"));
+    // Claude numbers come from `claude -p /usage`, so the status line being off no
+    // longer hides them.
+    assert_eq!(
+        v.agents[1].limits_note.as_deref(),
+        Some("usage shows after you use agent2")
+    );
     assert_eq!(v.agents[1].claude_limits, Some(false));
     assert_eq!(v.agents[1].tray_text, "");
 

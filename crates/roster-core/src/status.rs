@@ -42,8 +42,10 @@ pub struct Overview {
 
 pub fn limits_for(a: &Agent, r: &Roster, p: &RosterPaths) -> Option<AgentLimits> {
     match (a.tool, a.limits) {
-        (_, LimitsSource::Off) => None,
+        (Tool::Codex, LimitsSource::Off) => None,
         (Tool::Codex, _) => read_codex_limits(&r.config_dir_of(a, p)),
+        // Agent Roster asks Claude Code for these itself (`usage`); the status line, when on,
+        // writes the same file between checks.
         (Tool::Claude, _) => read_claude_limits(p, &a.id),
     }
 }
