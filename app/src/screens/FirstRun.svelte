@@ -4,6 +4,7 @@
   import { firstRun, message, preview } from "../lib/api";
   import PlanSheet from "../components/PlanSheet.svelte";
   import PageHead from "../components/PageHead.svelte";
+  import { agentHex } from "../lib/colors";
 
   let { palette, onDone }: { palette: ColorView[]; onDone: () => void } = $props();
 
@@ -70,12 +71,12 @@
           <input
             class="nm2 agent-name ink"
             aria-label="New name for {c.suggested_name}"
-            style:color={palette[i]?.hex} style:--c={palette[i]?.hex}
+            style:color={agentHex(palette[i]?.hex)} style:--c={agentHex(palette[i]?.hex)}
             bind:value={names[c.tool]}
             spellcheck="false"
           />
         {:else}
-          <span class="nm2 agent-name ink" style:color={c.installed ? palette[i]?.hex : "var(--mut)"} style:--c={palette[i]?.hex}>
+          <span class="nm2 agent-name ink" style:color={c.installed ? agentHex(palette[i]?.hex) : "var(--mut)"} style:--c={agentHex(palette[i]?.hex)}>
             {c.installed ? names[c.tool] : c.tool_label}
           </span>
         {/if}
@@ -118,7 +119,7 @@
     margin-top: 16px;
   }
   .first {
-    padding-top: 52px; /* titles line up with screens that have a back link */
+    padding-top: 24px;
   }
   .found {
     display: flex;

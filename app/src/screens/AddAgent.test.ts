@@ -65,8 +65,8 @@ describe("AddAgent", () => {
     backend({ preview: () => plan });
     render(AddAgent, props());
     await userEvent.type(screen.getByLabelText("Name"), "boss");
-    await userEvent.click(screen.getByRole("radio", { name: "orchid" }));
-    expect(screen.getByLabelText("Name")).toHaveStyle({ color: "#c06bf0" });
+    await userEvent.click(screen.getByRole("radio", { name: "violet" }));
+    expect(screen.getByLabelText("Name")).toHaveStyle({ color: "#b86bff" });
     await waitFor(() =>
       expect(invoke).toHaveBeenLastCalledWith("preview", expect.objectContaining({ req: expect.objectContaining({ color: "orchid" }) })),
     );
@@ -99,19 +99,52 @@ describe("AddAgent", () => {
     expect(invoke).toHaveBeenCalledWith("sign_in", { name: "boss", app: null });
   });
 
-  it("has a title and a way back", async () => {
+  it("is a dialog with a title that closes with ✕, Escape, the dimmed list or Cancel, and no Back link", async () => {
     const onCancel = vi.fn();
     render(AddAgent, props({ onCancel }));
+    expect(screen.getByRole("dialog", { name: "Add an agent" })).toHaveAttribute("aria-modal", "true");
     expect(screen.getByRole("heading", { name: "Add an agent" })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Back to your agents" }));
-    expect(onCancel).toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: /Back/ })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Close" }));
+    await userEvent.keyboard("{Escape}");
+    await userEvent.click(screen.getByTestId("scrim"));
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(onCancel).toHaveBeenCalledTimes(4);
   });
 
-  it("each choice says what it is for", () => {
+  it("asks Tool, then Name, then Color; role and sharing are folded away", async () => {
     render(AddAgent, props());
-    expect(screen.getByText("Its row, its name and its menu bar dot use this color")).toBeInTheDocument();
-    expect(screen.getByText("The app this account signs in to. You sign in right after adding it.")).toBeInTheDocument();
-    expect(screen.getByText("Other agents read this to decide what to hand it")).toBeInTheDocument();
+    const tool = screen.getByRole("button", { name: "Claude Code" });
+    const name = screen.getByLabelText("Name");
+    const color = screen.getByRole("radiogroup", { name: "Color" });
+    expect(tool.compareDocumentPosition(name) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(name.compareDocumentPosition(color) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(name).toHaveFocus();
+    expect(screen.getByText("Name: the command you type to start it")).toBeInTheDocument();
+    expect(screen.queryByRole("switch", { name: "Share my skills" })).not.toBeInTheDocument();
+    const more = screen.getByRole("button", { name: "▸ More options (role, share skills)" });
+    expect(more).toHaveAttribute("aria-expanded", "false");
+    await userEvent.click(more);
+    expect(screen.getByText("Role (optional): other agents read this to decide what to hand it")).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "Share my skills" })).toBeInTheDocument();
+  });
+
+  it("the picker has only the new colors, and the next color shows as its new name", () => {
+    render(AddAgent, props());
+    const radios = screen.getAllByRole("radio").map((r) => r.getAttribute("aria-label"));
+    expect(radios).toEqual(["cobalt", "cyan", "jade", "violet", "pink"]);
+    // next_color is coral in the fixture: it shows as pink.
+    expect(screen.getByRole("radio", { name: "pink" })).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("one line says what will happen, with the full preview under Details", async () => {
+    backend({ preview: () => plan });
+    render(AddAgent, props());
+    await userEvent.type(screen.getByLabelText("Name"), "boss");
+    expect(await screen.findByText(/command for Claude Code, with its own login folder/)).toBeInTheDocument();
+    const details = screen.getByText("Details").closest("details")!;
+    expect(details).not.toHaveAttribute("open");
+    for (const s of plan.steps) expect(details).toHaveTextContent(s.text);
   });
 
   it("gemini_is_disabled", () => {
@@ -124,6 +157,7 @@ describe("AddAgent", () => {
   it("share toggle says what it does", async () => {
     backend({ preview: () => plan });
     render(AddAgent, props());
+    await userEvent.click(screen.getByRole("button", { name: /More options/ }));
     expect(screen.getByText("Off. This account starts fully separate.")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("switch", { name: "Share my skills" }));
     expect(screen.getByText("On. Uses the skills of your main Claude Code account.")).toBeInTheDocument();

@@ -2,8 +2,12 @@
   import { onMount } from "svelte";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import type { Chrome } from "../lib/platform";
+  import icon from "../assets/icon.png";
 
   let { chrome }: { chrome: Chrome } = $props();
+
+  /** Room for the Mac's own buttons (trafficLightPosition x 16 in tauri.macos.conf.json). */
+  const MAC_INSET = 76;
 
   let maximized = $state(false);
 
@@ -21,9 +25,17 @@
   const w = () => getCurrentWindow();
 </script>
 
+<!-- The window's own title bar: decorations are off on Windows; on the Mac the system's buttons
+     sit on top of it (tauri.macos.conf.json), so it leaves room for them and draws none. -->
 {#if chrome !== "none"}
   <header class="bar {chrome}" data-tauri-drag-region>
+    {#if chrome === "mac"}
+      <span class="lights" style:width="{MAC_INSET}px" data-tauri-drag-region></span>
+    {:else}
+      <img class="icon" src={icon} alt="" width="18" height="18" data-tauri-drag-region />
+    {/if}
     <span class="title" data-tauri-drag-region>Agent Roster</span>
+    <span class="drag" data-tauri-drag-region></span>
     {#if chrome === "windows"}
       <div class="ctl">
         <button aria-label="Minimize" title="Minimize" onclick={() => w().minimize()}>
@@ -51,29 +63,43 @@
 {/if}
 
 <style>
+  /* Part of the app: same background, no strip under it. */
   .bar {
     flex: none;
     height: 40px;
     display: flex;
     align-items: center;
-    justify-content: center;
-    position: relative;
-    background: var(--well);
-    border-bottom: 1px solid var(--line);
+    background: var(--base);
     -webkit-user-select: none;
     user-select: none;
   }
+  .bar.windows {
+    padding-left: 16px;
+  }
+  /* The Mac's buttons sit at x 16, centered at y 20: the title starts right after them. */
+  .lights {
+    flex: none;
+    align-self: stretch;
+  }
+  .icon {
+    width: 18px;
+    height: 18px;
+    border-radius: 5px;
+    margin-right: 9px;
+    pointer-events: auto;
+  }
   .title {
-    font-size: 12px;
+    font-size: 13px;
     line-height: 16px;
-    font-weight: 500;
-    color: var(--mut);
-    letter-spacing: 0.01em;
+    font-weight: 600;
+    color: var(--txt);
+    white-space: nowrap;
+  }
+  .drag {
+    flex: 1;
+    align-self: stretch;
   }
   .ctl {
-    position: absolute;
-    top: 0;
-    right: 0;
     height: 100%;
     display: flex;
   }
