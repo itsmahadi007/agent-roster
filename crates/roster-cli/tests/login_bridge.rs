@@ -122,12 +122,38 @@ fn next(rx: &Receiver<LoginEvent>, secs: u64) -> LoginEvent {
         .expect("no event in time")
 }
 
+/// What the fake `claude` and the `roster` hand-off did, for a failing assertion: whether the
+/// fake ran, and the hand-off's exit code (missing = it never returned).
+fn diag(s: &Setup, name: &str) -> String {
+    let read = |f: &str| {
+        std::fs::read_to_string(s.d.path().join(format!("{name}.{f}")))
+            .map(|t| t.trim().to_string())
+            .unwrap_or_else(|e| format!("<{e}>"))
+    };
+    let direct = Command::new(&s.roster_bin).arg("--version").output();
+    format!(
+        "fake claude ran: {}; roster hand-off exit: {}; roster --version: {:?}",
+        read("seen"),
+        read("browser-exit"),
+        direct.map(|o| (
+            o.status.code(),
+            String::from_utf8_lossy(&o.stdout).trim().to_string()
+        ))
+    )
+}
+
 #[test]
 fn the_link_comes_back_and_exit_0_is_done() {
     let s = setup();
     let tool = fake_claude(s.d.path(), "claude-ok", LINK, 1);
     let (rx, _h) = start(&s, &tool);
-    assert_eq!(next(&rx, 20), LoginEvent::Link(LINK.into()));
+    let first = next(&rx, 20);
+    assert_eq!(
+        first,
+        LoginEvent::Link(LINK.into()),
+        "{}",
+        diag(&s, "claude-ok")
+    );
     assert_eq!(next(&rx, 20), LoginEvent::Done);
     let seen = std::fs::read_to_string(s.d.path().join("claude-ok.seen")).unwrap();
     assert_eq!(
@@ -143,7 +169,13 @@ fn cancel_after_the_link_stops_claude() {
     let s = setup();
     let tool = fake_claude(s.d.path(), "claude-hang", LINK, 60);
     let (rx, h) = start(&s, &tool);
-    assert_eq!(next(&rx, 20), LoginEvent::Link(LINK.into()));
+    let first = next(&rx, 20);
+    assert_eq!(
+        first,
+        LoginEvent::Link(LINK.into()),
+        "{}",
+        diag(&s, "claude-hang")
+    );
     assert!(
         !h.wait_ended(Duration::from_millis(200)),
         "ended while running"
