@@ -189,13 +189,33 @@ pub fn read_agent_limits(p: &RosterPaths, agent_id: &str) -> Option<AgentLimits>
 
 pub fn write_agent_limits(p: &RosterPaths, agent_id: &str, l: &AgentLimits) -> std::io::Result<()> {
     std::fs::create_dir_all(p.limits_dir())?;
-    let path = agent_limits_path(p, agent_id);
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(
-        &tmp,
-        serde_json::to_string(l).map_err(std::io::Error::other)?,
-    )?;
-    std::fs::rename(tmp, path)
+    let json = serde_json::to_string(l).map_err(std::io::Error::other)?;
+    write_atomic(&agent_limits_path(p, agent_id), json.as_bytes())
+}
+
+/// Replaces `path` in one step. The status line, the app and `roster limits` may save the
+/// same file at once, so each write has its own temp file; on Windows a rename can briefly
+/// fail while another one replaces the same file, so it is tried a few times.
+pub(crate) fn write_atomic(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("file");
+    let tmp = path.with_file_name(format!(".{name}.{}.{n}.tmp", std::process::id()));
+    std::fs::write(&tmp, contents)?;
+    let mut tries = 0;
+    loop {
+        match std::fs::rename(&tmp, path) {
+            Ok(()) => return Ok(()),
+            Err(_) if tries < 20 => {
+                tries += 1;
+                std::thread::sleep(std::time::Duration::from_millis(5 * tries));
+            }
+            Err(e) => {
+                let _ = std::fs::remove_file(&tmp);
+                return Err(e);
+            }
+        }
+    }
 }
 
 pub fn read_claude_limits(p: &RosterPaths, agent_id: &str) -> Option<AgentLimits> {
@@ -215,6 +235,39 @@ mod tests {
     use super::*;
     use crate::paths::{Platform, RosterPaths};
     use std::path::PathBuf;
+
+    #[test]
+    fn writers_at_the_same_time_never_break_the_file() {
+        // The status line, the app and `roster limits` can all save one agent at once.
+        let d = tempfile::tempdir().unwrap();
+        let p = RosterPaths::for_home(d.path(), Platform::Linux, &|_| None);
+        let l = |i: i64| AgentLimits {
+            as_of: i,
+            plan: None,
+            windows: vec![LimitWindow {
+                label: "week".into(),
+                used_percent: 50.0,
+                resets_at: 1_800_000_000,
+            }],
+        };
+        let failed = std::sync::atomic::AtomicUsize::new(0);
+        std::thread::scope(|s| {
+            for t in 0..8 {
+                let (p, failed, l) = (&p, &failed, &l);
+                s.spawn(move || {
+                    for i in 0..40 {
+                        if write_agent_limits(p, "a1", &l(t * 100 + i)).is_err() {
+                            failed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        }
+                    }
+                });
+            }
+        });
+        assert_eq!(failed.into_inner(), 0, "a save failed");
+        assert!(read_agent_limits(&p, "a1").is_some());
+        let leftovers = std::fs::read_dir(p.limits_dir()).unwrap().count();
+        assert_eq!(leftovers, 1, "temp files left behind");
+    }
 
     fn home_with_fixture(name: &str) -> (tempfile::TempDir, PathBuf) {
         let d = tempfile::tempdir().unwrap();

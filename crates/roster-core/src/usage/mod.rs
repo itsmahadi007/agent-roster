@@ -154,13 +154,8 @@ pub fn record_check(
     }
     let saved = next_health(read_health(p, agent_id).as_ref(), check.health, now);
     std::fs::create_dir_all(p.limits_dir())?;
-    let path = health_path(p, agent_id);
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(
-        &tmp,
-        serde_json::to_string(&saved).map_err(std::io::Error::other)?,
-    )?;
-    std::fs::rename(tmp, path)
+    let json = serde_json::to_string(&saved).map_err(std::io::Error::other)?;
+    crate::limits::write_atomic(&health_path(p, agent_id), json.as_bytes())
 }
 
 fn now() -> i64 {
