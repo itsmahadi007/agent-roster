@@ -27,7 +27,7 @@ describe("TopBar", () => {
     const bar = container.querySelector(".bar.mac") as HTMLElement;
     expect(bar).toBeInTheDocument();
     expect(bar.firstElementChild).toHaveClass("lights");
-    expect(bar.firstElementChild).toHaveStyle({ width: "76px" });
+    expect(bar.firstElementChild).toHaveStyle({ width: "88px" });
     expect(screen.getByText("Agent Roster")).toBeInTheDocument();
     expect(container.querySelector(".icon")).not.toBeInTheDocument();
     expect(container.querySelector(".ctl")).not.toBeInTheDocument();

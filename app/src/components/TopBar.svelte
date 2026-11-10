@@ -6,8 +6,9 @@
 
   let { chrome }: { chrome: Chrome } = $props();
 
-  /** Room for the Mac's own buttons (trafficLightPosition x 16 in tauri.macos.conf.json). */
-  const MAC_INSET = 76;
+  /** Room for the Mac's own buttons (trafficLightPosition x 16 in tauri.macos.conf.json) and a
+   *  gap before the title. Newer macOS draws them larger: the green one ends near x 74. */
+  const MAC_INSET = 88;
 
   let maximized = $state(false);
 
@@ -76,7 +77,7 @@
   .bar.windows {
     padding-left: 16px;
   }
-  /* The Mac's buttons sit at x 16, centered at y 20: the title starts right after them. */
+  /* The Mac's buttons sit at x 16, centered at y 20: the title starts a gap after them. */
   .lights {
     flex: none;
     align-self: stretch;
