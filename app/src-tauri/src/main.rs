@@ -123,8 +123,14 @@ mod window_config_tests {
     fn every_platform_opens_the_list_first_window() {
         for (name, text) in [
             ("tauri.conf.json", include_str!("../tauri.conf.json")),
-            ("tauri.macos.conf.json", include_str!("../tauri.macos.conf.json")),
-            ("tauri.windows.conf.json", include_str!("../tauri.windows.conf.json")),
+            (
+                "tauri.macos.conf.json",
+                include_str!("../tauri.macos.conf.json"),
+            ),
+            (
+                "tauri.windows.conf.json",
+                include_str!("../tauri.windows.conf.json"),
+            ),
         ] {
             let v: serde_json::Value = serde_json::from_str(text).unwrap();
             let w = &v["app"]["windows"][0];
