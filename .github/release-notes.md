@@ -36,7 +36,7 @@ The install commands above skip both steps.
 
 ## Already installed?
 
-Agent Roster 0.2.0 and later check for new versions on their own and offer **Update now**.
+Agent Roster 0.2.1 and later check for new versions on their own and offer **Update now**.
 
 ## Other files
 
