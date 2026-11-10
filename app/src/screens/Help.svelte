@@ -21,6 +21,13 @@
       </p>
     </section>
     <section>
+      <h4>One account or many</h4>
+      <p>
+        Add an agent for every account you have, as many as you like. They all stay signed in and can run at the same
+        time, each in its own terminal. One agent is always one login.
+      </p>
+    </section>
+    <section>
       <h4>Start one</h4>
       <p>
         Type its name in any terminal, like <code class="mono">{ex}</code>. It opens {tool} signed in as that account, in
@@ -60,10 +67,10 @@
       </p>
     </section>
     <section>
-      <h4>Rename and more</h4>
+      <h4>Change an agent</h4>
       <p>
-        Click an agent's name to rename it. Its login stays signed in. Color, role, default and remove are in the terminal
-        for now: run <code class="mono">roster --help</code>.
+        Click an agent's name to open its settings. There you can rename it, change its color or role, share your skills
+        with it, make it the default, open a terminal as it, sign in again or remove it. Removing keeps its login folder.
       </p>
     </section>
     <section>
@@ -74,10 +81,22 @@
       </p>
     </section>
     <section>
-      <h4>Menu bar</h4>
+      <h4>Menu bar and closing</h4>
       <p>
-        The Agent Roster icon in the menu bar (the tray on Windows and Linux) lists every agent with its weekly use, and
-        opens a terminal as any of them without this window.
+        The Agent Roster icon in the menu bar (the tray on Windows) lists every agent with its weekly use and opens a
+        terminal as any of them. Closing this window keeps it running there. To stop it, choose Quit Agent Roster from that
+        menu.
+      </p>
+    </section>
+    <section>
+      <h4>Light and dark</h4>
+      <p>The window follows your system's light or dark setting. Change it there and the window follows.</p>
+    </section>
+    <section>
+      <h4>From the terminal</h4>
+      <p>
+        Everything here also works as a command. Run <code class="mono">roster</code> to see your agents, or
+        <code class="mono">roster --help</code> for the full list.
       </p>
     </section>
   </div>

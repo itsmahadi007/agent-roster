@@ -469,3 +469,20 @@ fn next_color_is_the_one_add_would_pick() {
     let v = overview_view(&o, Path::new(HOME), NOW);
     assert_eq!(v.next_color, "marigold");
 }
+
+#[test]
+fn agent_view_carries_what_the_edit_sheet_needs() {
+    let mut o = sample();
+    o.agents[0].agent.role = Some("reviews pull requests".into());
+    o.agents[0].agent.share = true;
+    let v = overview_view(&o, Path::new(HOME), NOW);
+    let a = &v.agents[0];
+    assert_eq!(a.role.as_deref(), Some("reviews pull requests"));
+    assert!(a.share);
+    assert!(a.default);
+    assert_eq!(a.color_label, "cobalt");
+    let b = &v.agents[1];
+    assert_eq!(b.role, None);
+    assert!(!b.share && !b.default);
+    assert_eq!(b.color_label, "marigold");
+}

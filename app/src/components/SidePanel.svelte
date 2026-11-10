@@ -10,8 +10,8 @@
     {#each view.calls as c, i (i)}
       <div class="call" style:border-color={c.from_color}>
         <div class="who">
-          <b class="wide" style:color={c.from_color}>{c.from_name}</b> asked
-          <b class="wide" style:color={c.to_color}>{c.to_name}</b>
+          <b class="agent-name ink" style:color={c.from_color} style:--c={c.from_color}>{c.from_name}</b> asked
+          <b class="agent-name ink" style:color={c.to_color} style:--c={c.to_color}>{c.to_name}</b>
         </div>
         {#if c.task}<div class="what">{c.task}</div>{/if}
         <div class="t">{c.detail}</div>
@@ -25,13 +25,13 @@
     <h4>Type these in any terminal</h4>
     <p class="quiet hint">Each name opens its own account. Inside a session, ask for another agent by name to hand it work.</p>
     <div class="cmds mono">
-      {#each view.agents as a (a.id)}<span style:color={a.color}>{a.name}</span>{/each}
+      {#each view.agents as a (a.id)}<span class="ink" style:color={a.color} style:--c={a.color}>{a.name}</span>{/each}
     </div>
   </section>
   <section>
     <h4>Limits</h4>
     {#each view.warnings as w, i (i)}
-      <p class="warn"><b class="wide hot">{w.name}</b> {w.text}</p>
+      <p class="warn"><b class="agent-name hot">{w.name}</b> {w.text}</p>
     {:else}
       <p class="warn">No agent is near its limit</p>
     {/each}

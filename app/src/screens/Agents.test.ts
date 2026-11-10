@@ -38,7 +38,29 @@ describe("Agents", () => {
 
   it("tells a new user how to rename and where help is", () => {
     render(Agents, { view, onNavigate: () => {}, onLimits: () => {} });
-    expect(screen.getByText("Click a name to rename it. Hover a bar, a status or a jack to see what it means.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Click a name to rename it, change its color or role, make it the default or remove it. Hover a bar, a status or a jack to see what it means."),
+    ).toBeInTheDocument();
+  });
+
+  it("shows how many agents there are", () => {
+    const { container } = render(Agents, { view, onNavigate: () => {}, onLimits: () => {} });
+    expect(container.querySelector(".count")).toHaveTextContent("4");
+  });
+
+  it("with one agent, invites a second account", async () => {
+    const onNavigate = vi.fn();
+    const one = { ...view, agents: [view.agents[0]], calls: [] };
+    render(Agents, { view: one, onNavigate, onLimits: () => {} });
+    expect(screen.getByText("Add a second account")).toBeInTheDocument();
+    expect(screen.getByText(/When agent1 runs low on its limits, carry on with the other one/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Add a second agent" }));
+    expect(onNavigate).toHaveBeenCalledWith("add");
+  });
+
+  it("no invite once there are two", () => {
+    render(Agents, { view, onNavigate: () => {}, onLimits: () => {} });
+    expect(screen.queryByText("Add a second account")).not.toBeInTheDocument();
   });
 
   it("header buttons navigate", async () => {

@@ -10,10 +10,12 @@ const view = overview as OverviewView;
 const agent = (name: string) => view.agents.find((a) => a.name === name)!;
 
 describe("AgentRow", () => {
-  it("clicking the name asks to rename it", async () => {
+  it("clicking the name opens its settings", async () => {
     let asked = "";
-    render(AgentRow, { agent: agent("agent1"), onRename: (n: string) => (asked = n) });
-    await userEvent.click(screen.getByRole("button", { name: "Rename agent1" }));
+    render(AgentRow, { agent: agent("agent1"), onEdit: (n: string) => (asked = n) });
+    const name = screen.getByRole("button", { name: "Edit agent1" });
+    expect(name).toHaveAttribute("title", "Rename, recolor, set its role, make it the default or remove it");
+    await userEvent.click(name);
     expect(asked).toBe("agent1");
   });
 

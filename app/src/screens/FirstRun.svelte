@@ -68,14 +68,14 @@
       <div class="found" class:missing={!c.installed}>
         {#if c.installed && editing[c.tool]}
           <input
-            class="nm2 wide"
+            class="nm2 agent-name ink"
             aria-label="New name for {c.suggested_name}"
-            style:color={palette[i]?.hex}
+            style:color={palette[i]?.hex} style:--c={palette[i]?.hex}
             bind:value={names[c.tool]}
             spellcheck="false"
           />
         {:else}
-          <span class="nm2 wide" style:color={c.installed ? palette[i]?.hex : "var(--mut)"}>
+          <span class="nm2 agent-name ink" style:color={c.installed ? palette[i]?.hex : "var(--mut)"} style:--c={palette[i]?.hex}>
             {c.installed ? names[c.tool] : c.tool_label}
           </span>
         {/if}
@@ -93,9 +93,15 @@
       </div>
     {/each}
     <div class="found missing">
-      <span class="nm2 wide" style:color="var(--mut)">Gemini</span><span class="meta">soon</span>
+      <span class="nm2 agent-name" style:color="var(--mut)">Gemini</span><span class="meta">soon</span>
     </div>
 
+    {#if installed.length}
+      <p class="lede note">
+        Your logins stay exactly where they are. Agent Roster gives each one a name and a command. You can add more accounts
+        afterwards with Add agent.
+      </p>
+    {/if}
     {#if error}<p class="error">{error}</p>{/if}
     <div class="foot">
       <button class="btn pri" onclick={adopt} disabled={installed.length === 0}>Continue</button>
@@ -108,6 +114,9 @@
 {/if}
 
 <style>
+  .note {
+    margin-top: 16px;
+  }
   .first {
     padding-top: 52px; /* titles line up with screens that have a back link */
   }

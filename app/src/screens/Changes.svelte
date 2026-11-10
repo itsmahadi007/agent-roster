@@ -87,7 +87,7 @@
   {#if error}<p class="error">{error}</p>{/if}
 
   <div class="foot bottom">
-    <span class="dim">Uninstalling restores all of this.</span>
+    <span class="dim">To remove Agent Roster and put all of this back, run <code class="mono">roster uninstall</code> in a terminal.</span>
     {#if list?.some((c) => !c.undone)}
       <button class="btn" onclick={() => ask("Undo every change Agent Roster made?", () => undoAll())} disabled={busy}>Undo everything</button>
     {/if}

@@ -63,8 +63,8 @@
 <style>
   .backdrop {
     position: fixed;
-    inset: 0;
-    background: rgba(5, 9, 14, 0.62);
+    inset: var(--bar-h, 0px) 0 0 0;
+    background: var(--scrim);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -76,7 +76,7 @@
     border: 1px solid var(--line-2);
     border-radius: 16px;
     padding: 24px;
-    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+    box-shadow: var(--shadow);
   }
   h4 {
     margin: 0 0 12px;

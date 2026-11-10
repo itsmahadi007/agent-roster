@@ -27,7 +27,7 @@ pub const STALE: &str =
 pub const EXPIRED: &str = "That preview has expired. Look at it again.";
 
 #[derive(Debug, Deserialize)]
-#[serde(tag = "op", rename_all = "kebab-case")]
+#[serde(tag = "op", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum OpRequest {
     Add {
         name: String,
@@ -49,6 +49,25 @@ pub enum OpRequest {
     Rename {
         name: String,
         new_name: String,
+    },
+    Color {
+        name: String,
+        color: AgentColor,
+    },
+    Role {
+        name: String,
+        role: Option<String>,
+    },
+    Share {
+        name: String,
+        on: bool,
+    },
+    Default {
+        name: String,
+    },
+    /// The window only removes from the roster; the login folder always stays.
+    Remove {
+        name: String,
     },
 }
 
@@ -199,6 +218,11 @@ impl Backend {
             OpRequest::Rename { name, new_name } => {
                 ops::plan_rename(&r, p, &ctx, &name, new_name.trim())
             }
+            OpRequest::Color { name, color } => ops::plan_set_color(&r, p, &ctx, &name, color),
+            OpRequest::Role { name, role } => ops::plan_set_role(&r, p, &ctx, &name, role),
+            OpRequest::Share { name, on } => ops::plan_set_share(&r, p, &ctx, &name, on),
+            OpRequest::Default { name } => ops::plan_set_default(&r, p, &ctx, &name),
+            OpRequest::Remove { name } => ops::plan_remove(&r, p, &ctx, &name, false),
         }
         .map_err(|e| e.to_string())?;
         let token = self.next.fetch_add(1, Ordering::Relaxed);

@@ -5,11 +5,11 @@
   let {
     agent,
     onLimits = () => {},
-    onRename = () => {},
+    onEdit = () => {},
   }: {
     agent: AgentView;
     onLimits?: (name: string, on: boolean) => void;
-    onRename?: (name: string) => void;
+    onEdit?: (name: string) => void;
   } = $props();
 
   /** "5 hr" reads as "5-hour", "week" as "weekly". */
@@ -32,7 +32,13 @@
 <div class="ag" data-agent={agent.name}>
   <span class="stripe" style:background={agent.color}></span>
   <div class="who">
-    <button class="nm wide" style:color={agent.color} aria-label="Rename {agent.name}" title="Click to rename" onclick={() => onRename(agent.name)}>{agent.name}</button>
+    <button
+      class="nm agent-name ink"
+      style:color={agent.color} style:--c={agent.color}
+      aria-label="Edit {agent.name}"
+      title="Rename, recolor, set its role, make it the default or remove it"
+      onclick={() => onEdit(agent.name)}>{agent.name}</button
+    >
     <div class="sub">
       <span class="tool">{agent.tool_label}</span>
       {#if agent.email}
@@ -69,9 +75,9 @@
   </div>
   <div class="st">
     {#if agent.state === "sign-in"}
-      <button class="btn sm" style:border-color={agent.color} style:color={agent.color} title="Opens a terminal with {agent.tool_label}'s own sign-in for this account" onclick={doSignIn}>Sign in</button>
+      <button class="btn sm ink" style:border-color={agent.color} style:color={agent.color} style:--c={agent.color} title="Opens a terminal with {agent.tool_label}'s own sign-in for this account" onclick={doSignIn}>Sign in</button>
     {:else}
-      <span class="state" style:color={active ? agent.color : agent.state === "not-installed" ? "var(--dim)" : "var(--mut)"}>
+      <span class="state" class:ink={active} style:color={active ? agent.color : agent.state === "not-installed" ? "var(--dim)" : "var(--mut)"} style:--c={agent.color}>
         <i style:background={active ? agent.color : "var(--line-2)"}></i>{agent.status_text}
       </span>
     {/if}
@@ -116,13 +122,10 @@
     border: 0;
     padding: 0;
     font-family: inherit;
-    font-weight: 800;
-    font-variation-settings: var(--wide);
     text-align: left;
-    cursor: text;
+    cursor: pointer;
     font-size: 30px;
-    letter-spacing: -0.01em;
-    line-height: 32px;
+    line-height: 34px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -259,6 +262,6 @@
   }
   .jack b.live {
     border-color: currentColor;
-    box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.04);
+    box-shadow: 0 0 0 4px var(--glow);
   }
 </style>

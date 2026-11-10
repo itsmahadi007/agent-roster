@@ -89,12 +89,12 @@
   <div class="cols">
     <div class="form">
       <input
-        class="big wide"
+        class="big agent-name ink"
         aria-label="Name"
         placeholder="name"
         spellcheck="false"
         autocomplete="off"
-        style:color={hex}
+        style:color={hex} style:--c={hex}
         style:caret-color={hex}
         bind:value={name}
       />

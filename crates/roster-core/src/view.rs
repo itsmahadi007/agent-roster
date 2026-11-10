@@ -44,9 +44,17 @@ pub struct AgentView {
     pub tool: Tool,
     pub tool_label: String,
     pub color: String,
+    /// The palette name of `color`, as the color picker and `roster color` take it.
+    pub color_label: String,
     pub email: Option<String>,
     pub plan: Option<String>,
     pub default_label: Option<String>,
+    /// A bare `claude` or `codex` opens this agent.
+    pub default: bool,
+    /// The one line other agents see about it.
+    pub role: Option<String>,
+    /// Uses the skills of the main account.
+    pub share: bool,
     pub state: String,
     pub status_text: String,
     pub windows: Vec<WindowView>,
@@ -233,6 +241,7 @@ fn agent_view(s: &AgentStatus, o: &Overview, now: i64) -> AgentView {
         tool: a.tool,
         tool_label: a.tool.display().to_string(),
         color: a.color.hex().to_string(),
+        color_label: a.color.label().to_string(),
         email: s.sign_in.email.clone(),
         plan: s
             .sign_in
@@ -242,6 +251,9 @@ fn agent_view(s: &AgentStatus, o: &Overview, now: i64) -> AgentView {
         default_label: a
             .default
             .then(|| format!("default for {}", tool_word(a.tool))),
+        default: a.default,
+        role: a.role.clone(),
+        share: a.share,
         state: state_key(s.state).to_string(),
         status_text,
         windows: windows

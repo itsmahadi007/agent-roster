@@ -30,6 +30,9 @@ describe("FirstRun", () => {
     expect(screen.getByText("Codex 0.167.0")).toBeInTheDocument();
     expect(screen.getByText("Gemini")).toBeInTheDocument();
     expect(screen.getByText("soon")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Your logins stay exactly where they are\. Agent Roster gives each one a name and a command\./),
+    ).toBeInTheDocument();
   });
 
   it("rename_changes_the_pick", async () => {

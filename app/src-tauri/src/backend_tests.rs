@@ -284,3 +284,59 @@ fn rename_previews_then_applies_and_keeps_the_login() {
         dir_before
     );
 }
+
+fn agent_of(w: &World, name: &str) -> roster_core::model::Agent {
+    Roster::load(&w.b.p)
+        .unwrap()
+        .agents
+        .into_iter()
+        .find(|a| a.name == name)
+        .unwrap()
+}
+
+fn run(w: &World, json: &str) -> PlanView {
+    let req: OpRequest = serde_json::from_str(json).unwrap();
+    let plan = w.b.preview(req).unwrap();
+    w.b.apply(plan.token).unwrap();
+    plan
+}
+
+#[test]
+fn color_role_share_and_default_change_from_the_window() {
+    let w = world();
+    w.add("boss");
+    w.add("helper");
+    run(&w, r#"{"op":"color","name":"boss","color":"orchid"}"#);
+    assert_eq!(agent_of(&w, "boss").color, AgentColor::Orchid);
+    run(
+        &w,
+        r#"{"op":"role","name":"boss","role":"reviews pull requests"}"#,
+    );
+    assert_eq!(
+        agent_of(&w, "boss").role.as_deref(),
+        Some("reviews pull requests")
+    );
+    run(&w, r#"{"op":"role","name":"boss","role":null}"#);
+    assert_eq!(agent_of(&w, "boss").role, None);
+    run(&w, r#"{"op":"share","name":"boss","on":true}"#);
+    assert!(agent_of(&w, "boss").share);
+    run(&w, r#"{"op":"default","name":"helper"}"#);
+    assert!(agent_of(&w, "helper").default);
+    assert!(!agent_of(&w, "boss").default);
+}
+
+#[test]
+fn remove_from_the_window_keeps_the_login_folder() {
+    let w = world();
+    w.add("boss");
+    let dir = roster_core::paths::expand_tilde(&agent_of(&w, "boss").config_dir, &w.b.p.home);
+    assert!(dir.exists());
+    // The window never offers deleting the login folder.
+    let bad: Result<OpRequest, _> =
+        serde_json::from_str(r#"{"op":"remove","name":"boss","delete_login_folder":true}"#);
+    assert!(bad.is_err());
+    let plan = run(&w, r#"{"op":"remove","name":"boss"}"#);
+    assert!(plan.summary.contains("boss"));
+    assert!(w.names().is_empty());
+    assert!(dir.exists());
+}

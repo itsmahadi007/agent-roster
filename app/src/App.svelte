@@ -9,15 +9,21 @@
   import FirstRun from "./screens/FirstRun.svelte";
   import Changes from "./screens/Changes.svelte";
   import PlanSheet from "./components/PlanSheet.svelte";
-  import RenameSheet from "./components/RenameSheet.svelte";
+  import AgentSheet from "./components/AgentSheet.svelte";
+  import TopBar from "./components/TopBar.svelte";
   import Help from "./screens/Help.svelte";
+  import { chrome } from "./lib/platform";
 
   let view = $state<OverviewView | null>(null);
   let screen = $state<Screen>("agents");
   let error = $state<string | null>(null);
   let notice = $state<string | null>(null);
   let sheet = $state<{ plan: PlanView; req: OpRequest; label: string } | null>(null);
-  let renaming = $state<{ name: string; color: string } | null>(null);
+  /** The agent whose settings are open, by id so a rename keeps it open. */
+  let editing = $state<string | null>(null);
+  /** Bumped after each change so the settings sheet starts fresh from the new state. */
+  let editRound = $state(0);
+  const edited = $derived(view?.agents.find((a) => a.id === editing) ?? null);
 
   async function refresh() {
     try {
@@ -44,17 +50,16 @@
     }
   }
 
-  function rename(name: string) {
+  function edit(name: string) {
     notice = null;
-    const a = view?.agents.find((x) => x.name === name);
-    renaming = { name, color: a?.color ?? "var(--txt)" };
+    editing = view?.agents.find((x) => x.name === name)?.id ?? null;
   }
 
-  function renamed(newName: string) {
-    const old = renaming?.name;
-    renaming = null;
-    notice = `${old} is now ${newName}. Type ${newName} in any terminal to start it.`;
-    refresh();
+  async function changed(note: string, op: OpRequest["op"]) {
+    notice = note;
+    if (op === "remove") editing = null;
+    await refresh();
+    editRound += 1;
   }
 
   function sheetDone() {
@@ -63,6 +68,7 @@
   }
 
   onMount(() => {
+    document.documentElement.style.setProperty("--bar-h", chrome === "none" ? "0px" : "40px");
     const stop = startPoll(refresh, 10_000);
     const unlisten = listen<Screen>("navigate", (e) => navigate(e.payload));
     return () => {
@@ -72,6 +78,9 @@
   });
 </script>
 
+<div class="shell">
+<TopBar {chrome} />
+<div class="content" class:fixed={view && view.agents.length > 0 && screen === "agents"}>
 {#if notice}
   <div class="notice" role="status">
     <span>{notice}</span>
@@ -97,11 +106,15 @@
     onCancel={() => navigate("agents")}
   />
 {:else}
-  <Agents {view} onNavigate={(s) => navigate(s)} onLimits={limits} onRename={rename} />
+  <Agents {view} onNavigate={(s) => navigate(s)} onLimits={limits} onEdit={edit} />
 {/if}
+</div>
+</div>
 
-{#if renaming}
-  <RenameSheet name={renaming.name} color={renaming.color} onDone={renamed} onCancel={() => (renaming = null)} />
+{#if edited && view}
+  {#key `${edited.id}:${editRound}`}
+    <AgentSheet agent={edited} palette={view.palette} onApplied={changed} onClose={() => (editing = null)} />
+  {/key}
 {/if}
 
 {#if sheet}
@@ -109,6 +122,20 @@
 {/if}
 
 <style>
+  .shell {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+  .content {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+  }
+  /* Your agents scrolls its own list; the rest of that screen stays put. */
+  .content.fixed {
+    overflow: hidden;
+  }
   .notice {
     position: fixed;
     left: 50%;
@@ -122,7 +149,7 @@
     border-radius: 8px;
     padding: 8px 16px;
     font-size: 13px;
-    z-index: 20;
+    z-index: 40;
     max-width: 640px;
   }
 </style>

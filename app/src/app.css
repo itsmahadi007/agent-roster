@@ -1,4 +1,5 @@
-/* Colors from docs/mockups/app-window.html (.pb block). Spacing on a 4px grid. */
+/* Colors from docs/mockups/app-window.html (.pb block). Spacing on a 4px grid.
+   Dark is the base; the light set follows the system setting. */
 :root {
   --base: #111925;
   --raise: #18222f;
@@ -12,9 +13,35 @@
   --coral: #ff7a6b;
   --jade: #2fbf8f;
   --amber: #f0b429;
-  --wide: "wdth" 125;
+  --scrim: rgba(5, 9, 14, 0.62);
+  --shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+  --glow: rgba(255, 255, 255, 0.04);
+  /* How much agent colors darken to stay readable as text. 1 = as they are. */
+  --ink: 100%;
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
   color-scheme: dark;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --base: #f5f7fa;
+    --raise: #ffffff;
+    --well: #edf1f5;
+    --hole: #e3e8ee;
+    --line: #dbe1e8;
+    --line-2: #c3ccd7;
+    --txt: #141c27;
+    --mut: #5a6677;
+    --dim: #7f8a9b;
+    --coral: #d6452f;
+    --jade: #13865f;
+    --amber: #a8730a;
+    --scrim: rgba(20, 28, 39, 0.32);
+    --shadow: 0 24px 64px rgba(20, 28, 39, 0.18);
+    --glow: rgba(20, 28, 39, 0.06);
+    --ink: 68%;
+    color-scheme: light;
+  }
 }
 
 * {
@@ -25,6 +52,7 @@ html,
 body {
   margin: 0;
   height: 100%;
+  overflow: hidden;
   background: var(--base);
   color: var(--txt);
   font-family: "Archivo Variable", "Archivo", system-ui, sans-serif;
@@ -40,14 +68,26 @@ body {
   height: 100%;
 }
 
+/* Thin scrollbars that sit inside the palette. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-2) transparent;
+}
+
 .mono {
   font-family: "JetBrains Mono", ui-monospace, monospace;
 }
 
-/* Agent names: the wide cut of Archivo, the app's one display face. */
-.wide {
-  font-variation-settings: var(--wide);
-  font-weight: 800;
+/* Agent names: Archivo at normal width, medium weight. The agent's color does the work. */
+.agent-name {
+  font-weight: 500;
+  letter-spacing: -0.015em;
+}
+
+/* Text set in an agent's color (passed as --c). On light backgrounds the bright colors darken
+   to stay readable; on dark they are used as they are. */
+.ink {
+  color: color-mix(in oklab, var(--c) var(--ink), #000) !important;
 }
 
 .num {
@@ -88,8 +128,7 @@ button {
   border-color: var(--txt);
 }
 .btn.pri:hover:not(:disabled) {
-  background: #ffffff;
-  border-color: #ffffff;
+  filter: brightness(1.12);
 }
 .btn.sm {
   height: 28px;
