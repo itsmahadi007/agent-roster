@@ -115,27 +115,37 @@ pub fn redirect_port(link: &str) -> Option<u16> {
     loopback_port(&parse(&redirect)?)
 }
 
-/// The tool's own callback server, as the sign-in link names it (its `redirect_uri`): the
-/// loopback host exactly as written there, and its port. The window lets only this server
-/// be reached, so no other local server (or the same port under the other loopback name)
-/// can be.
+/// Paths a tool's callback server is sent to: Claude Code's `/callback`, Codex's
+/// `/auth/callback` (which then shows `/success`). Seen in the Phase 0 sign-ins.
+const CALLBACK_PATHS: &[&str] = &["/callback", "/auth/callback"];
+/// The page Codex's callback server shows after `/auth/callback`.
+const SUCCESS_PATH: &str = "/success";
+
+/// The tool's own callback, as the sign-in link names it (its `redirect_uri`): the loopback
+/// host exactly as written there, its port and its path. The window lets only this callback
+/// (and the server's `/success` page) be reached, so no other local server, no other page of
+/// the tool's server, and not the same port under the other loopback name.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Callback {
     pub host: String,
     pub port: u16,
+    pub path: String,
 }
 
 impl Callback {
-    /// Is this page on exactly this callback server (plain http, same host, same port)?
+    /// Is this page exactly this callback (plain http, same host, same port, its own path or
+    /// `/success`)? The query may vary.
     pub fn matches(&self, url: &str) -> bool {
         parse(url).is_some_and(|u| {
-            loopback_port(&u) == Some(self.port) && u.host_str() == Some(self.host.as_str())
+            loopback_port(&u) == Some(self.port)
+                && u.host_str() == Some(self.host.as_str())
+                && (u.path() == self.path || u.path() == SUCCESS_PATH)
         })
     }
 }
 
-/// The callback server the provider will send the browser back to, from the link's
-/// `redirect_uri`. `None` when the link has no loopback `redirect_uri` with a port.
+/// The callback the provider will send the browser back to, from the link's `redirect_uri`.
+/// `None` when the link has no loopback `redirect_uri` with a port on a known callback path.
 pub fn redirect_callback(link: &str) -> Option<Callback> {
     let u = parse(link)?;
     let redirect = u
@@ -144,9 +154,11 @@ pub fn redirect_callback(link: &str) -> Option<Callback> {
         .map(|(_, v)| v.into_owned())?;
     let r = parse(&redirect)?;
     let port = loopback_port(&r)?;
+    CALLBACK_PATHS.contains(&r.path()).then_some(())?;
     Some(Callback {
         host: r.host_str()?.to_string(),
         port,
+        path: r.path().to_string(),
     })
 }
 
@@ -330,7 +342,8 @@ mod tests {
             cb,
             Callback {
                 host: "127.0.0.1".into(),
-                port: 1455
+                port: 1455,
+                path: "/auth/callback".into(),
             }
         );
         assert!(cb.matches("http://127.0.0.1:1455/auth/callback?code=x"));
@@ -357,6 +370,40 @@ mod tests {
             ),
             None
         );
+    }
+
+    /// Only the callback's own path (and Codex's `/success` after it) on that server: the
+    /// tool's server may answer other paths, and the window never needs them.
+    #[test]
+    fn the_callback_is_pinned_to_its_path() {
+        let codex = "https://auth.openai.com/oauth/authorize?redirect_uri=http%3A%2F%2F127.0.0.1%3A1455%2Fauth%2Fcallback";
+        let cb = redirect_callback(codex).unwrap();
+        assert!(cb.matches("http://127.0.0.1:1455/auth/callback?code=x&state=y"));
+        assert!(cb.matches("http://127.0.0.1:1455/success"));
+        assert!(cb.matches("http://127.0.0.1:1455/success?id_token=x"));
+        for bad in [
+            "http://127.0.0.1:1455/",
+            "http://127.0.0.1:1455/callback",
+            "http://127.0.0.1:1455/auth/callback/extra",
+            "http://127.0.0.1:1455/cancel",
+            "http://127.0.0.1:1455/admin",
+            "http://127.0.0.1:1455/success/x",
+            "http://127.0.0.1:1455/%61uth/callback",
+        ] {
+            assert!(!cb.matches(bad), "{bad}");
+        }
+        let claude = "https://claude.com/cai/oauth/authorize?redirect_uri=http%3A%2F%2Flocalhost%3A61234%2Fcallback";
+        let cb = redirect_callback(claude).unwrap();
+        assert_eq!(cb.path, "/callback");
+        assert!(cb.matches("http://localhost:61234/callback?code=x"));
+        assert!(!cb.matches("http://localhost:61234/"));
+        assert!(!cb.matches("http://localhost:61234/auth/callback"));
+        // A redirect to any other path is not a callback the window knows.
+        for odd in ["%2F", "%2Fother", "%2Fcallback%2Fx", "%2Fsuccess"] {
+            let link =
+                format!("https://claude.com/x?redirect_uri=http%3A%2F%2Flocalhost%3A61234{odd}");
+            assert_eq!(redirect_callback(&link), None, "{odd}");
+        }
     }
 
     #[test]
