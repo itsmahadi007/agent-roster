@@ -379,7 +379,7 @@ mod sys {
     use std::os::unix::fs::DirBuilderExt;
     use std::os::unix::net::{UnixListener, UnixStream};
     use std::path::PathBuf;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     /// The socket and its private folder, removed when dropped.
     pub struct Listener {
@@ -431,14 +431,30 @@ mod sys {
                     Err(_) => return None,
                 }
             };
-            stream.set_nonblocking(false).ok()?;
-            stream.set_read_timeout(Some(Duration::from_secs(5))).ok()?;
+            // Read without blocking, giving up after 5 s or on `give_up`. No socket options:
+            // macOS refuses them (EINVAL) once the sender has shut its end, which `roster`
+            // does right after writing. On macOS the accepted socket inherits non-blocking
+            // from the listener, on Linux it doesn't: set it either way.
+            stream.set_nonblocking(true).ok()?;
+            let read_until = Instant::now() + Duration::from_secs(5);
+            // One byte more than allowed, so a message that is too big is seen.
+            let mut stream = stream.take(MAX_MESSAGE as u64 + 1);
             let mut buf = vec![];
-            stream
-                .take(MAX_MESSAGE as u64 + 1)
-                .read_to_end(&mut buf)
-                .ok()?;
-            Some(buf)
+            let mut chunk = [0u8; 4096];
+            loop {
+                match stream.read(&mut chunk) {
+                    Ok(0) => return Some(buf),
+                    Ok(n) => buf.extend_from_slice(&chunk[..n]),
+                    Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        if give_up() || Instant::now() >= read_until {
+                            return None;
+                        }
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(_) => return None,
+                }
+            }
         }
     }
 
@@ -527,6 +543,35 @@ mod tests {
         std::thread::sleep(Duration::from_millis(100));
         send_link(&name, &nonce, LINK).unwrap();
         assert_eq!(t.join().unwrap().as_deref(), Some(LINK));
+    }
+
+    /// `roster` sends, shuts its end and exits before the app accepts: the link must still be
+    /// read (macOS refuses socket options on such a connection).
+    #[test]
+    fn a_link_sent_and_closed_before_the_receive_arrives() {
+        let ch = LinkChannel::create().unwrap();
+        send_link(ch.name(), ch.nonce(), LINK).unwrap();
+        std::thread::sleep(Duration::from_millis(100));
+        assert_eq!(
+            ch.receive(far(), &AtomicBool::new(false)).as_deref(),
+            Some(LINK)
+        );
+    }
+
+    /// A client that connects and never sends doesn't hold the channel past `stop`.
+    #[cfg(unix)]
+    #[test]
+    fn a_silent_client_is_dropped_on_stop() {
+        let ch = LinkChannel::create().unwrap();
+        let _client = std::os::unix::net::UnixStream::connect(ch.name()).unwrap();
+        let stop = std::sync::Arc::new(AtomicBool::new(false));
+        let s = stop.clone();
+        let t = std::thread::spawn(move || ch.receive(far(), &s));
+        std::thread::sleep(Duration::from_millis(200));
+        stop.store(true, Ordering::SeqCst);
+        let t0 = Instant::now();
+        assert_eq!(t.join().unwrap(), None);
+        assert!(t0.elapsed() < Duration::from_secs(1));
     }
 
     #[test]
