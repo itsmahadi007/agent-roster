@@ -101,6 +101,12 @@ impl PageRules {
     }
 }
 
+/// May a popup show this page? The login window's rules, plus the empty `about:blank` the
+/// managed popup is created on (it loads nothing; the runtime then loads Google into it).
+pub fn popup_page_allowed(url: &Url, rules: &PageRules) -> bool {
+    url.as_str() == "about:blank" || rules.allows(url)
+}
+
 /// "Sign in codex_2 · auth.openai.com 🔒": the page's real host, as ASCII (punycode for
 /// international names), so a look-alike name can't hide. Never the path or query.
 pub fn title_for(agent: &str, url: &Url) -> String {
@@ -358,7 +364,19 @@ impl LoginWindow {
 
     /// Every navigation of the login window or of one of its popups (`label`).
     fn navigate(&self, label: &str, u: &Url) -> bool {
-        if self.rules.allows(u) {
+        self.navigate_by(label, u, self.rules.allows(u))
+    }
+
+    /// A popup's navigation: the same, plus its blank first page.
+    fn navigate_popup(&self, label: &str, u: &Url) -> bool {
+        if u.as_str() == "about:blank" {
+            return true;
+        }
+        self.navigate_by(label, u, popup_page_allowed(u, &self.rules))
+    }
+
+    fn navigate_by(&self, label: &str, u: &Url, allowed: bool) -> bool {
+        if allowed {
             set_title_later(&self.app, label, title_for(&self.agent_name, u));
             true
         } else {
@@ -407,7 +425,7 @@ impl LoginWindow {
             .title(title_for(&self.agent_name, u))
             .incognito(true)
             .data_directory(self.dir.clone())
-            .on_navigation(move |u| nav.navigate(&nav_label, u))
+            .on_navigation(move |u| nav.navigate_popup(&nav_label, u))
             .on_new_window(move |u, f| popups.new_window(&u, f, true))
             .on_page_load(move |w, p| {
                 if p.event() == PageLoadEvent::Finished {
@@ -600,6 +618,26 @@ mod tests {
         assert!(!none("http://localhost:3000/callback"));
         assert!(!none("http://127.0.0.1:1455/auth/callback"));
         assert!(none("https://auth.openai.com/log-in"));
+    }
+
+    #[test]
+    fn a_popup_may_start_blank_but_the_login_window_may_not() {
+        // The managed popup is created on about:blank (Tauri's documented way); refusing it
+        // would end the Google sign-in before it starts.
+        let rules = PageRules::new(fake_allowed, vec![]);
+        assert!(popup_page_allowed(&url("about:blank"), &rules));
+        assert!(!rules.allows(&url("about:blank")));
+        assert!(
+            popup_page_allowed(&url("https://accounts.google.com/o/oauth2/v2/auth"), &rules)
+                == rules.allows(&url("https://accounts.google.com/o/oauth2/v2/auth"))
+        );
+        // Nothing else that isn't a web page.
+        assert!(!popup_page_allowed(&url("about:srcdoc"), &rules));
+        assert!(!popup_page_allowed(&url("data:text/html,hi"), &rules));
+        assert!(!popup_page_allowed(
+            &url("https://evil.example.com/"),
+            &rules
+        ));
     }
 
     #[test]
