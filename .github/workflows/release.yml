@@ -1,6 +1,6 @@
 name: release
-# Builds the Mac and Windows downloads and publishes them as a GitHub Release.
-# Runs when a version tag like v0.2.0 is pushed, or by hand from the Actions tab.
+# Builds Agent Roster for every platform and publishes a GitHub Release.
+# Runs when a version tag like v0.2.0 is pushed, or by hand from the Actions tab (build only).
 on:
   push:
     tags: ["v*"]
@@ -10,108 +10,100 @@ permissions:
   contents: write
 
 jobs:
-  mac:
-    runs-on: macos-latest
+  build:
+    name: ${{ matrix.slug }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { slug: mac-apple-silicon, os: macos-latest, target: aarch64-apple-darwin, bundles: "app,dmg" }
+          - { slug: mac-intel, os: macos-latest, target: x86_64-apple-darwin, bundles: "app,dmg" }
+          - { slug: windows-x64, os: windows-latest, target: x86_64-pc-windows-msvc, bundles: nsis }
+          - { slug: windows-arm64, os: windows-latest, target: aarch64-pc-windows-msvc, bundles: nsis }
+          - { slug: linux-x64, os: ubuntu-22.04, target: x86_64-unknown-linux-gnu, bundles: "appimage,deb" }
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
+          targets: ${{ matrix.target }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
           cache-dependency-path: app/package-lock.json
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - name: Linux build tools
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev build-essential patchelf libfuse2 file
       - run: npm ci
         working-directory: app
       - run: cargo install tauri-cli --version "^2" --locked
-      - name: Build roster for both Mac chips
+      - name: Build roster and put it where the app bundle picks it up
         run: |
-          cargo build --release -p agent-roster --target aarch64-apple-darwin
-          cargo build --release -p agent-roster --target x86_64-apple-darwin
+          cargo build --release -p agent-roster --target ${{ matrix.target }}
           mkdir -p app/src-tauri/binaries
-          lipo -create -output app/src-tauri/binaries/roster-universal-apple-darwin \
-            target/aarch64-apple-darwin/release/roster target/x86_64-apple-darwin/release/roster
-      - run: cargo tauri build --target universal-apple-darwin --bundles app,dmg --config tauri.release.conf.json
+          ext=""; [ "${{ runner.os }}" = "Windows" ] && ext=".exe"
+          cp "target/${{ matrix.target }}/release/roster$ext" "app/src-tauri/binaries/roster-${{ matrix.target }}$ext"
+      - name: Build the app
         working-directory: app/src-tauri
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-      - name: Check roster is inside the app
+        run: cargo tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --config tauri.release.conf.json
+      - name: Collect files (fixed names, so "latest" download links never change)
         run: |
-          app=$(ls -d target/universal-apple-darwin/release/bundle/macos/*.app | head -1)
-          test -x "$app/Contents/MacOS/roster"
-          "$app/Contents/MacOS/roster" --help | head -1
-      - name: Collect files (no spaces in names, so download links stay stable)
-        run: |
+          s=${{ matrix.slug }}
+          r=target/${{ matrix.target }}/release
+          b=$r/bundle
           mkdir out
-          v=$(node -p "require('./app/package.json').version")
-          b=target/universal-apple-darwin/release/bundle
-          cp "$(ls $b/dmg/*.dmg | head -1)" "out/Agent-Roster_${v}_universal.dmg"
-          cp "$b/macos/Agent Roster.app.tar.gz" "out/Agent-Roster_${v}_universal.app.tar.gz"
-          cp "$b/macos/Agent Roster.app.tar.gz.sig" "out/Agent-Roster_${v}_universal.app.tar.gz.sig"
-          cp app/src-tauri/binaries/roster-universal-apple-darwin out/roster-mac
+          case $s in
+            mac-*)
+              cp "$(ls $b/dmg/*.dmg | head -1)" "out/Agent-Roster-$s.dmg"
+              cp "$b/macos/Agent Roster.app.tar.gz" "out/Agent-Roster-$s.app.tar.gz"
+              cp "$b/macos/Agent Roster.app.tar.gz.sig" "out/Agent-Roster-$s.app.tar.gz.sig"
+              test -x "$b/macos/Agent Roster.app/Contents/MacOS/roster"
+              tar czf "out/roster-$s.tar.gz" -C $r roster ;;
+            windows-*)
+              setup=$(ls $b/nsis/*-setup.exe | head -1)
+              cp "$setup" "out/Agent-Roster-$s-setup.exe"
+              cp "$setup.sig" "out/Agent-Roster-$s-setup.exe.sig"
+              cp $r/roster.exe "out/roster-$s.exe" ;;
+            linux-*)
+              img=$(ls $b/appimage/*.AppImage | head -1)
+              cp "$img" "out/Agent-Roster-$s.AppImage"
+              cp "$img.sig" "out/Agent-Roster-$s.AppImage.sig"
+              cp "$(ls $b/deb/*.deb | head -1)" "out/Agent-Roster-$s.deb"
+              tar czf "out/roster-$s.tar.gz" -C $r roster ;;
+          esac
           ls -la out
-      - uses: actions/upload-artifact@v4
-        with:
-          name: mac
-          path: out/
-
-  windows:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: app/package-lock.json
-      - uses: Swatinem/rust-cache@v2
-      - run: npm ci
-        working-directory: app
-      - run: cargo install tauri-cli --version "^2" --locked
-      - name: Build roster
+      - name: Windows installer puts the app and roster where the app looks
+        if: matrix.slug == 'windows-x64'
         shell: pwsh
         run: |
-          cargo build --release -p agent-roster
-          New-Item -ItemType Directory -Force app/src-tauri/binaries | Out-Null
-          Copy-Item target/release/roster.exe app/src-tauri/binaries/roster-x86_64-pc-windows-msvc.exe
-      - run: cargo tauri build --bundles nsis --config tauri.release.conf.json
-        working-directory: app/src-tauri
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-      - name: Installer puts the app and roster where the app looks
-        shell: pwsh
-        run: |
-          $setup = Get-ChildItem target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
-          Start-Process $setup.FullName -ArgumentList '/S' -Wait
+          Start-Process (Resolve-Path out/Agent-Roster-windows-x64-setup.exe) -ArgumentList '/S' -Wait
           $dir = Join-Path $env:LOCALAPPDATA 'Agent Roster'
           foreach ($f in 'agent-roster-app.exe', 'roster.exe') {
             if (-not (Test-Path (Join-Path $dir $f))) { Get-ChildItem $dir; throw "missing $f" }
           }
           & (Join-Path $dir 'roster.exe') --help | Select-Object -First 1
-      - name: Collect files
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory out | Out-Null
-          $v = node -p "require('./app/package.json').version"
-          $setup = Get-ChildItem target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
-          Copy-Item $setup.FullName "out/Agent-Roster_${v}_x64-setup.exe"
-          Copy-Item "$($setup.FullName).sig" "out/Agent-Roster_${v}_x64-setup.exe.sig"
-          Copy-Item target/release/roster.exe out/roster-windows.exe
-          Get-ChildItem out
       - uses: actions/upload-artifact@v4
         with:
-          name: windows
+          name: ${{ matrix.slug }}
           path: out/
 
   release:
-    needs: [mac, windows]
+    needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -123,29 +115,24 @@ jobs:
         run: |
           ls -la dist
           if [ "${GITHUB_REF_TYPE}" != "tag" ]; then echo "Not a tag: built only, nothing published."; exit 0; fi
-          # latest.json is what installed apps read to find and verify an update.
           v="${TAG#v}"
           base="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}"
-          mac="Agent-Roster_${v}_universal.app.tar.gz"
-          win="Agent-Roster_${v}_x64-setup.exe"
+          entry() { jq -n --arg url "$base/$1" --arg sig "$(cat "dist/$1.sig")" '{url: $url, signature: $sig}'; }
+          # latest.json is what installed apps read to find and verify an update.
           jq -n --arg v "$v" --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            --arg macurl "$base/$mac" --arg macsig "$(cat "dist/$mac.sig")" \
-            --arg winurl "$base/$win" --arg winsig "$(cat "dist/$win.sig")" \
+            --argjson ma "$(entry Agent-Roster-mac-apple-silicon.app.tar.gz)" \
+            --argjson mi "$(entry Agent-Roster-mac-intel.app.tar.gz)" \
+            --argjson wx "$(entry Agent-Roster-windows-x64-setup.exe)" \
+            --argjson wa "$(entry Agent-Roster-windows-arm64-setup.exe)" \
+            --argjson lx "$(entry Agent-Roster-linux-x64.AppImage)" \
             '{version: $v, notes: "See the release page for what changed.", pub_date: $date, platforms: {
-               "darwin-aarch64": {url: $macurl, signature: $macsig},
-               "darwin-x86_64": {url: $macurl, signature: $macsig},
-               "windows-x86_64": {url: $winurl, signature: $winsig}}}' > dist/latest.json
+               "darwin-aarch64": $ma, "darwin-x86_64": $mi,
+               "windows-x86_64": $wx, "windows-aarch64": $wa, "linux-x86_64": $lx}}' > dist/latest.json
           cat dist/latest.json
-          cat > notes.md <<'NOTES'
-          Download the file for your computer:
-
-          - **Mac (Apple chip or Intel):** the `.dmg` (not the `.app.tar.gz`, that one is for automatic updates). Open it, drag Agent Roster to Applications. First launch: System Settings > Privacy & Security > **Open Anyway** (the app isn't signed by Apple yet).
-          - **Windows:** the `-setup.exe`. If SmartScreen appears, click **More info** > **Run anyway**.
-
-          Already have Agent Roster 0.2.0 or later? It offers this update by itself.
-
-          The `roster` command is inside the app. `roster-mac` and `roster-windows.exe` are the same command on its own, for using it in a terminal.
-
-          Created by Mahadi Hassan · https://mahadihassan.com
-          NOTES
-          gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --title "Agent Roster $TAG" --notes-file notes.md
+          sed "s/{{VERSION}}/$v/g" .github/release-notes.md > notes.md
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+            gh release edit "$TAG" --notes-file notes.md
+          else
+            gh release create "$TAG" dist/* --title "Agent Roster $TAG" --notes-file notes.md
+          fi

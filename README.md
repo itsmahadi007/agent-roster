@@ -5,23 +5,31 @@ name in any terminal to open Claude Code or Codex on that account, see every acc
 limits and reset times in one place, and let any agent hand work to another by name. Works on
 macOS, Windows and Linux. Never installs hooks, previews every change, and can undo all of them.
 
-## Download
+## Install
 
-Get the latest version from [Releases](https://github.com/itsmahadi007/agent-roster/releases/latest).
+**Mac or Linux** (Terminal):
 
-- **Mac:** download `Agent-Roster_<version>_universal.dmg`, open it and drag Agent Roster to
-  Applications. The app isn't signed by Apple yet, so the first time macOS blocks it: open
-  System Settings > Privacy & Security, scroll down, and click **Open Anyway** next to Agent
-  Roster. Or run `xattr -dr com.apple.quarantine "/Applications/Agent Roster.app"` once.
-- **Windows:** download `Agent-Roster_<version>_x64-setup.exe` and run it. Windows SmartScreen may
-  say it protected your PC: click **More info**, then **Run anyway**.
+```sh
+curl -fsSL https://raw.githubusercontent.com/itsmahadi007/agent-roster/main/install.sh | sh
+```
 
-Once installed, the app checks for new versions itself and offers to update: one click installs
-it and restarts. The `roster` command comes inside the app, so there's nothing else to install. You need Claude
-Code or Codex installed and signed in once.
+**Windows** (PowerShell):
 
-To use `roster` in a terminal too, download the plain `roster` file for your system from the same
-release and put it somewhere on your PATH.
+```powershell
+irm https://raw.githubusercontent.com/itsmahadi007/agent-roster/main/install.ps1 | iex
+```
+
+The command picks the right download for your computer, installs the app and the `roster` command,
+and opens Agent Roster. Run it again any time to reinstall.
+
+Or download the file yourself from [Releases](https://github.com/itsmahadi007/agent-roster/releases/latest):
+Mac Apple chip or Intel (`.dmg`), Windows x64 or ARM (`-setup.exe`), Linux (`.AppImage` or `.deb`).
+The apps aren't signed by Apple or Microsoft yet: on a Mac use System Settings > Privacy & Security >
+**Open Anyway** the first time; on Windows click **More info** > **Run anyway**. The install commands
+skip this.
+
+Once installed, Agent Roster checks for new versions by itself and offers **Update now**. You need
+Claude Code or Codex installed and signed in once.
 
 Created by Mahadi Hassan · [mahadihassan.com](https://mahadihassan.com)
 
