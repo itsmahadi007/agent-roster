@@ -120,7 +120,7 @@ describe("App rename and help", () => {
     await userEvent.click(await screen.findByRole("button", { name: "How it works" }));
     expect(await screen.findByRole("heading", { name: "How Agent Roster works" })).toBeInTheDocument();
     expect(screen.getByText(/Type its name in any terminal/)).toBeInTheDocument();
-    expect(screen.getByText(/Click an agent in the list to open its page/)).toBeInTheDocument();
+    expect(screen.getByText(/Click an agent's row to open it in place/)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Back to your agents" }));
     expect(await screen.findByRole("heading", { name: "agent1" })).toBeInTheDocument();
   });
