@@ -2,6 +2,7 @@ use anstyle::{AnsiColor, Color, RgbColor, Style};
 use roster_core::limits::{LimitWindow, reset_phrase, weekly};
 use roster_core::model::AgentColor;
 use roster_core::status::{AgentState, Overview};
+use roster_core::view::{Shown, as_of_local, shown_health, usage_note};
 use std::fmt::Write;
 
 pub use roster_core::view::{age, now};
@@ -92,15 +93,20 @@ pub fn overview_text(o: &Overview) -> String {
             a.agent.tool.display()
         );
         let _ = write!(s, "{lead_painted}{}", paint(&state, state_style));
+        let shown = shown_health(a, now());
+        let note = usage_note(a, shown, now()).unwrap_or_default();
         match a.limits.as_ref().and_then(|l| weekly(&l.windows)) {
-            Some(w) => s.push_str(&window_line(w, a.agent.color, now())),
+            Some(w) if shown != Shown::NoSubscription => {
+                s.push_str(&window_line(w, a.agent.color, now()));
+                if shown == Shown::Unreachable {
+                    let at = a.limits.as_ref().map(|l| l.as_of).unwrap_or(0);
+                    let _ = write!(s, "  {}", paint(&as_of_local(at, now()), dim));
+                }
+            }
+            // The state column already says it.
+            _ if shown == Shown::NotInstalled => {}
             _ => {
-                let note = match (a.state, a.agent.tool, a.agent.limits) {
-                    (AgentState::NotInstalled, _, _) => "",
-                    (AgentState::NeedsSignIn, _, _) => "usage shows after sign in",
-                    _ => "usage shows after its next use",
-                };
-                let _ = write!(s, "{}", paint(note, dim));
+                let _ = write!(s, "{}", paint(&note, dim));
             }
         }
         s.push('\n');
@@ -170,6 +176,7 @@ pub fn overview_json(o: &Overview) -> serde_json::Value {
                 "email": a.sign_in.email,
                 "plan": a.sign_in.plan.clone().or_else(|| a.limits.as_ref().and_then(|l| l.plan.clone())),
                 "limits": a.limits,
+                "health": shown_health(a, now()).key(),
             })
         })
         .collect();
@@ -219,6 +226,7 @@ mod tests {
                     plan: None,
                     windows: vec![w("5 hr", 22.0), w("week", 61.0)],
                 }),
+                health: None,
             }],
             calls: vec![],
             tools: vec![],
@@ -226,6 +234,56 @@ mod tests {
         let text = overview_text(&o);
         assert!(text.contains("week"), "{text}");
         assert!(!text.contains("5 hr"), "{text}");
+    }
+
+    #[test]
+    fn rows_use_the_health_words() {
+        use roster_core::detect::SignIn;
+        use roster_core::model::{Agent, LimitsSource, Tool};
+        use roster_core::status::{AgentState, AgentStatus, Overview};
+        use roster_core::usage::{Health, SavedHealth};
+        let row = |name: &str, health: Option<Health>| AgentStatus {
+            agent: Agent {
+                id: name.into(),
+                name: name.into(),
+                tool: Tool::Claude,
+                config_dir: "~/.claude".into(),
+                color: AgentColor::Cobalt,
+                role: None,
+                default: false,
+                share: false,
+                limits: LimitsSource::Off,
+                advanced_links: vec![],
+                good_at: None,
+            },
+            state: AgentState::Ready,
+            sign_in: SignIn {
+                signed_in: true,
+                email: None,
+                plan: None,
+            },
+            limits: None,
+            health: health.map(|h| SavedHealth {
+                health: h,
+                checked_at: now(),
+                known: Some(h),
+            }),
+        };
+        let o = Overview {
+            agents: vec![
+                row("fresh", None),
+                row("apikey", Some(Health::NoSubscription)),
+            ],
+            calls: vec![],
+            tools: vec![],
+        };
+        let text = overview_text(&o);
+        assert!(text.contains("checking"), "{text}");
+        assert!(text.contains("no subscription"), "{text}");
+        assert!(!text.contains("usage shows after"), "{text}");
+        let json = overview_json(&o);
+        assert_eq!(json["agents"][0]["health"], "checking");
+        assert_eq!(json["agents"][1]["health"], "no-subscription");
     }
 
     #[test]

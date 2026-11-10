@@ -1,0 +1,9 @@
+{
+  "loggedIn": false,
+  "authMethod": "none",
+  "apiProvider": "firstParty",
+  "analyticsDisabled": false,
+  "projectsDirectory": "C:\\Users\\you\\AppData\\Local\\Temp\\ar-signedout\\projects",
+  "configDirectory": "C:\\Users\\you\\AppData\\Local\\Temp\\ar-signedout",
+  "loginExpiresAt": null
+}

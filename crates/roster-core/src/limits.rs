@@ -178,12 +178,28 @@ pub fn read_codex_limits(codex_home: &Path) -> Option<AgentLimits> {
     None
 }
 
-fn claude_limits_path(p: &RosterPaths, agent_id: &str) -> PathBuf {
+fn agent_limits_path(p: &RosterPaths, agent_id: &str) -> PathBuf {
     p.limits_dir().join(format!("{agent_id}.json"))
 }
 
+/// The numbers saved for an agent: Claude Code's `/usage` or status line, Codex's app-server.
+pub fn read_agent_limits(p: &RosterPaths, agent_id: &str) -> Option<AgentLimits> {
+    serde_json::from_str(&std::fs::read_to_string(agent_limits_path(p, agent_id)).ok()?).ok()
+}
+
+pub fn write_agent_limits(p: &RosterPaths, agent_id: &str, l: &AgentLimits) -> std::io::Result<()> {
+    std::fs::create_dir_all(p.limits_dir())?;
+    let path = agent_limits_path(p, agent_id);
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(
+        &tmp,
+        serde_json::to_string(l).map_err(std::io::Error::other)?,
+    )?;
+    std::fs::rename(tmp, path)
+}
+
 pub fn read_claude_limits(p: &RosterPaths, agent_id: &str) -> Option<AgentLimits> {
-    serde_json::from_str(&std::fs::read_to_string(claude_limits_path(p, agent_id)).ok()?).ok()
+    read_agent_limits(p, agent_id)
 }
 
 pub fn write_claude_limits(
@@ -191,14 +207,7 @@ pub fn write_claude_limits(
     agent_id: &str,
     l: &AgentLimits,
 ) -> std::io::Result<()> {
-    std::fs::create_dir_all(p.limits_dir())?;
-    let path = claude_limits_path(p, agent_id);
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(
-        &tmp,
-        serde_json::to_string(l).map_err(std::io::Error::other)?,
-    )?;
-    std::fs::rename(tmp, path)
+    write_agent_limits(p, agent_id, l)
 }
 
 #[cfg(test)]

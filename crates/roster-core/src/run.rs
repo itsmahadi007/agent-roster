@@ -6,7 +6,7 @@ use crate::paths::RosterPaths;
 pub type EnvChanges = Vec<(String, Option<String>)>;
 
 use crate::detect::find_tool;
-use crate::limits::{AgentLimits, read_claude_limits, read_codex_limits, reset_phrase, weekly};
+use crate::limits::{AgentLimits, reset_phrase, weekly};
 use crate::model::Tool;
 use crate::session::{SessionRecord, task_from_args};
 use std::fmt;
@@ -117,10 +117,7 @@ fn banner_limit(limits: Option<AgentLimits>, now: i64) -> String {
 }
 
 fn banner_text(agent: &Agent, r: &Roster, p: &RosterPaths, color: bool) -> String {
-    let limits = match agent.tool {
-        Tool::Codex => read_codex_limits(&r.config_dir_of(agent, p)),
-        Tool::Claude => read_claude_limits(p, &agent.id),
-    };
+    let limits = crate::status::limits_for(agent, r, p);
     let limit_text = banner_limit(limits, now());
     if color {
         let (cr, cg, cb) = agent.color.rgb();

@@ -7,6 +7,7 @@ use crate::limits::{LimitWindow, reset_phrase, weekly};
 use crate::model::{Agent, AgentColor, LimitsSource, Roster, Tool};
 use crate::paths::{RosterPaths, collapse_tilde, expand_tilde};
 use crate::status::{AgentState, AgentStatus, Overview};
+use crate::usage::{Health, SavedHealth};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -65,6 +66,11 @@ pub struct AgentView {
     pub reset_text: Option<String>,
     pub reset_hot: bool,
     pub limits_note: Option<String>,
+    /// The account as the row shows it: ok, sign-in, no-subscription, limit-reached,
+    /// not-installed, checking or unreachable.
+    pub health: String,
+    /// "as of 3:40 pm" when the last check failed and the numbers are older.
+    pub as_of: Option<String>,
     pub claude_limits: Option<bool>,
     pub live: bool,
     pub tray_text: String,
@@ -177,13 +183,98 @@ fn headline(n: usize) -> String {
     }
 }
 
+/// What a row says about an agent's account.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Shown {
+    Ok,
+    SignIn,
+    NoSubscription,
+    LimitReached,
+    NotInstalled,
+    /// No check has finished since the agent was added, signed in or installed.
+    Checking,
+    /// The last check could not reach the tool; the numbers (if any) are older.
+    Unreachable,
+}
+
+impl Shown {
+    pub fn key(self) -> &'static str {
+        match self {
+            Shown::Ok => "ok",
+            Shown::SignIn => "sign-in",
+            Shown::NoSubscription => "no-subscription",
+            Shown::LimitReached => "limit-reached",
+            Shown::NotInstalled => "not-installed",
+            Shown::Checking => "checking",
+            Shown::Unreachable => "unreachable",
+        }
+    }
+}
+
+/// Puts together what the tools say right now (installed, signed in) with what the last
+/// usage check learned. Never "sign in" for a tool that only failed to answer.
+pub fn shown_health(s: &AgentStatus, now: i64) -> Shown {
+    match s.state {
+        AgentState::NotInstalled => return Shown::NotInstalled,
+        AgentState::NeedsSignIn => return Shown::SignIn,
+        AgentState::Ready | AgentState::Working => {}
+    }
+    let week = s.limits.as_ref().and_then(|l| weekly(&l.windows));
+    let reset_passed = week.is_some_and(|w| w.resets_at > 0 && w.resets_at <= now);
+    let full = week.is_some_and(|w| rounded(w) >= 100) && !reset_passed;
+    let saved = s.health.as_ref();
+    match saved.and_then(SavedHealth::effective) {
+        Some(Health::NoSubscription) => Shown::NoSubscription,
+        _ if full => Shown::LimitReached,
+        Some(Health::LimitReached) => {
+            // Numbers newer than that check (the status line) or a passed reset overrule it.
+            let checked_at = saved.map(|h| h.checked_at).unwrap_or(0);
+            let newer = s.limits.as_ref().is_some_and(|l| l.as_of > checked_at);
+            if newer || reset_passed {
+                Shown::Ok
+            } else {
+                Shown::LimitReached
+            }
+        }
+        // That check came before this sign-in or install: the next one is awaited.
+        Some(Health::SignedOut | Health::NotInstalled) => Shown::Checking,
+        _ if saved.is_some_and(SavedHealth::stale) => Shown::Unreachable,
+        Some(_) => Shown::Ok,
+        None if week.is_some() => Shown::Ok,
+        None => Shown::Checking,
+    }
+}
+
+/// The short words for an agent's usage when the row has no numbers to show, or has to say
+/// more than numbers. Shared by the app and `roster`.
+pub fn usage_note(s: &AgentStatus, shown: Shown, now: i64) -> Option<String> {
+    let week = s.limits.as_ref().and_then(|l| weekly(&l.windows));
+    match shown {
+        Shown::NotInstalled => Some("not installed".into()),
+        Shown::SignIn => Some("sign in".into()),
+        Shown::NoSubscription => Some("no subscription".into()),
+        Shown::Checking if week.is_none() => Some("checking".into()),
+        Shown::LimitReached => Some(match week {
+            Some(w) if w.resets_at > now => {
+                format!("limit reached, {}", reset_phrase(w.resets_at, now))
+            }
+            _ => "limit reached".into(),
+        }),
+        Shown::Unreachable if week.is_none() => Some("couldn't check".into()),
+        Shown::Ok if week.is_none() => Some(format!("usage shows after you use {}", s.agent.name)),
+        _ => None,
+    }
+}
+
 fn agent_view(s: &AgentStatus, o: &Overview, now: i64) -> AgentView {
     let a = &s.agent;
+    let shown = shown_health(s, now);
     let windows: Vec<LimitWindow> = s
         .limits
         .as_ref()
         .and_then(|l| weekly(&l.windows).cloned())
         .into_iter()
+        .filter(|_| shown != Shown::NoSubscription)
         .collect();
     let calling = o
         .calls
@@ -203,20 +294,18 @@ fn agent_view(s: &AgentStatus, o: &Overview, now: i64) -> AgentView {
         Some(w) if w.resets_at <= 0 => (None, rounded(w) >= HOT),
         Some(w) => (Some(reset_phrase(w.resets_at, now)), rounded(w) >= HOT),
     };
-    let limits_note = if !windows.is_empty() {
-        None
-    } else {
-        // The tools write their usage down while they run, so numbers come with the next use.
-        Some(match (s.state, a.tool, a.limits) {
-            (AgentState::NotInstalled, _, _) => "not installed".to_string(),
-            (AgentState::NeedsSignIn, _, _) => "usage shows after sign in".to_string(),
-            _ => format!("usage shows after you use {}", a.name),
-        })
+    let limits_note = usage_note(s, shown, now);
+    let as_of = match (shown, s.limits.as_ref()) {
+        (Shown::Unreachable, Some(l)) if !windows.is_empty() => Some(as_of_local(l.as_of, now)),
+        _ => None,
     };
-    let (tray_text, tray_hot) = match (s.state, windows.first()) {
-        (AgentState::NotInstalled, _) => ("not installed".to_string(), false),
-        (AgentState::NeedsSignIn, _) => ("sign in".to_string(), false),
+    let (tray_text, tray_hot) = match (shown, windows.first()) {
+        (Shown::NotInstalled, _) => ("not installed".to_string(), false),
+        (Shown::SignIn, _) => ("sign in".to_string(), false),
+        (Shown::NoSubscription, _) => ("no subscription".to_string(), false),
+        (Shown::LimitReached, _) => ("limit reached".to_string(), true),
         (_, Some(w)) => (format!("{}% {}", rounded(w), w.label), rounded(w) >= HOT),
+        (Shown::Checking, None) => ("checking".to_string(), false),
         (_, None) => (String::new(), false),
     };
     AgentView {
@@ -253,6 +342,8 @@ fn agent_view(s: &AgentStatus, o: &Overview, now: i64) -> AgentView {
         reset_text,
         reset_hot,
         limits_note,
+        health: shown.key().into(),
+        as_of,
         claude_limits: (a.tool == Tool::Claude).then_some(a.limits != LimitsSource::Off),
         live,
         tray_text,
@@ -408,4 +499,34 @@ pub fn changes_view(ops: &[Op], r: &Roster) -> Vec<ChangeView> {
                 .map(|a| a.color.hex().to_string()),
         })
         .collect()
+}
+
+/// `as_of_text` in this computer's time zone.
+pub fn as_of_local(t: i64, now: i64) -> String {
+    as_of_text(t, now, &jiff::tz::TimeZone::system())
+}
+
+/// "as of 3:40 pm" for a time today, "as of Nov 9" for an earlier day, in `tz`.
+pub fn as_of_text(t: i64, now: i64, tz: &jiff::tz::TimeZone) -> String {
+    let zoned = |s: i64| {
+        jiff::Timestamp::from_second(s)
+            .ok()
+            .map(|ts| ts.to_zoned(tz.clone()))
+    };
+    let (Some(at), Some(today)) = (zoned(t), zoned(now)) else {
+        return format!("as of {}", age(now - t));
+    };
+    if at.date() == today.date() {
+        let h = match at.hour() % 12 {
+            0 => 12,
+            h => h,
+        };
+        let ampm = if at.hour() < 12 { "am" } else { "pm" };
+        format!("as of {h}:{:02} {ampm}", at.minute())
+    } else {
+        const MONTHS: [&str; 12] = [
+            "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+        ];
+        format!("as of {} {}", MONTHS[(at.month() - 1) as usize], at.day())
+    }
 }

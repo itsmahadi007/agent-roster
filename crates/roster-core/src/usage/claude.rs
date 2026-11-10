@@ -4,9 +4,10 @@
 //! Code fetches the numbers with the agent's own login. Agent Roster never opens a credential
 //! file. Works the same on macOS, Linux and Windows, with no terminal and no status line.
 
-use crate::detect::{CommandRunner, tool_info};
-use crate::limits::{AgentLimits, LimitWindow, write_claude_limits};
-use crate::model::{Agent, Roster, Tool};
+use super::{Check, Health};
+use crate::detect::CommandRunner;
+use crate::limits::{AgentLimits, LimitWindow};
+use crate::model::{Agent, Roster};
 use crate::paths::RosterPaths;
 use std::path::{Path, PathBuf};
 
@@ -26,6 +27,8 @@ pub enum UsageReply {
     Limits(AgentLimits),
     /// This Claude Code sent `/usage` to the model: it has no local `/usage` in print mode.
     Unsupported,
+    /// Signed out or an API key: `/usage` printed only a cost summary, no plan limits.
+    NoPlan,
     Nothing,
 }
 
@@ -51,6 +54,8 @@ pub fn parse_usage_reply(json: &str, now: i64) -> UsageReply {
             plan: None,
             windows: vec![w],
         }),
+        // Without a plan, `/usage` prints this session's cost instead of plan limits.
+        None if text.contains("Total cost:") => UsageReply::NoPlan,
         None => UsageReply::Nothing,
     }
 }
@@ -184,6 +189,62 @@ fn now() -> i64 {
         .unwrap_or(0)
 }
 
+/// What `claude auth status --json` says about the account. `None` when the reply can't be
+/// read (the tool crashed or printed something else): that is not the same as signed out.
+pub fn claude_health(json: &str) -> Option<Health> {
+    let v: serde_json::Value = serde_json::from_str(json.trim()).ok()?;
+    if !v.get("loggedIn")?.as_bool()? {
+        return Some(Health::SignedOut);
+    }
+    let s = |k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or("");
+    let plan = s("subscriptionType");
+    let has_plan = !plan.is_empty() && !plan.eq_ignore_ascii_case("free");
+    Some(match s("authMethod") {
+        // Older versions print no method: `/usage` tells whether there is a plan.
+        "" if v.get("apiKeySource").is_none() => Health::Ok,
+        "claude.ai" if has_plan => Health::Ok,
+        // An API key, Bedrock, Vertex, or claude.ai with no plan: no weekly limit to show.
+        _ => Health::NoSubscription,
+    })
+}
+
+/// What asking `/usage` gave.
+enum Asked {
+    Limits(AgentLimits),
+    NoPlan,
+    /// Not asked: this Claude Code version can't answer without the model.
+    Skipped,
+    Failed,
+}
+
+fn ask_usage(
+    agent: &Agent,
+    r: &Roster,
+    p: &RosterPaths,
+    tool_path: &Path,
+    version: Option<&str>,
+    runner: &dyn CommandRunner,
+) -> Asked {
+    let version = version.unwrap_or("unknown");
+    if std::fs::read_to_string(unsupported_marker(p)).is_ok_and(|v| v.trim() == version) {
+        return Asked::Skipped;
+    }
+    let env = crate::run::build_env(agent, r, p, None);
+    let Ok(out) = runner.run(tool_path, USAGE_ARGS, &env) else {
+        return Asked::Failed;
+    };
+    match parse_usage_reply(&String::from_utf8_lossy(&out.stdout), now()) {
+        UsageReply::Limits(l) => Asked::Limits(l),
+        UsageReply::NoPlan => Asked::NoPlan,
+        UsageReply::Unsupported => {
+            let _ = std::fs::create_dir_all(p.limits_dir());
+            let _ = std::fs::write(unsupported_marker(p), version);
+            Asked::Skipped
+        }
+        UsageReply::Nothing => Asked::Failed,
+    }
+}
+
 /// Asks Claude Code for one agent's usage. `version` is the Claude Code version: one that
 /// once sent `/usage` to the model is never asked again, so a check can't cost a turn twice.
 pub fn fetch_claude_usage(
@@ -194,55 +255,43 @@ pub fn fetch_claude_usage(
     version: Option<&str>,
     runner: &dyn CommandRunner,
 ) -> Option<AgentLimits> {
-    let version = version.unwrap_or("unknown");
-    if std::fs::read_to_string(unsupported_marker(p)).is_ok_and(|v| v.trim() == version) {
-        return None;
-    }
-    let env = crate::run::build_env(agent, r, p, None);
-    let out = runner.run(tool_path, USAGE_ARGS, &env).ok()?;
-    match parse_usage_reply(&String::from_utf8_lossy(&out.stdout), now()) {
-        UsageReply::Limits(l) => Some(l),
-        UsageReply::Unsupported => {
-            let _ = std::fs::create_dir_all(p.limits_dir());
-            let _ = std::fs::write(unsupported_marker(p), version);
-            None
-        }
-        UsageReply::Nothing => None,
+    match ask_usage(agent, r, p, tool_path, version, runner) {
+        Asked::Limits(l) => Some(l),
+        _ => None,
     }
 }
 
-/// Asks Claude Code for every Claude agent's usage, side by side, and saves what comes back
-/// where the overview reads it. Returns how many agents got fresh numbers.
-pub fn refresh_claude_usage(
+/// Checks one Claude agent: its account from `claude auth status --json`, then its numbers
+/// from `/usage` (only for a signed-in subscription). A tool that can't be asked gives
+/// `Unreachable`, never `SignedOut`.
+pub fn check_claude(
+    agent: &Agent,
     r: &Roster,
     p: &RosterPaths,
-    path_var: &str,
-    runner: &(dyn CommandRunner + Sync),
-) -> usize {
-    let info = tool_info(Tool::Claude, path_var, &p.bin_dir(), runner);
-    let Some(path) = info.path else {
-        return 0;
+    tool_path: &Path,
+    version: Option<&str>,
+    runner: &dyn CommandRunner,
+) -> Check {
+    let env = crate::run::build_env(agent, r, p, None);
+    let Ok(out) = runner.run(tool_path, &["auth", "status", "--json"], &env) else {
+        return Check::health(Health::Unreachable);
     };
-    let version = info.version.as_deref();
-    std::thread::scope(|s| {
-        let handles: Vec<_> = r
-            .agents
-            .iter()
-            .filter(|a| a.tool == Tool::Claude)
-            .map(|a| {
-                let path = &path;
-                s.spawn(move || {
-                    fetch_claude_usage(a, r, p, path, version, runner)
-                        .is_some_and(|l| write_claude_limits(p, &a.id, &l).is_ok())
-                })
-            })
-            .collect();
-        handles
-            .into_iter()
-            .map(|h| h.join().unwrap_or(false))
-            .filter(|ok| *ok)
-            .count()
-    })
+    let Some(health) = claude_health(&String::from_utf8_lossy(&out.stdout)) else {
+        return Check::health(Health::Unreachable);
+    };
+    if health != Health::Ok {
+        return Check::health(health);
+    }
+    match ask_usage(agent, r, p, tool_path, version, runner) {
+        Asked::Limits(l) => Check {
+            health: Health::Ok,
+            limits: Some(l),
+        }
+        .settled(),
+        Asked::NoPlan => Check::health(Health::NoSubscription),
+        Asked::Skipped => Check::health(Health::Ok),
+        Asked::Failed => Check::health(Health::Unreachable),
+    }
 }
 
 #[cfg(test)]
@@ -337,5 +386,141 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod check_tests {
+    use super::*;
+    use crate::model::{AgentColor, LimitsSource, Tool};
+    use crate::paths::Platform;
+    use crate::usage::testing::Scripted;
+
+    const SIGNED_IN: &str = include_str!("../../tests/fixtures/claude-auth-status.json");
+    const SIGNED_OUT: &str =
+        include_str!("../../tests/fixtures/claude-auth-status-signed-out.json");
+    const API_KEY: &str = include_str!("../../tests/fixtures/claude-auth-status-api-key.json");
+    const USAGE_SUB: &str = include_str!("../../tests/fixtures/claude-usage-subscription.json");
+    const USAGE_OUT: &str = include_str!("../../tests/fixtures/claude-usage-signed-out.json");
+    const USAGE_KEY: &str = include_str!("../../tests/fixtures/claude-usage-api-key.json");
+
+    fn agent() -> Agent {
+        Agent {
+            id: "w1".into(),
+            name: "worker1".into(),
+            tool: Tool::Claude,
+            config_dir: "~/.agent-roster/accounts/w1".into(),
+            color: AgentColor::Cobalt,
+            role: None,
+            default: false,
+            share: false,
+            limits: LimitsSource::Off,
+            advanced_links: vec![],
+            good_at: None,
+        }
+    }
+
+    fn check(runner: &Scripted) -> Check {
+        let d = tempfile::tempdir().unwrap();
+        let p = RosterPaths::for_home(d.path(), Platform::current(), &|_| None);
+        let r = Roster {
+            version: 1,
+            agents: vec![agent()],
+            statusline: vec![],
+        };
+        check_claude(
+            &r.agents[0],
+            &r,
+            &p,
+            Path::new("claude"),
+            Some("2.1.322"),
+            runner,
+        )
+    }
+
+    #[test]
+    fn auth_status_says_who_has_a_plan() {
+        assert_eq!(claude_health(SIGNED_IN), Some(Health::Ok));
+        assert_eq!(claude_health(SIGNED_OUT), Some(Health::SignedOut));
+        assert_eq!(claude_health(API_KEY), Some(Health::NoSubscription));
+        // Signed in to claude.ai, but no plan (none bought, or it ended).
+        assert_eq!(
+            claude_health(r#"{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":null}"#),
+            Some(Health::NoSubscription)
+        );
+        assert_eq!(
+            claude_health(
+                r#"{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":"free"}"#
+            ),
+            Some(Health::NoSubscription)
+        );
+        // Bedrock, Vertex and other providers bill per use: no plan limits.
+        assert_eq!(
+            claude_health(
+                r#"{"loggedIn":true,"authMethod":"third_party","apiProvider":"bedrock"}"#
+            ),
+            Some(Health::NoSubscription)
+        );
+    }
+
+    #[test]
+    fn unreadable_auth_status_is_not_signed_out() {
+        assert_eq!(claude_health(""), None);
+        assert_eq!(claude_health("Error: something broke"), None);
+        assert_eq!(claude_health("{}"), None);
+    }
+
+    #[test]
+    fn usage_without_a_plan_prints_only_cost() {
+        assert_eq!(parse_usage_reply(USAGE_OUT, 0), UsageReply::NoPlan);
+        assert_eq!(parse_usage_reply(USAGE_KEY, 0), UsageReply::NoPlan);
+        match parse_usage_reply(USAGE_SUB, 1_794_294_000) {
+            UsageReply::Limits(l) => assert_eq!(l.windows[0].used_percent, 75.0),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn signed_out_is_sign_in_without_asking_usage() {
+        let runner = Scripted::new(Some(SIGNED_OUT), Some(USAGE_OUT));
+        assert_eq!(check(&runner), Check::health(Health::SignedOut));
+        assert!(!runner.asked_usage());
+    }
+
+    #[test]
+    fn api_key_is_no_subscription() {
+        let runner = Scripted::new(Some(API_KEY), Some(USAGE_KEY));
+        assert_eq!(check(&runner).health, Health::NoSubscription);
+    }
+
+    #[test]
+    fn subscription_gets_numbers() {
+        let c = check(&Scripted::new(Some(SIGNED_IN), Some(USAGE_SUB)));
+        assert_eq!(c.health, Health::Ok);
+        assert_eq!(c.limits.unwrap().windows[0].used_percent, 75.0);
+    }
+
+    #[test]
+    fn a_full_week_is_limit_reached() {
+        let full = USAGE_SUB.replace("75% used", "100% used");
+        let c = check(&Scripted::new(Some(SIGNED_IN), Some(&full)));
+        assert_eq!(c.health, Health::LimitReached);
+        assert_eq!(c.limits.unwrap().windows[0].used_percent, 100.0);
+    }
+
+    #[test]
+    fn a_timeout_is_unreachable_never_signed_out() {
+        assert_eq!(
+            check(&Scripted::new(None, Some(USAGE_SUB))),
+            Check::health(Health::Unreachable)
+        );
+        assert_eq!(
+            check(&Scripted::new(Some(SIGNED_IN), None)),
+            Check::health(Health::Unreachable)
+        );
+        assert_eq!(
+            check(&Scripted::new(Some("crashed"), Some(USAGE_SUB))),
+            Check::health(Health::Unreachable)
+        );
     }
 }
