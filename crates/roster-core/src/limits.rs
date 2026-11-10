@@ -45,6 +45,11 @@ pub fn format_reset(resets_at: i64, now: i64) -> String {
     }
 }
 
+/// The weekly window, the only limit Claude Code and Codex still have. Others are ignored.
+pub fn weekly(windows: &[LimitWindow]) -> Option<&LimitWindow> {
+    windows.iter().find(|w| w.label == "week")
+}
+
 /// "resets in 21h 52m", or "resetting now" once the time has passed.
 pub fn reset_phrase(resets_at: i64, now: i64) -> String {
     if resets_at <= now {

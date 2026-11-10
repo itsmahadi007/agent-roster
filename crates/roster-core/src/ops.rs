@@ -852,7 +852,7 @@ pub fn plan_enable_claude_limits(
     let mut steps = vec![step(
         StepKind::Change,
         format!(
-            "Changes the status line in {} so Agent Roster can read {}'s 5-hour and weekly use.",
+            "Changes the status line in {} so Agent Roster can read {}'s weekly use.",
             collapse_tilde(&real, &p.home),
             a.name
         ),

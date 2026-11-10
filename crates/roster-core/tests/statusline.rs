@@ -70,6 +70,13 @@ fn chains_existing_statusline_output_unchanged() {
     adopt(&p, &mut j);
     let c = ctx(&p);
     let plan = plan_enable_claude_limits(&Roster::load(&p).unwrap(), &p, &c, "agent1").unwrap();
+    assert!(
+        plan.steps[0]
+            .text
+            .ends_with("so Agent Roster can read agent1's weekly use."),
+        "{}",
+        plan.steps[0].text
+    );
     apply(plan, &p, &mut j, &c).unwrap();
     let r = Roster::load(&p).unwrap();
     assert_eq!(r.statusline[0].chain.as_deref(), Some("printf hello"));

@@ -29,7 +29,7 @@ describe("AgentPage", () => {
     await user.click(screen.getByRole("button", { name: "Copy" }));
     expect(await navigator.clipboard.readText()).toBe("agent1");
     expect(screen.getByText("61%")).toBeInTheDocument();
-    expect(screen.getByText("week resets in 3d 16h")).toBeInTheDocument();
+    expect(screen.getByText("resets in 3d 16h")).toBeInTheDocument();
   });
 
   it("an agent without numbers says how to get them", () => {

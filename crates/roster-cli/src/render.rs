@@ -1,5 +1,5 @@
 use anstyle::{AnsiColor, Color, RgbColor, Style};
-use roster_core::limits::{LimitWindow, reset_phrase};
+use roster_core::limits::{LimitWindow, reset_phrase, weekly};
 use roster_core::model::AgentColor;
 use roster_core::status::{AgentState, Overview};
 use std::fmt::Write;
@@ -82,28 +82,14 @@ pub fn overview_text(o: &Overview) -> String {
             AgentState::NotInstalled => ("○", dim),
         };
         let state = format!("{dot} {:<13}", a.state.label());
-        let lead = format!(
-            "  {:<name_w$}  {:<11}  ",
-            a.agent.name,
-            a.agent.tool.display()
-        );
         let lead_painted = format!(
             "  {}  {:<11}  ",
             paint(&format!("{:<name_w$}", a.agent.name), color),
             a.agent.tool.display()
         );
-        let pad = " ".repeat(lead.chars().count() + 15);
         let _ = write!(s, "{lead_painted}{}", paint(&state, state_style));
-        match &a.limits {
-            Some(l) if !l.windows.is_empty() => {
-                for (i, w) in l.windows.iter().enumerate() {
-                    if i > 0 {
-                        s.push('\n');
-                        s.push_str(&pad);
-                    }
-                    s.push_str(&window_line(w, a.agent.color, now()));
-                }
-            }
+        match a.limits.as_ref().and_then(|l| weekly(&l.windows)) {
+            Some(w) => s.push_str(&window_line(w, a.agent.color, now())),
             _ => {
                 let note = match (a.state, a.agent.tool, a.agent.limits) {
                     (AgentState::NotInstalled, _, _) => "",
@@ -196,6 +182,52 @@ pub fn overview_json(o: &Overview) -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn overview_shows_week_only() {
+        use roster_core::detect::SignIn;
+        use roster_core::limits::AgentLimits;
+        use roster_core::model::{Agent, LimitsSource, Tool};
+        use roster_core::status::{AgentState, AgentStatus, Overview};
+        let w = |label: &str, used: f64| LimitWindow {
+            label: label.into(),
+            used_percent: used,
+            resets_at: now() + 3600,
+        };
+        let o = Overview {
+            agents: vec![AgentStatus {
+                agent: Agent {
+                    id: "a1".into(),
+                    name: "agent1".into(),
+                    tool: Tool::Claude,
+                    config_dir: "~/.claude".into(),
+                    color: AgentColor::Cobalt,
+                    role: None,
+                    default: false,
+                    share: false,
+                    limits: LimitsSource::ClaudeStatusline,
+                    advanced_links: vec![],
+                    good_at: None,
+                },
+                state: AgentState::Ready,
+                sign_in: SignIn {
+                    signed_in: true,
+                    email: None,
+                    plan: None,
+                },
+                limits: Some(AgentLimits {
+                    as_of: now(),
+                    plan: None,
+                    windows: vec![w("5 hr", 22.0), w("week", 61.0)],
+                }),
+            }],
+            calls: vec![],
+            tools: vec![],
+        };
+        let text = overview_text(&o);
+        assert!(text.contains("week"), "{text}");
+        assert!(!text.contains("5 hr"), "{text}");
+    }
 
     #[test]
     fn window_line_past_reset() {

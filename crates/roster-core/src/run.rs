@@ -6,7 +6,7 @@ use crate::paths::RosterPaths;
 pub type EnvChanges = Vec<(String, Option<String>)>;
 
 use crate::detect::find_tool;
-use crate::limits::{AgentLimits, read_claude_limits, read_codex_limits, reset_phrase};
+use crate::limits::{AgentLimits, read_claude_limits, read_codex_limits, reset_phrase, weekly};
 use crate::model::Tool;
 use crate::session::{SessionRecord, task_from_args};
 use std::fmt;
@@ -104,11 +104,7 @@ pub fn prepare_run(
 /// The limit part of the banner: "  week 94%, resets in 21h 52m".
 fn banner_limit(limits: Option<AgentLimits>, now: i64) -> String {
     limits
-        .and_then(|l| {
-            l.windows
-                .into_iter()
-                .max_by_key(|w| if w.label == "week" { 1 } else { 0 })
-        })
+        .and_then(|l| weekly(&l.windows).cloned())
         .map(|w| {
             format!(
                 "  {} {:.0}%, {}",
@@ -239,6 +235,13 @@ mod tests {
                 resets_at,
             }],
         }
+    }
+
+    #[test]
+    fn banner_ignores_five_hour() {
+        let mut l = week(95.0, 2_000_000);
+        l.windows[0].label = "5 hr".into();
+        assert_eq!(banner_limit(Some(l), 1_000_000), "");
     }
 
     #[test]

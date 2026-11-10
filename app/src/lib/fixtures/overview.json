@@ -24,17 +24,12 @@
       "status_text": "calling agent3",
       "windows": [
         {
-          "label": "5 hr",
-          "used_percent": 22,
-          "hot": false
-        },
-        {
           "label": "week",
           "used_percent": 61,
           "hot": false
         }
       ],
-      "reset_text": "week resets in 3d 16h",
+      "reset_text": "resets in 3d 16h",
       "reset_hot": false,
       "limits_note": null,
       "claude_limits": true,
@@ -129,17 +124,12 @@
       "status_text": "ready",
       "windows": [
         {
-          "label": "5 hr",
-          "used_percent": 8,
-          "hot": false
-        },
-        {
           "label": "week",
           "used_percent": 24,
           "hot": false
         }
       ],
-      "reset_text": "week resets in 5d 2h",
+      "reset_text": "resets in 5d 2h",
       "reset_hot": false,
       "limits_note": null,
       "claude_limits": null,
