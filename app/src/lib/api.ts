@@ -2,6 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 import type { ChangeView, FirstRunView, OpRequest, OverviewView, PlanView, TerminalApp } from "./types";
 
 export const overview = () => invoke<OverviewView>("overview");
+/** Asks Claude Code and Codex for every agent's usage now (at most every 30 s), then the overview. */
+export const refreshUsage = () => invoke<OverviewView>("refresh_usage");
 export const firstRun = () => invoke<FirstRunView>("first_run");
 export const preview = (req: OpRequest) => invoke<PlanView>("preview", { req });
 export const apply = (token: number) => invoke<number | null>("apply", { token });

@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import App from "./App.svelte";
 import overview from "./lib/fixtures/overview.json";
 import type { OverviewView } from "./lib/types";
-import { invoke } from "./test/setup";
+import { invoke, listen } from "./test/setup";
 
 function withAgent2Ready(): OverviewView {
   const v = structuredClone(overview) as OverviewView;
@@ -14,25 +14,31 @@ function withAgent2Ready(): OverviewView {
 }
 
 describe("App", () => {
-  it("Show usage waits in the save bar, then applies", async () => {
-    const v = withAgent2Ready();
-    Object.assign(v.agents[1], { claude_limits: false, limits_note: "usage not shown" });
+  it("Refresh asks every tool for usage and shows the answer", async () => {
+    const fresh = withAgent2Ready();
+    Object.assign(fresh.agents[1], { health: "no-subscription", limits_note: "no subscription" });
     invoke.mockImplementation(async (cmd: string) => {
-      if (cmd === "overview") return v;
-      if (cmd === "preview")
-        return { token: 5, summary: "Showing usage for agent2", steps: [{ kind: "change", text: "Routes the status line." }] };
-      if (cmd === "apply") return 6;
+      if (cmd === "overview") return overview;
+      if (cmd === "refresh_usage") return fresh;
       throw new Error(cmd);
     });
     render(App);
-    await userEvent.click(await screen.findByRole("button", { name: /^agent2/ }));
-    await userEvent.click(screen.getByRole("button", { name: "Show usage" }));
-    expect(invoke).toHaveBeenCalledWith("preview", { req: { op: "enable-limits", name: "agent2" } });
-    const bar = within(await screen.findByRole("region", { name: "Change waiting" }));
-    await bar.findByText("Routes the status line.");
-    await userEvent.click(bar.getByRole("button", { name: "Show usage" }));
-    expect(invoke).toHaveBeenCalledWith("apply", { token: 5 });
-    expect(await screen.findByText(/Showing agent2's usage/)).toBeInTheDocument();
+    await userEvent.click(await screen.findByRole("button", { name: "Refresh" }));
+    expect(invoke).toHaveBeenCalledWith("refresh_usage");
+    expect(await screen.findByText("no subscription")).toBeInTheDocument();
+  });
+
+  it("the 10-second poll only reads the overview, and a finished check updates the list", async () => {
+    invoke.mockImplementation(async (cmd: string) => (cmd === "overview" ? overview : null));
+    render(App);
+    await screen.findByRole("button", { name: /^agent2/ });
+    expect(invoke.mock.calls.map((c) => c[0])).not.toContain("refresh_usage");
+    expect(listen).toHaveBeenCalledWith("usage-checked", expect.any(Function));
+    const onChecked = listen.mock.calls.find((c) => c[0] === "usage-checked")![1] as () => void;
+    const before = invoke.mock.calls.length;
+    onChecked();
+    await waitFor(() => expect(invoke.mock.calls.length).toBeGreaterThan(before));
+    expect(invoke.mock.calls.at(-1)![0]).toBe("overview");
   });
 
   it("Hide usage previews disable-limits", async () => {
@@ -195,7 +201,7 @@ describe("App rows", () => {
     after.agents.push({ ...structuredClone(after.agents[3]), id: "a5", name: "helper" });
     let added = false;
     invoke.mockImplementation(async (cmd: string) => {
-      if (cmd === "overview") return structuredClone(added ? after : overview);
+      if (cmd === "overview" || cmd === "refresh_usage") return structuredClone(added ? after : overview);
       if (cmd === "preview") return { token: 2, summary: "s", steps: [{ kind: "change", text: "Renames." }] };
       return null;
     });

@@ -110,9 +110,9 @@
       case "default":
         return `A plain ${tool} in a new terminal now opens ${r.name}.`;
       case "enable-limits":
-        return `Showing ${r.name}'s usage. The numbers appear after its next message.`;
+        return `Claude Code's status line now reports ${r.name}'s use too.`;
       case "disable-limits":
-        return `${r.name}'s usage is hidden, and your old status line is back.`;
+        return `Your old status line is back for ${r.name}. Agent Roster still asks Claude Code itself for its use.`;
       case "remove":
         return `${r.name} was removed. Its login folder is still there, and you can undo this under What changed.`;
       default:
@@ -210,7 +210,6 @@
   }
 
   const signedOut = $derived(agent.state === "sign-in");
-  const usageOff = $derived(agent.claude_limits === false && !signedOut && agent.state !== "not-installed");
   const noNumbers = $derived(agent.windows.length === 0);
   const live = $derived(agent.state === "working" || agent.live);
 </script>
@@ -245,22 +244,33 @@
     </p>
 
     {#if signedOut}
-      <p class="usage-line">Weekly use shows after sign in.</p>
-    {:else if usageOff}
       <p class="usage-line">
-        Claude Code shows its use in its status line. Agent Roster can read it there; it never limits the agent.
-        <button class="btn sm" onclick={() => reset({ op: "enable-limits", name: agent.name })}>Show usage</button>
+        Weekly use shows after sign in.
+        <button class="btn sm pri" onclick={signInAgain}>Sign in</button>
       </p>
-    {:else}
-      {#if noNumbers && agent.state !== "not-installed"}
+    {:else if agent.state !== "not-installed"}
+      {#if agent.health === "checking"}
+        <p class="usage-line">Checking with {agent.tool_label}…</p>
+      {:else if agent.health === "no-subscription"}
+        <p class="usage-line">
+          This account is signed in with no {agent.tool_label} subscription (none, or it ended), so it has no weekly limit to show.
+        </p>
+      {:else if agent.health === "unreachable"}
+        <p class="usage-line">
+          Couldn't reach {agent.tool_label} just now.{agent.as_of ? ` These numbers are ${agent.as_of}.` : " It tries again soon."}
+        </p>
+      {:else if agent.health === "limit-reached"}
+        <p class="usage-line hot">{agent.name} has used its weekly limit{agent.reset_text ? `; it ${agent.reset_text}` : ""}.</p>
+      {:else if noNumbers}
         <p class="usage-line">Weekly use shows after you use {agent.name}. Type {agent.name} in a terminal and send one message.</p>
       {/if}
-      {#if agent.claude_limits === true}
-        <p class="usage-line quiet">
-          Agent Roster reads this account's use from Claude Code's status line.
+      <p class="usage-line quiet">
+        Agent Roster asks {agent.tool_label} itself for this account's use, every 5 minutes. It never limits the agent.
+        {#if agent.claude_limits === true}
+          Claude Code's status line reports it too.
           <button class="link" onclick={() => reset({ op: "disable-limits", name: agent.name })}>Hide usage</button>
-        </p>
-      {/if}
+        {/if}
+      </p>
     {/if}
 
     <div class="grid">

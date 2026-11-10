@@ -42,9 +42,35 @@ describe("AgentDrawer", () => {
     ).toBeInTheDocument();
   });
 
-  it("a signed-out agent says usage comes after sign in", () => {
+  it("a signed-out agent has a Sign in button that opens its login", async () => {
+    invoke.mockResolvedValue(true);
     mount(agent("agent2"));
-    expect(screen.getByText("Weekly use shows after sign in.")).toBeInTheDocument();
+    expect(screen.getByText(/Weekly use shows after sign in/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    expect(invoke).toHaveBeenCalledWith("sign_in", { name: "agent2", app: null });
+  });
+
+  it("says where usage comes from, with no Show usage button", () => {
+    mount(agent("agent2", { state: "ready", health: "ok", claude_limits: false }));
+    expect(screen.getByText(/asks Claude Code itself/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Show usage" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Hide usage" })).not.toBeInTheDocument();
+  });
+
+  it("Hide usage shows only while the status line is on", () => {
+    mount(agent("agent1"));
+    expect(screen.getByRole("button", { name: "Hide usage" })).toBeInTheDocument();
+  });
+
+  it("checking, no subscription and unreachable each say so", async () => {
+    const none = { windows: [], reset_text: null, state: "ready" as const };
+    const { rerender } = mount(agent("agent2", { ...none, health: "checking", limits_note: "checking" }));
+    expect(screen.getByText(/Checking with Claude Code/)).toBeInTheDocument();
+    expect(screen.queryByText(/send one message/)).not.toBeInTheDocument();
+    await rerender({ agent: agent("agent2", { ...none, health: "no-subscription", limits_note: "no subscription" }) });
+    expect(screen.getByText(/no Claude Code subscription/)).toBeInTheDocument();
+    await rerender({ agent: agent("agent1", { health: "unreachable", as_of: "as of 3:40 pm" }) });
+    expect(screen.getByText(/Couldn't reach Claude Code just now/)).toHaveTextContent("as of 3:40 pm");
   });
 
   it("Escape cancels a waiting change first, then closes", async () => {
@@ -72,15 +98,6 @@ describe("AgentDrawer", () => {
     expect(screen.queryByText("Apply or cancel this change first.")).not.toBeInTheDocument();
     await rerender({ nudge: 1 });
     expect(await bar().findByText("Apply or cancel this change first.")).toBeInTheDocument();
-  });
-
-  it("Show usage waits in the save bar", async () => {
-    answer("Changes the status line.");
-    const { onApplied } = mount(agent("agent2", { state: "ready", claude_limits: false, limits_note: "usage not shown" }));
-    await userEvent.click(screen.getByRole("button", { name: "Show usage" }));
-    expect(invoke).toHaveBeenCalledWith("preview", { req: { op: "enable-limits", name: "agent2" } });
-    await userEvent.click(await bar().findByRole("button", { name: "Show usage" }));
-    await waitFor(() => expect(onApplied).toHaveBeenCalledWith(expect.stringContaining("agent2"), "enable-limits"));
   });
 
   it("renames after showing what will change", async () => {

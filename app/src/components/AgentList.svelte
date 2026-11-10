@@ -87,14 +87,25 @@
           <span class="meta">{a.role ? `${a.role} · ` : ""}{a.tool_label} · {a.status_text}</span>
         </span>
         <span class="use">
-          {#if w}
+          {#if w && a.health === "limit-reached"}
+            <span class="line">
+              <span class="pc num hot">limit reached</span>
+              {#if a.reset_text}<span class="rs num hot">{a.reset_text}</span>{/if}
+            </span>
+            <span class="track"><i style:width="100%" style:background="var(--coral)"></i></span>
+          {:else if w}
             <span class="line">
               <span class="pc num" class:hot={w.hot}>{w.used_percent}% week</span>
               {#if a.reset_text}<span class="rs num" class:hot={w.hot}>{a.reset_text}</span>{/if}
             </span>
             <span class="track"><i style:width="{w.used_percent}%" style:background={w.hot ? "var(--coral)" : a.color}></i></span>
+            {#if a.as_of}<span class="asof">{a.as_of}</span>{/if}
           {:else if a.state === "sign-in"}
             <span class="pc dim">sign in</span>
+          {:else if a.health === "limit-reached"}
+            <span class="pc hot">{a.limits_note ?? "limit reached"}</span>
+          {:else if a.health !== "ok" && a.limits_note}
+            <span class="pc dim">{a.limits_note}</span>
           {:else}
             <span class="pc dim">not used yet</span>
           {/if}
@@ -130,7 +141,7 @@
         <button
           class="link"
           disabled={checking}
-          title="Reads every agent's latest numbers again. The window also does this every 10 seconds."
+          title="Asks Claude Code and Codex for every agent's use now. Agent Roster also does this every 5 minutes."
           onclick={refresh}>{checking ? "Checking…" : "Refresh"}</button
         >
       {/if}
@@ -259,6 +270,12 @@
   }
   .rs {
     color: var(--mut);
+  }
+  .asof {
+    font-size: 11px;
+    line-height: 12px;
+    color: var(--dim);
+    text-align: right;
   }
   .track {
     display: block;

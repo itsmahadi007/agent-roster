@@ -4,6 +4,7 @@ use roster_core::names::CommandLookup;
 use roster_core::paths::{Platform, RosterPaths};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 struct NoCmds;
 impl CommandLookup for NoCmds {
@@ -411,4 +412,45 @@ fn old_previews_are_dropped_after_many_new_ones() {
     assert_eq!(w.b.apply(first).unwrap_err(), EXPIRED);
     let last = w.b.preview(req()).unwrap().token;
     assert!(w.b.apply(last).is_ok());
+}
+
+#[test]
+fn usage_checks_run_one_at_a_time_and_at_most_every_30_seconds() {
+    let g = UsageGate::default();
+    let t0 = Instant::now();
+    assert!(g.begin(t0, false));
+    // Running: nobody else starts, urgent or not.
+    assert!(!g.begin(t0, false));
+    assert!(!g.begin(t0, true));
+    g.end();
+    assert!(!g.begin(t0 + Duration::from_secs(10), false));
+    // An agent never checked doesn't wait.
+    assert!(g.begin(t0 + Duration::from_secs(10), true));
+    g.end();
+    assert!(!g.begin(t0 + Duration::from_secs(39), false));
+    assert!(g.begin(t0 + USAGE_GAP + Duration::from_secs(10), false));
+}
+
+#[test]
+fn a_checking_row_asks_for_a_check() {
+    let mut v: OverviewView =
+        serde_json::from_str(include_str!("../../src/lib/fixtures/overview.json")).unwrap();
+    assert!(!needs_check(&v));
+    v.agents[1].health = "checking".into();
+    assert!(needs_check(&v));
+}
+
+#[test]
+fn refresh_usage_checks_and_saves_health() {
+    let w = world();
+    w.add("boss");
+    // No codex on this PATH: the check says so and saves it.
+    assert!(w.b.refresh_usage().unwrap());
+    let id = w.b.roster().unwrap().agents[0].id.clone();
+    assert_eq!(
+        roster_core::usage::read_health(&w.b.p, &id).unwrap().health,
+        roster_core::usage::Health::NotInstalled
+    );
+    // A second click right after is skipped.
+    assert!(!w.b.refresh_usage().unwrap());
 }

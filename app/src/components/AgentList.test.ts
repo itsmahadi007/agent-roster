@@ -42,11 +42,48 @@ describe("AgentList", () => {
     for (const b of screen.getAllByRole("button", { expanded: false })) expect(b).not.toHaveTextContent("5 hr");
   });
 
-  it("a row with no numbers says it hasn't been used yet", () => {
+  it("a checked row with no numbers says it hasn't been used yet", () => {
     const v = structuredClone(view);
-    Object.assign(v.agents[3], { windows: [], reset_text: null, limits_note: "usage shows after you use boss" });
+    Object.assign(v.agents[3], { windows: [], reset_text: null, health: "ok", limits_note: "usage shows after you use boss" });
     render(AgentList, props({ view: v }));
     expect(row(/^boss/)).toHaveTextContent("not used yet");
+  });
+
+  it("rows say what the account needs, never 'not used yet' for it", () => {
+    const v = structuredClone(view);
+    const none = { windows: [], reset_text: null };
+    Object.assign(v.agents[0], { ...none, health: "checking", limits_note: "checking" });
+    Object.assign(v.agents[1], { ...none, health: "no-subscription", state: "ready", limits_note: "no subscription" });
+    Object.assign(v.agents[2], { ...none, health: "not-installed", state: "not-installed", limits_note: "not installed" });
+    render(AgentList, props({ view: v }));
+    expect(row(/^agent1/)).toHaveTextContent("checking");
+    expect(row(/^agent2/)).toHaveTextContent("no subscription");
+    expect(row(/^agent3/)).toHaveTextContent("not installed");
+    for (const name of [/^agent1/, /^agent2/, /^agent3/]) expect(row(name)).not.toHaveTextContent("not used yet");
+  });
+
+  it("a used-up week says limit reached in coral, with its reset", () => {
+    const v = structuredClone(view);
+    Object.assign(v.agents[3], {
+      health: "limit-reached",
+      windows: [{ label: "week", used_percent: 100, hot: true }],
+      reset_text: "resets in 2d 3h",
+      reset_hot: true,
+      limits_note: "limit reached, resets in 2d 3h",
+    });
+    render(AgentList, props({ view: v }));
+    const boss = row(/^boss/);
+    expect(boss).toHaveTextContent("limit reached");
+    expect(boss).toHaveTextContent("resets in 2d 3h");
+    expect(boss.querySelector(".pc")).toHaveClass("hot");
+  });
+
+  it("numbers from an earlier check say when they're from", () => {
+    const v = structuredClone(view);
+    Object.assign(v.agents[0], { health: "unreachable", as_of: "as of 3:40 pm" });
+    render(AgentList, props({ view: v }));
+    expect(row(/^agent1/)).toHaveTextContent("61% week");
+    expect(row(/^agent1/)).toHaveTextContent("as of 3:40 pm");
   });
 
   it("nothing is open at first; a click asks to open the row", async () => {
