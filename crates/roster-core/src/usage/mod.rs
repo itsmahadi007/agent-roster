@@ -187,6 +187,10 @@ pub fn usage_runner(p: &RosterPaths) -> RealRunner {
 /// Checks every agent side by side and saves what each check learned where the overview
 /// reads it. Claude Code is asked with `claude auth status` and `claude -p /usage`; Codex
 /// with `codex app-server`. Returns each agent's id and check.
+///
+/// A Claude Code version not yet known to answer `/usage` locally is asked by one Claude agent
+/// at a time, until one answers cleanly; only then do the other Claude agents ask, side by
+/// side. So a version that sends `/usage` to the model costs one turn, not one per agent.
 pub fn refresh_all(
     r: &Roster,
     p: &RosterPaths,
@@ -195,28 +199,39 @@ pub fn refresh_all(
 ) -> Vec<(String, Check)> {
     let claude = tool_info(Tool::Claude, path_var, p, runner);
     let codex = find_tool(Tool::Codex, path_var, p);
-    let checks: Vec<(String, Check)> = std::thread::scope(|s| {
-        let handles: Vec<_> = r
+    let version = claude.version.as_deref();
+    let check = |a: &crate::model::Agent| match (a.tool, &claude.path, &codex) {
+        (Tool::Claude, Some(path), _) => check_claude(a, r, p, path, version, runner),
+        (Tool::Codex, _, Some(path)) => codex::fetch_codex_usage(a, r, p, path).settled(),
+        _ => Check::health(Health::NotInstalled),
+    };
+    let asks_claude = |a: &crate::model::Agent| a.tool == Tool::Claude && claude.path.is_some();
+    let mut checks: Vec<(usize, Check)> = std::thread::scope(|s| {
+        let check = &check;
+        // Everything but Claude Code starts at once.
+        let mut handles: Vec<_> = r
             .agents
             .iter()
-            .map(|a| {
-                let (claude, codex) = (&claude, &codex);
-                s.spawn(move || {
-                    let check = match (a.tool, &claude.path, codex) {
-                        (Tool::Claude, Some(path), _) => {
-                            check_claude(a, r, p, path, claude.version.as_deref(), runner)
-                        }
-                        (Tool::Codex, _, Some(path)) => {
-                            codex::fetch_codex_usage(a, r, p, path).settled()
-                        }
-                        _ => Check::health(Health::NotInstalled),
-                    };
-                    (a.id.clone(), check)
-                })
-            })
+            .enumerate()
+            .filter(|(_, a)| !asks_claude(a))
+            .map(|(i, a)| s.spawn(move || (i, check(a))))
             .collect();
-        handles.into_iter().filter_map(|h| h.join().ok()).collect()
+        let mut done = vec![];
+        for (i, a) in r.agents.iter().enumerate().filter(|(_, a)| asks_claude(a)) {
+            if claude::needs_probe(p, version) {
+                done.push((i, check(a)));
+            } else {
+                handles.push(s.spawn(move || (i, check(a))));
+            }
+        }
+        done.extend(handles.into_iter().filter_map(|h| h.join().ok()));
+        done
     });
+    checks.sort_by_key(|(i, _)| *i);
+    let checks: Vec<(String, Check)> = checks
+        .into_iter()
+        .map(|(i, c)| (r.agents[i].id.clone(), c))
+        .collect();
     let at = now();
     for (id, check) in &checks {
         let _ = record_check(p, id, check, at);
@@ -384,10 +399,8 @@ mod tests {
         assert_eq!((h.health, h.known), (Health::Unreachable, Some(Health::Ok)));
     }
 
-    #[test]
-    fn refresh_says_not_installed_when_the_tool_is_missing() {
-        let (d, p) = paths();
-        let a = |id: &str, tool| crate::model::Agent {
+    fn a(id: &str, tool: Tool) -> crate::model::Agent {
+        crate::model::Agent {
             id: id.into(),
             name: id.into(),
             tool,
@@ -399,7 +412,139 @@ mod tests {
             limits: crate::model::LimitsSource::Off,
             advanced_links: vec![],
             good_at: None,
+        }
+    }
+
+    /// Answers like a signed-in Claude Code. Each `/usage` takes a moment and is timed;
+    /// `usage: None` is a reply that never came.
+    struct Timed {
+        usage: Option<String>,
+        spans: std::sync::Mutex<Vec<(std::time::Instant, std::time::Instant)>>,
+    }
+
+    impl CommandRunner for Timed {
+        fn run(
+            &self,
+            _prog: &std::path::Path,
+            args: &[&str],
+            _env: &[(String, Option<String>)],
+        ) -> std::io::Result<std::process::Output> {
+            #[cfg(unix)]
+            let status = std::os::unix::process::ExitStatusExt::from_raw(0);
+            #[cfg(windows)]
+            let status = std::os::windows::process::ExitStatusExt::from_raw(0);
+            let out = |s: &str| {
+                Ok(std::process::Output {
+                    status,
+                    stdout: s.as_bytes().to_vec(),
+                    stderr: vec![],
+                })
+            };
+            match args {
+                ["--version"] => out("2.1.322 (Claude Code)
+"),
+                ["auth", ..] => out(include_str!("../../tests/fixtures/claude-auth-status.json")),
+                _ => {
+                    let start = std::time::Instant::now();
+                    std::thread::sleep(std::time::Duration::from_millis(150));
+                    self.spans
+                        .lock()
+                        .unwrap()
+                        .push((start, std::time::Instant::now()));
+                    match &self.usage {
+                        Some(u) => out(u),
+                        None => Err(std::io::Error::new(
+                            std::io::ErrorKind::TimedOut,
+                            "did not answer in time",
+                        )),
+                    }
+                }
+            }
+        }
+    }
+
+    /// A folder holding a stand-in `claude` for `find_tool`; the runner answers for it.
+    fn claude_on_path(d: &std::path::Path) -> String {
+        let dir = d.join("tools");
+        std::fs::create_dir_all(&dir).unwrap();
+        #[cfg(windows)]
+        std::fs::write(
+            dir.join("claude.cmd"),
+            "@echo off
+",
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let f = dir.join("claude");
+            std::fs::write(
+                &f,
+                "#!/bin/sh
+",
+            )
+            .unwrap();
+            std::fs::set_permissions(&f, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        dir.display().to_string()
+    }
+
+    fn three_claude_agents() -> Roster {
+        Roster {
+            version: 1,
+            agents: vec![
+                a("c1", Tool::Claude),
+                a("c2", Tool::Claude),
+                a("c3", Tool::Claude),
+            ],
+            statusline: vec![],
+        }
+    }
+
+    #[test]
+    fn refresh_probes_a_new_version_on_one_agent_before_the_rest() {
+        let (d, p) = paths();
+        let runner = Timed {
+            usage: Some(include_str!("../../tests/fixtures/claude-usage-subscription.json").into()),
+            spans: Default::default(),
         };
+        let checks = refresh_all(
+            &three_claude_agents(),
+            &p,
+            &claude_on_path(d.path()),
+            &runner,
+        );
+        assert!(checks.iter().all(|(_, c)| c.limits.is_some()), "{checks:?}");
+        let mut spans = runner.spans.lock().unwrap().clone();
+        spans.sort();
+        assert_eq!(spans.len(), 3);
+        let probe_end = spans[0].1;
+        assert!(
+            spans[1..].iter().all(|(start, _)| *start >= probe_end),
+            "another agent asked /usage while the probe ran"
+        );
+    }
+
+    #[test]
+    fn refresh_asks_no_other_agent_after_a_failed_probe() {
+        let (d, p) = paths();
+        let runner = Timed {
+            usage: None,
+            spans: Default::default(),
+        };
+        let checks = refresh_all(
+            &three_claude_agents(),
+            &p,
+            &claude_on_path(d.path()),
+            &runner,
+        );
+        assert_eq!(checks.len(), 3);
+        assert_eq!(runner.spans.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn refresh_says_not_installed_when_the_tool_is_missing() {
+        let (d, p) = paths();
         let r = Roster {
             version: 1,
             agents: vec![a("c1", Tool::Claude), a("x1", Tool::Codex)],
