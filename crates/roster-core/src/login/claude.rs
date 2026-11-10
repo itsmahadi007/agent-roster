@@ -122,9 +122,7 @@ pub fn run(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let mut child = sys::spawn_contained(&mut cmd)?;
-    drain(child.stdout.take());
-    drain(child.stderr.take());
+    // Listen before Claude Code starts, so `roster` never finds the channel not yet open.
     let stop = Arc::new(AtomicBool::new(false));
     let bridge_stop = stop.clone();
     std::thread::spawn(move || {
@@ -134,6 +132,15 @@ pub fn run(
             let _ = tx.send(got.map_or(Input::NoLink, Input::Link));
         }
     });
+    let mut child = match sys::spawn_contained(&mut cmd) {
+        Ok(c) => c,
+        Err(e) => {
+            stop.store(true, Ordering::SeqCst);
+            return Err(e);
+        }
+    };
+    drain(child.stdout.take());
+    drain(child.stderr.take());
     std::thread::spawn(move || {
         // Peek, never reap: `kill_tree` must still find Claude Code's group afterwards.
         let mut exited = || match sys::peek_exit(&mut child) {

@@ -546,7 +546,9 @@ mod tests {
     }
 
     /// `roster` sends, shuts its end and exits before the app accepts: the link must still be
-    /// read (macOS refuses socket options on such a connection).
+    /// read (macOS refuses socket options on such a connection). Unix only: a Windows pipe
+    /// client can't finish before the app listens, which it does before Claude Code starts.
+    #[cfg(unix)]
     #[test]
     fn a_link_sent_and_closed_before_the_receive_arrives() {
         let ch = LinkChannel::create().unwrap();
