@@ -28,8 +28,15 @@ case "$(uname -s)" in
     mnt="$tmp/mnt"
     mkdir -p "$mnt"
     hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "$tmp/agent-roster.dmg" >/dev/null
-    dest=/Applications
-    [ -w "$dest" ] || { dest="$HOME/Applications"; mkdir -p "$dest"; }
+    # Update an existing copy where it is; otherwise /Applications, or ~/Applications if that isn't writable.
+    if [ -d "$HOME/Applications/Agent Roster.app" ]; then
+      dest="$HOME/Applications"
+    elif [ -w /Applications ]; then
+      dest=/Applications
+    else
+      dest="$HOME/Applications"
+      mkdir -p "$dest"
+    fi
     app="$dest/Agent Roster.app"
     pkill -f "Agent Roster.app/Contents/MacOS/agent-roster-app" 2>/dev/null || true
     rm -rf "$app"
