@@ -142,7 +142,6 @@ pub fn terminal_command(
     argv: &[String],
     scratch: &Path,
 ) -> Result<Vec<String>, DesktopError> {
-    let io = |e: std::io::Error| DesktopError::Io(e.to_string());
     match platform {
         Platform::Mac => Ok(vec![
             "open".into(),
