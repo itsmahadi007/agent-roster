@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/agent-page-dark.png" alt="Agent Roster: the list of agents on the left, agent1's page on the right with its 5-hour and weekly use, role and settings" width="900">
+  <img src="docs/images/main-window.png" alt="Agent Roster: four agents, each row with its role, weekly use and when that limit resets" width="760">
 </p>
 
 ## Why
@@ -80,11 +80,14 @@ installed. Agent Roster finds the logins you already have the first time it open
 
 ## What it looks like
 
-### Every account on one page
+### Every account in one list
 
-The list on the left shows each agent's role and weekly use, turning red past 90%. Click an agent
-to open its page: 5-hour and weekly use with reset times, how to start it, and all its settings.
-Calls between agents and limit warnings show at the bottom of the list.
+Each row shows the agent's role, its weekly use and when that limit resets. At 90% the row turns
+coral, so you know which account to rest and when it's back. Click a row to open it in place: how
+to start it and all its settings, while the other agents stay in view. Calls between agents and
+limit warnings show under the list.
+
+<p align="center"><img src="docs/images/agent-open.png" alt="agent1's row open in place, with how to start it and its settings under the row" width="760"></p>
 
 ### Change anything, see it first
 
@@ -92,7 +95,7 @@ Rename an agent, recolor it, pick a ready-made role like **Leader** or **Worker 
 good at, share your skills with it, or make it the default `claude` or `codex`. Every change waits
 in a bar at the bottom that says exactly what will happen. Nothing is written until you save.
 
-<p align="center"><img src="docs/images/save-bar.png" alt="agent2's page with the Leader role picked and a save bar saying what will change" width="820"></p>
+<p align="center"><img src="docs/images/save-bar.png" alt="agent2's row open with the Leader role picked and a save bar saying what will change" width="760"></p>
 
 ### Open it in the terminal you use
 
@@ -100,24 +103,24 @@ Start an agent in your default terminal, or pick Terminal, iTerm, Warp, VS Code 
 terminal found on your computer. Apps that can't take a command get it copied for you to paste.
 You can always just type the agent's name.
 
-<p align="center"><img src="docs/images/open-in-terminal.png" alt="The Open in terminal menu listing Terminal, iTerm, Warp and VS Code" width="820"></p>
+<p align="center"><img src="docs/images/open-in-terminal.png" alt="The Open in terminal menu listing Terminal, iTerm, Warp and VS Code" width="760"></p>
 
 ### Add an account in seconds
 
-<p align="center"><img src="docs/images/add-agent.png" alt="Add an agent: name, color, tool, role, and a preview of what will happen" width="820"></p>
+<p align="center"><img src="docs/images/add-agent.png" alt="Add an agent: name, color, tool, role, and a preview of what will happen" width="760"></p>
 
 ### Every change can be undone
 
 **What changed** lists everything Agent Roster ever did, each with a backup. Undo one change, or
 all of them at once.
 
-<p align="center"><img src="docs/images/what-changed.png" alt="What changed: a list of changes, each with an Undo button" width="820"></p>
+<p align="center"><img src="docs/images/what-changed.png" alt="What changed: a list of changes, each with an Undo button" width="760"></p>
 
 ### Light and dark
 
 The window follows your system setting.
 
-<p align="center"><img src="docs/images/agent-page-light.png" alt="agent3's page in light mode, at 93% of its weekly limit" width="820"></p>
+<p align="center"><img src="docs/images/agent-open-light.png" alt="agent3's row open in light mode, at 93% of its weekly limit" width="760"></p>
 
 ## How agents work together
 
@@ -174,7 +177,7 @@ stay as they are. The version you have is shown at the bottom of the list.
 
 **An agent shows no usage.** Claude Code and Codex record usage while they run, so an agent you
 haven't used yet has no numbers. Start it and send one message. For a Claude Code agent, click
-**Show usage** once on its page.
+**Show usage** once in its row.
 
 **A new name isn't found in my terminal.** Open a new terminal window. Old windows still have the
 old command list.
