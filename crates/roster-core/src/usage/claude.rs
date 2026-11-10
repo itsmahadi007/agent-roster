@@ -9,9 +9,11 @@ use crate::detect::CommandRunner;
 use crate::limits::{AgentLimits, LimitWindow};
 use crate::model::{Agent, Roster};
 use crate::paths::RosterPaths;
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-/// No saved session, and no user or project settings, so the user's hooks don't run.
+/// No saved session, no user or project settings (so the user's hooks don't run), and no
+/// MCP servers started.
 pub const USAGE_ARGS: &[&str] = &[
     "-p",
     "/usage",
@@ -20,6 +22,7 @@ pub const USAGE_ARGS: &[&str] = &[
     "--no-session-persistence",
     "--setting-sources",
     "local",
+    "--strict-mcp-config",
 ];
 
 #[derive(Debug, PartialEq)]
@@ -32,18 +35,20 @@ pub enum UsageReply {
     Nothing,
 }
 
-/// Reads the JSON `claude -p /usage --output-format json` prints.
+/// Reads the JSON `claude -p /usage --output-format json` prints. Only a reply that shows
+/// it ran locally counts: no turns, no cost, and `"local_command": "usage"`.
 pub fn parse_usage_reply(json: &str, now: i64) -> UsageReply {
     let Ok(v) = serde_json::from_str::<serde_json::Value>(json.trim()) else {
         return UsageReply::Nothing;
     };
-    let turns = v.get("num_turns").and_then(|x| x.as_u64()).unwrap_or(0);
-    let cost = v
-        .get("total_cost_usd")
-        .and_then(|x| x.as_f64())
-        .unwrap_or(0.0);
-    if turns > 0 || cost > 0.0 {
+    let turns = v.get("num_turns").and_then(|x| x.as_u64());
+    let cost = v.get("total_cost_usd").and_then(|x| x.as_f64());
+    if turns.is_some_and(|t| t > 0) || cost.is_some_and(|c| c > 0.0) {
         return UsageReply::Unsupported;
+    }
+    let local = v.get("local_command").and_then(|x| x.as_str()) == Some("usage");
+    if turns.is_none() || cost.is_none() || !local {
+        return UsageReply::Nothing;
     }
     let Some(text) = v.get("result").and_then(|x| x.as_str()) else {
         return UsageReply::Nothing;
@@ -178,8 +183,114 @@ fn parse_clock(w: &str) -> Option<(i8, i8)> {
     Some(((h % 12) + if pm { 12 } else { 0 }, m))
 }
 
+/// The Claude Code version that once sent `/usage` to the model (plain text). Never asked again.
 fn unsupported_marker(p: &RosterPaths) -> PathBuf {
     p.limits_dir().join("claude-usage-unsupported")
+}
+
+/// The Claude Code version that last answered `/usage` cleanly (plain text).
+fn known_good_marker(p: &RosterPaths) -> PathBuf {
+    p.limits_dir().join("claude-usage-known-good")
+}
+
+/// The ask of a version not yet known good, written before asking and removed when the reply
+/// is clean or paid: `{"version": "2.1.322", "started_at": <unix seconds>}`.
+fn probe_marker(p: &RosterPaths) -> PathBuf {
+    p.limits_dir().join("claude-usage-probe")
+}
+
+/// How long a version whose probe never ended cleanly (killed, timed out, unreadable reply,
+/// or still running) is not asked again. Even in the worst case a check costs one turn a day.
+pub const PROBE_RETRY_SECS: i64 = 24 * 3600;
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Probe {
+    version: String,
+    started_at: i64,
+}
+
+/// Whether to ask a Claude Code version for `/usage`.
+#[derive(Debug, PartialEq)]
+enum Gate {
+    /// Known to answer locally.
+    Ask,
+    /// Not known yet: ask once, alone, writing a probe record first.
+    Probe,
+    /// Sent `/usage` to the model once, or its probe is running or never ended cleanly.
+    Skip,
+}
+
+fn read_trimmed(path: &Path) -> Option<String> {
+    std::fs::read_to_string(path)
+        .ok()
+        .map(|s| s.trim().to_string())
+}
+
+/// Unknown versions (`None`) are never known good: every ask of one is a probe.
+fn gate(p: &RosterPaths, version: Option<&str>, now: i64) -> Gate {
+    let v = version.unwrap_or("unknown");
+    if read_trimmed(&unsupported_marker(p)).as_deref() == Some(v) {
+        return Gate::Skip;
+    }
+    if version.is_some() && read_trimmed(&known_good_marker(p)).as_deref() == Some(v) {
+        return Gate::Ask;
+    }
+    let probe: Option<Probe> = std::fs::read_to_string(probe_marker(p))
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok());
+    match probe {
+        Some(pr) if pr.version == v && now - pr.started_at < PROBE_RETRY_SECS => Gate::Skip,
+        _ => Gate::Probe,
+    }
+}
+
+/// True when the next ask of this version would be a probe: `refresh_all` then asks one agent
+/// at a time until one answers cleanly.
+pub fn needs_probe(p: &RosterPaths, version: Option<&str>) -> bool {
+    gate(p, version, now()) == Gate::Probe
+}
+
+/// One gate decision and probe claim at a time in this process. Across processes the probe
+/// record is created with `create_new`, so only one of them can claim it.
+static PROBE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Decides whether to ask; for a probe, writes the probe record first. `Some(true)` is a
+/// probe, `Some(false)` a plain ask, `None` don't ask.
+fn begin_ask(p: &RosterPaths, version: Option<&str>, now: i64) -> Option<bool> {
+    let _lock = PROBE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    match gate(p, version, now) {
+        Gate::Skip => None,
+        Gate::Ask => Some(false),
+        Gate::Probe => {
+            use std::io::Write;
+            let path = probe_marker(p);
+            std::fs::create_dir_all(p.limits_dir()).ok()?;
+            // A record that no longer blocks (another version, or over a day old) makes way.
+            let _ = std::fs::remove_file(&path);
+            let record = Probe {
+                version: version.unwrap_or("unknown").to_string(),
+                started_at: now,
+            };
+            // Not written, not asked: the record is what bounds the cost.
+            let mut f = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+                .ok()?;
+            f.write_all(serde_json::to_string(&record).ok()?.as_bytes())
+                .ok()?;
+            f.sync_all().ok()?;
+            Some(true)
+        }
+    }
+}
+
+/// A clean reply: the version is known good (when known) and the probe is over.
+fn end_probe_clean(p: &RosterPaths, version: Option<&str>) {
+    if let Some(v) = version {
+        let _ = std::fs::write(known_good_marker(p), v);
+    }
+    let _ = std::fs::remove_file(probe_marker(p));
 }
 
 fn now() -> i64 {
@@ -217,6 +328,8 @@ enum Asked {
     Failed,
 }
 
+/// Asks `/usage`, guarded so a Claude Code version that sends it to the model costs at most
+/// one turn: once if the reply says so (never asked again), once a day if it never answers.
 fn ask_usage(
     agent: &Agent,
     r: &Roster,
@@ -225,20 +338,32 @@ fn ask_usage(
     version: Option<&str>,
     runner: &dyn CommandRunner,
 ) -> Asked {
-    let version = version.unwrap_or("unknown");
-    if std::fs::read_to_string(unsupported_marker(p)).is_ok_and(|v| v.trim() == version) {
+    let Some(probing) = begin_ask(p, version, now()) else {
         return Asked::Skipped;
-    }
-    let env = crate::run::build_env(agent, r, p, None);
-    let Ok(out) = runner.run(tool_path, USAGE_ARGS, &env) else {
-        return Asked::Failed;
     };
-    match parse_usage_reply(&String::from_utf8_lossy(&out.stdout), now()) {
-        UsageReply::Limits(l) => Asked::Limits(l),
-        UsageReply::NoPlan => Asked::NoPlan,
+    let env = crate::run::build_env(agent, r, p, None);
+    // A reply that never came (killed at the time limit) keeps the probe record.
+    let reply = match runner.run(tool_path, USAGE_ARGS, &env) {
+        Ok(out) => parse_usage_reply(&String::from_utf8_lossy(&out.stdout), now()),
+        Err(_) => UsageReply::Nothing,
+    };
+    match reply {
+        UsageReply::Limits(l) => {
+            if probing {
+                end_probe_clean(p, version);
+            }
+            Asked::Limits(l)
+        }
+        UsageReply::NoPlan => {
+            if probing {
+                end_probe_clean(p, version);
+            }
+            Asked::NoPlan
+        }
         UsageReply::Unsupported => {
             let _ = std::fs::create_dir_all(p.limits_dir());
-            let _ = std::fs::write(unsupported_marker(p), version);
+            let _ = std::fs::write(unsupported_marker(p), version.unwrap_or("unknown"));
+            let _ = std::fs::remove_file(probe_marker(p));
             Asked::Skipped
         }
         UsageReply::Nothing => Asked::Failed,
@@ -246,7 +371,8 @@ fn ask_usage(
 }
 
 /// Asks Claude Code for one agent's usage. `version` is the Claude Code version: one that
-/// once sent `/usage` to the model is never asked again, so a check can't cost a turn twice.
+/// once sent `/usage` to the model is never asked again, and one not yet known to answer
+/// locally is probed at most once a day until it answers cleanly.
 pub fn fetch_claude_usage(
     agent: &Agent,
     r: &Roster,
@@ -301,7 +427,7 @@ mod tests {
     const DHAKA_NOV_10_1PM: i64 = 1_794_294_000; // 2026-11-10 13:00 Asia/Dhaka (UTC+6)
 
     fn reply(result: &str, turns: u64, cost: f64) -> String {
-        serde_json::json!({"type": "result", "num_turns": turns, "total_cost_usd": cost, "result": result})
+        serde_json::json!({"type": "result", "num_turns": turns, "total_cost_usd": cost, "local_command": "usage", "result": result})
             .to_string()
     }
 
@@ -378,6 +504,34 @@ mod tests {
     }
 
     #[test]
+    fn a_reply_that_did_not_run_locally_is_not_clean() {
+        // No turns and no cost, but nothing says `/usage` ran as a local command.
+        let not_local = serde_json::json!({"type": "result", "num_turns": 0, "total_cost_usd": 0, "result": USAGE});
+        assert_eq!(
+            parse_usage_reply(&not_local.to_string(), DHAKA_NOV_10_1PM),
+            UsageReply::Nothing
+        );
+        let other = serde_json::json!({"type": "result", "num_turns": 0, "total_cost_usd": 0, "local_command": "cost", "result": USAGE});
+        assert_eq!(
+            parse_usage_reply(&other.to_string(), DHAKA_NOV_10_1PM),
+            UsageReply::Nothing
+        );
+        // Turns and cost must be there to show they are zero.
+        let no_counts =
+            serde_json::json!({"type": "result", "local_command": "usage", "result": USAGE});
+        assert_eq!(
+            parse_usage_reply(&no_counts.to_string(), DHAKA_NOV_10_1PM),
+            UsageReply::Nothing
+        );
+    }
+
+    #[test]
+    fn usage_args_start_no_mcp_servers() {
+        assert!(USAGE_ARGS.contains(&"--strict-mcp-config"));
+        assert!(USAGE_ARGS.contains(&"--no-session-persistence"));
+    }
+
+    #[test]
     fn reply_with_numbers() {
         match parse_usage_reply(&reply(USAGE, 0, 0.0), DHAKA_NOV_10_1PM) {
             UsageReply::Limits(l) => {
@@ -436,6 +590,169 @@ mod check_tests {
             Some("2.1.322"),
             runner,
         )
+    }
+
+    const VERSION: &str = "2.1.322";
+
+    fn temp_paths() -> (tempfile::TempDir, RosterPaths) {
+        let d = tempfile::tempdir().unwrap();
+        let p = RosterPaths::for_home(d.path(), Platform::current(), &|_| None);
+        (d, p)
+    }
+
+    fn check_in(p: &RosterPaths, runner: &Scripted, version: Option<&str>) -> Check {
+        let r = Roster {
+            version: 1,
+            agents: vec![agent()],
+            statusline: vec![],
+        };
+        check_claude(&r.agents[0], &r, p, Path::new("claude"), version, runner)
+    }
+
+    fn marker(p: &RosterPaths, name: &str) -> Option<String> {
+        std::fs::read_to_string(p.limits_dir().join(name)).ok()
+    }
+
+    fn probe_record(p: &RosterPaths) -> Option<serde_json::Value> {
+        serde_json::from_str(&marker(p, "claude-usage-probe")?).ok()
+    }
+
+    fn signed_in(usage: Option<&str>) -> Scripted {
+        Scripted::new(Some(SIGNED_IN), usage)
+    }
+
+    #[test]
+    fn a_probe_that_never_answers_blocks_that_version_for_a_day() {
+        let (_d, p) = temp_paths();
+        // The first ask of a new version is killed after the time limit.
+        let first = signed_in(None);
+        assert_eq!(
+            check_in(&p, &first, Some(VERSION)),
+            Check::health(Health::Unreachable)
+        );
+        assert!(first.asked_usage());
+        let rec = probe_record(&p).expect("a probe record");
+        assert_eq!(rec["version"], VERSION);
+        let started = rec["started_at"].as_i64().unwrap();
+        assert!((now() - started).abs() < 60);
+        // Within a day, that version is not asked again.
+        let again = signed_in(Some(USAGE_SUB));
+        assert_eq!(check_in(&p, &again, Some(VERSION)).health, Health::Ok);
+        assert!(!again.asked_usage());
+        // A day later it is probed once more.
+        let a_day_ago = serde_json::json!({"version": VERSION, "started_at": started - 86_400});
+        std::fs::write(
+            p.limits_dir().join("claude-usage-probe"),
+            a_day_ago.to_string(),
+        )
+        .unwrap();
+        let later = signed_in(Some(USAGE_SUB));
+        assert!(check_in(&p, &later, Some(VERSION)).limits.is_some());
+        assert!(later.asked_usage());
+    }
+
+    #[test]
+    fn an_unreadable_probe_reply_blocks_like_a_timeout() {
+        let (_d, p) = temp_paths();
+        let first = signed_in(Some("garbage"));
+        assert_eq!(
+            check_in(&p, &first, Some(VERSION)).health,
+            Health::Unreachable
+        );
+        let again = signed_in(Some(USAGE_SUB));
+        check_in(&p, &again, Some(VERSION));
+        assert!(!again.asked_usage());
+    }
+
+    #[test]
+    fn a_clean_reply_makes_the_version_known_good() {
+        let (_d, p) = temp_paths();
+        assert!(
+            check_in(&p, &signed_in(Some(USAGE_SUB)), Some(VERSION))
+                .limits
+                .is_some()
+        );
+        assert_eq!(
+            marker(&p, "claude-usage-known-good").as_deref(),
+            Some(VERSION)
+        );
+        assert_eq!(probe_record(&p), None);
+        // A known-good version that times out once is asked again at the next check.
+        assert_eq!(
+            check_in(&p, &signed_in(None), Some(VERSION)).health,
+            Health::Unreachable
+        );
+        let next = signed_in(Some(USAGE_SUB));
+        assert!(check_in(&p, &next, Some(VERSION)).limits.is_some());
+        assert!(next.asked_usage());
+    }
+
+    #[test]
+    fn no_plan_is_a_clean_reply_too() {
+        let (_d, p) = temp_paths();
+        let c = check_in(&p, &signed_in(Some(USAGE_OUT)), Some(VERSION));
+        assert_eq!(c.health, Health::NoSubscription);
+        assert_eq!(
+            marker(&p, "claude-usage-known-good").as_deref(),
+            Some(VERSION)
+        );
+    }
+
+    #[test]
+    fn a_new_version_is_probed_while_another_is_blocked() {
+        let (_d, p) = temp_paths();
+        check_in(&p, &signed_in(None), Some(VERSION));
+        let newer = signed_in(Some(USAGE_SUB));
+        assert!(check_in(&p, &newer, Some("2.1.400")).limits.is_some());
+        assert!(newer.asked_usage());
+        assert_eq!(
+            marker(&p, "claude-usage-known-good").as_deref(),
+            Some("2.1.400")
+        );
+    }
+
+    #[test]
+    fn an_unknown_version_is_never_known_good() {
+        let (_d, p) = temp_paths();
+        assert!(
+            check_in(&p, &signed_in(Some(USAGE_SUB)), None)
+                .limits
+                .is_some()
+        );
+        assert_eq!(marker(&p, "claude-usage-known-good"), None);
+        assert_eq!(probe_record(&p), None);
+    }
+
+    #[test]
+    fn a_paid_reply_marks_the_version_and_it_is_never_asked_again() {
+        let (_d, p) = temp_paths();
+        let paid = serde_json::json!({"type": "result", "num_turns": 1, "total_cost_usd": 0.02, "result": "I can't run that."});
+        let first = signed_in(Some(&paid.to_string()));
+        assert_eq!(check_in(&p, &first, Some(VERSION)).health, Health::Ok);
+        assert!(first.asked_usage());
+        assert_eq!(
+            marker(&p, "claude-usage-unsupported").as_deref(),
+            Some(VERSION)
+        );
+        // Not at the next check, and not a day later either.
+        let _ = std::fs::remove_file(p.limits_dir().join("claude-usage-probe"));
+        let again = signed_in(Some(USAGE_SUB));
+        assert_eq!(check_in(&p, &again, Some(VERSION)).health, Health::Ok);
+        let r = Roster {
+            version: 1,
+            agents: vec![agent()],
+            statusline: vec![],
+        };
+        let fetched = fetch_claude_usage(
+            &r.agents[0],
+            &r,
+            &p,
+            Path::new("claude"),
+            Some(VERSION),
+            &again,
+        );
+        assert_eq!(fetched, None);
+        assert!(!again.asked_usage());
     }
 
     #[test]

@@ -36,7 +36,14 @@ pub fn spawn_piped(cmd: &mut Command) -> std::io::Result<Child> {
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
-    let child = cmd.spawn()?;
+    spawn_contained(cmd)
+}
+
+/// Spawns hidden with the caller's stdin, stdout and stderr, inside a Job Object so
+/// `kill_tree` (or this process exiting) stops everything the child starts. Every child
+/// spawned this way must end with `kill_tree`, which also frees its job.
+pub fn spawn_contained(cmd: &mut Command) -> std::io::Result<Child> {
+    let child = hide(cmd).spawn()?;
     if let Some(job) = job_for(&child) {
         JOBS.lock()
             .unwrap_or_else(|e| e.into_inner())

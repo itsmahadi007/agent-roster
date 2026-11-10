@@ -38,7 +38,11 @@ impl CommandRunner for RealRunner {
         args: &[&str],
         env: &[(String, Option<String>)],
     ) -> std::io::Result<Output> {
-        // Runs with a time limit, so a stuck tool can't hang the overview.
+        // Runs with a time limit, so a stuck tool can't hang the overview. The child goes in
+        // the platform's container (a kill-on-close Job Object on Windows, a session of its
+        // own elsewhere), so stopping it stops what it started too: npm's `claude.cmd` is
+        // `cmd.exe` running `node`, and killing only `cmd.exe` would leave `node` running.
+        use crate::usage::sys;
         use std::io::Read;
         let mut c = Command::new(prog);
         crate::proc::hide_console(&mut c)
@@ -55,7 +59,7 @@ impl CommandRunner for RealRunner {
                 None => c.env_remove(k),
             };
         }
-        let mut child = c.spawn()?;
+        let mut child = sys::spawn_contained(&mut c)?;
         let mut out = child.stdout.take().expect("piped");
         let mut err = child.stderr.take().expect("piped");
         let out_reader = std::thread::spawn(move || {
@@ -70,12 +74,18 @@ impl CommandRunner for RealRunner {
         });
         let deadline = std::time::Instant::now() + self.timeout;
         let status = loop {
-            if let Some(st) = child.try_wait()? {
+            let waited = match child.try_wait() {
+                Ok(st) => st,
+                Err(e) => {
+                    sys::kill_tree(&mut child);
+                    return Err(e);
+                }
+            };
+            if let Some(st) = waited {
                 break st;
             }
             if std::time::Instant::now() >= deadline {
-                let _ = child.kill();
-                let _ = child.wait();
+                sys::kill_tree(&mut child);
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::TimedOut,
                     format!("{} did not answer in time", prog.display()),
@@ -83,6 +93,9 @@ impl CommandRunner for RealRunner {
             }
             std::thread::sleep(std::time::Duration::from_millis(25));
         };
+        // Stop anything the tool left behind: it could hold the pipes open, and on Windows
+        // this also frees the child's job.
+        sys::kill_tree(&mut child);
         Ok(Output {
             status,
             stdout: out_reader.join().unwrap_or_default(),
@@ -441,5 +454,73 @@ mod timeout_tests {
         let start = std::time::Instant::now();
         assert!(runner.run(&f, &[], &[]).is_err());
         assert!(start.elapsed() < std::time::Duration::from_secs(3));
+    }
+}
+
+#[cfg(test)]
+mod tree_tests {
+    use super::*;
+    use std::time::Duration;
+
+    /// A tool that starts a helper, which appends to `out` every 100 ms or so until a `stop`
+    /// file appears, and then hangs. Run in `dir`.
+    #[cfg(windows)]
+    fn hanging_tool(dir: &Path) -> PathBuf {
+        let f = dir.join("hang.cmd");
+        std::fs::write(
+            &f,
+            "@echo off\r\n\
+             start \"\" /b cmd /d /c \"for /l %%i in (0,0,1) do @((if exist stop exit) & echo x>>out & ping -n 1 -w 100 192.0.2.1 >nul)\"\r\n\
+             ping -n 30 127.0.0.1 >nul\r\n",
+        )
+        .unwrap();
+        f
+    }
+
+    #[cfg(unix)]
+    fn hanging_tool(dir: &Path) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let f = dir.join("hang");
+        std::fs::write(
+            &f,
+            "#!/bin/sh\n( while [ ! -e stop ]; do echo x >> out; sleep 0.1; done ) &\nsleep 30\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&f, std::fs::Permissions::from_mode(0o755)).unwrap();
+        f
+    }
+
+    /// Stops the helper even when the test fails, so it can't run on forever.
+    struct Stop(PathBuf);
+    impl Drop for Stop {
+        fn drop(&mut self) {
+            let _ = std::fs::write(&self.0, "");
+            std::thread::sleep(Duration::from_millis(500));
+        }
+    }
+
+    /// `npm`'s `claude.cmd` is `cmd.exe` starting `node`: a timeout must stop the whole tree,
+    /// not only the program it started.
+    #[test]
+    fn a_timeout_stops_everything_the_tool_started() {
+        let d = tempfile::tempdir().unwrap();
+        let tool = hanging_tool(d.path());
+        let _stop = Stop(d.path().join("stop"));
+        let runner = RealRunner {
+            timeout: Duration::from_millis(2000),
+            cwd: Some(d.path().to_path_buf()),
+        };
+        let err = runner.run(&tool, &[], &[]).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::TimedOut);
+        let size = || {
+            std::fs::metadata(d.path().join("out"))
+                .map(|m| m.len())
+                .unwrap_or(0)
+        };
+        std::thread::sleep(Duration::from_millis(300));
+        let before = size();
+        assert!(before > 0, "the helper never started");
+        std::thread::sleep(Duration::from_millis(1200));
+        assert_eq!(size(), before, "the helper is still running");
     }
 }
