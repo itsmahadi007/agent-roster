@@ -8,7 +8,7 @@
 use std::ffi::OsString;
 use std::os::windows::io::AsRawHandle;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::Mutex;
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{
@@ -141,6 +141,12 @@ fn resume(pid: u32) -> std::io::Result<()> {
         }
     }
     Ok(())
+}
+
+/// Has the child exited, and how? On Windows `try_wait` is safe before `kill_tree`: the
+/// child's job, not its process id, is what stops the rest.
+pub fn peek_exit(child: &mut Child) -> std::io::Result<Option<ExitStatus>> {
+    child.try_wait()
 }
 
 /// Stops the child and everything it started, then waits for it.

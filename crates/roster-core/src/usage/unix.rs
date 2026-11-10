@@ -6,7 +6,7 @@
 use std::ffi::OsString;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
 
 /// Shown in logs and `roster doctor`.
 pub const PLATFORM: &str = "unix";
@@ -60,6 +60,42 @@ pub fn kill_tree(child: &mut Child) {
     }
     let _ = child.kill();
     let _ = child.wait();
+}
+
+/// Has the child exited, and how? Asks without reaping it, so a later `kill_tree` still
+/// stops the processes it left in its group (once reaped, its id could be someone else's
+/// and the group is left alone). Use this, not `try_wait`, before `kill_tree`.
+pub fn peek_exit(child: &mut Child) -> std::io::Result<Option<ExitStatus>> {
+    use std::os::unix::process::ExitStatusExt;
+    let Ok(pid) = libc::pid_t::try_from(child.id()) else {
+        return child.try_wait();
+    };
+    // SAFETY: `waitid` with WNOWAIT only reads the child's state into a zeroed struct.
+    let (r, info) = unsafe {
+        let mut info: libc::siginfo_t = std::mem::zeroed();
+        let r = libc::waitid(
+            libc::P_PID,
+            pid as libc::id_t,
+            &mut info,
+            libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
+        );
+        (r, info)
+    };
+    if r != 0 {
+        // Already reaped (by `wait` or `try_wait`): `std` kept its status.
+        return child.try_wait();
+    }
+    // SAFETY: filled by a successful `waitid` for a child state change.
+    let (who, status) = unsafe { (info.si_pid(), info.si_status()) };
+    if who == 0 {
+        return Ok(None);
+    }
+    let raw = match info.si_code {
+        libc::CLD_EXITED => (status & 0xff) << 8,
+        libc::CLD_DUMPED => (status & 0x7f) | 0x80,
+        _ => status & 0x7f,
+    };
+    Ok(Some(ExitStatus::from_raw(raw)))
 }
 
 /// The child is running or exited but not yet reaped: asks without reaping it.
@@ -169,6 +205,38 @@ mod tests {
             rx.recv_timeout(Duration::from_secs(5)).is_ok(),
             "the leader's child still holds stdout"
         );
+    }
+
+    /// `peek_exit` sees the leader exit without reaping it, so `kill_tree` still stops what
+    /// it left running.
+    #[test]
+    fn peek_exit_leaves_the_group_to_kill_tree() {
+        let mut cmd = Command::new("sh");
+        cmd.args(["-c", "sleep 30 & exit 3"]);
+        let mut child = spawn_piped(&mut cmd).unwrap();
+        let mut out = child.stdout.take().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut b = vec![];
+            let _ = out.read_to_end(&mut b);
+            let _ = tx.send(());
+        });
+        let started = std::time::Instant::now();
+        let status = loop {
+            if let Some(s) = peek_exit(&mut child).unwrap() {
+                break s;
+            }
+            assert!(started.elapsed() < Duration::from_secs(5), "never exited");
+            std::thread::sleep(Duration::from_millis(20));
+        };
+        assert_eq!(status.code(), Some(3));
+        assert!(unreaped(child.id() as libc::pid_t), "peek_exit reaped it");
+        kill_tree(&mut child);
+        assert!(
+            rx.recv_timeout(Duration::from_secs(5)).is_ok(),
+            "the leader's child still holds stdout"
+        );
+        assert_eq!(child.wait().unwrap().code(), Some(3));
     }
 
     /// `sh` starts `sleep`, which holds the stdout pipe. Killing only `sh` would leave the

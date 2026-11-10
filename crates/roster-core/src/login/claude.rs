@@ -135,7 +135,8 @@ pub fn run(
         }
     });
     std::thread::spawn(move || {
-        let mut exited = || match child.try_wait() {
+        // Peek, never reap: `kill_tree` must still find Claude Code's group afterwards.
+        let mut exited = || match sys::peek_exit(&mut child) {
             Ok(Some(status)) => Some(status.success()),
             Ok(None) => None,
             Err(_) => Some(false),
@@ -264,6 +265,67 @@ mod tests {
             ),
             vec![LoginEvent::Link(LINK.into()), LoginEvent::Done]
         );
+    }
+
+    /// Claude Code exits by itself (here at once, with no link) and leaves a helper running
+    /// in its group: the end of the login must still stop it.
+    #[cfg(unix)]
+    #[test]
+    fn what_claude_leaves_running_is_stopped_after_it_exits() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = tempfile::tempdir().unwrap();
+        let tool = d.path().join("claude");
+        std::fs::write(
+            &tool,
+            "#!/bin/sh
+( while [ ! -e stop ]; do echo x >> out; sleep 0.1; done ) &
+sleep 0.5
+exit 0
+",
+        )
+        .unwrap();
+        std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).unwrap();
+        struct Stop(std::path::PathBuf);
+        impl Drop for Stop {
+            fn drop(&mut self) {
+                let _ = std::fs::write(&self.0, "");
+            }
+        }
+        let _stop = Stop(d.path().join("stop"));
+        let (tx, rx) = channel();
+        let (end_tx, end_rx) = channel();
+        let events = Arc::new(Mutex::new(vec![]));
+        let seen = events.clone();
+        run(
+            &tool,
+            &vec![],
+            d.path(),
+            Path::new("/bin/true"),
+            tx,
+            rx,
+            Box::new(move |e| seen.lock().unwrap().push(e)),
+            Box::new(move || {
+                let _ = end_tx.send(());
+            }),
+        )
+        .unwrap();
+        end_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("the login ended");
+        assert_eq!(
+            *events.lock().unwrap(),
+            [LoginEvent::Failed(msg::NO_CLAUDE_LINK.into())]
+        );
+        let size = || {
+            std::fs::metadata(d.path().join("out"))
+                .map(|m| m.len())
+                .unwrap_or(0)
+        };
+        std::thread::sleep(Duration::from_millis(300));
+        let before = size();
+        assert!(before > 0, "the helper never started");
+        std::thread::sleep(Duration::from_millis(1000));
+        assert_eq!(size(), before, "the helper is still running");
     }
 
     #[test]

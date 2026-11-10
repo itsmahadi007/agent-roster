@@ -74,7 +74,8 @@ impl CommandRunner for RealRunner {
         });
         let deadline = std::time::Instant::now() + self.timeout;
         let status = loop {
-            let waited = match child.try_wait() {
+            // Peek, never reap: `kill_tree` must still find the tool's group afterwards.
+            let waited = match sys::peek_exit(&mut child) {
                 Ok(st) => st,
                 Err(e) => {
                     sys::kill_tree(&mut child);
