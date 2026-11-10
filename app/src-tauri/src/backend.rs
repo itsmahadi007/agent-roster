@@ -12,6 +12,7 @@ use roster_core::names::CommandLookup;
 use roster_core::ops::{self, AddRequest, Ctx, Plan, StepKind};
 use roster_core::paths::RosterPaths;
 use roster_core::status::overview;
+use roster_core::usage::{read_health, refresh_all, usage_runner};
 use roster_core::view::{
     ChangeView, FirstRunView, OverviewView, changes_view, first_run_view, now, overview_view,
 };
@@ -20,13 +21,56 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 
 pub const NO_ROSTER_BIN: &str = "Agent Roster's `roster` command wasn't found. If you opened the app from the downloaded disk image, drag it to Applications and open it from there. Otherwise reinstall Agent Roster.";
 pub const STALE: &str =
     "Your roster changed since this preview. Look at the new preview before applying.";
 const MAX_PENDING: usize = 16;
 pub const EXPIRED: &str = "That preview has expired. Look at it again.";
+/// How often the app asks every tool for usage on its own.
+pub const USAGE_EVERY: Duration = Duration::from_secs(5 * 60);
+/// The shortest time between two usage checks (Refresh clicked again and again).
+pub const USAGE_GAP: Duration = Duration::from_secs(30);
+
+/// One usage check at a time, and at most one per `USAGE_GAP`.
+#[derive(Default)]
+pub struct UsageGate {
+    state: Mutex<GateState>,
+}
+
+#[derive(Default)]
+struct GateState {
+    running: bool,
+    last: Option<Instant>,
+}
+
+impl UsageGate {
+    /// Starts a check, unless one is running or one started less than `USAGE_GAP` ago.
+    /// `urgent` (an agent was never checked) skips the wait, not a running check.
+    pub fn begin(&self, now: Instant, urgent: bool) -> bool {
+        let mut s = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let recent = s
+            .last
+            .is_some_and(|t| now.saturating_duration_since(t) < USAGE_GAP);
+        if s.running || (recent && !urgent) {
+            return false;
+        }
+        s.running = true;
+        s.last = Some(now);
+        true
+    }
+
+    pub fn end(&self) {
+        self.state.lock().unwrap_or_else(|e| e.into_inner()).running = false;
+    }
+}
+
+/// The list shows an agent as "checking": a usage check should run soon.
+pub fn needs_check(v: &OverviewView) -> bool {
+    v.agents.iter().any(|a| a.health == "checking")
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "op", rename_all = "kebab-case", deny_unknown_fields)]
@@ -123,6 +167,9 @@ pub struct Backend {
     next: AtomicU64,
     /// One change or undo at a time.
     writing: Mutex<()>,
+    usage_gate: UsageGate,
+    /// Set by `overview` when a row says "checking"; the usage loop picks it up.
+    wanted: AtomicBool,
 }
 
 fn kind(k: StepKind) -> &'static str {
@@ -148,6 +195,8 @@ impl Backend {
             pending: Mutex::new(HashMap::new()),
             next: AtomicU64::new(1),
             writing: Mutex::new(()),
+            usage_gate: UsageGate::default(),
+            wanted: AtomicBool::new(false),
         }
     }
 
@@ -180,7 +229,39 @@ impl Backend {
     pub fn overview(&self) -> Result<OverviewView, String> {
         let r = self.roster()?;
         let o = overview(&r, &self.p, &self.path_var, &RealRunner::default());
-        Ok(overview_view(&o, &self.p.home, now()))
+        let v = overview_view(&o, &self.p.home, now());
+        if needs_check(&v) {
+            self.wanted.store(true, Ordering::Relaxed);
+        }
+        Ok(v)
+    }
+
+    /// Asks every tool for usage and account health, and saves the answers where
+    /// `overview` reads them. Slow (seconds): never call it from the 10-second poll.
+    /// Returns false when skipped: a check is running or one ran less than 30 s ago.
+    pub fn refresh_usage(&self) -> Result<bool, String> {
+        let r = self.roster()?;
+        let urgent = r
+            .agents
+            .iter()
+            .any(|a| read_health(&self.p, &a.id).is_none());
+        if !self.usage_gate.begin(Instant::now(), urgent) {
+            return Ok(false);
+        }
+        struct End<'a>(&'a UsageGate);
+        impl Drop for End<'_> {
+            fn drop(&mut self) {
+                self.0.end();
+            }
+        }
+        let _end = End(&self.usage_gate);
+        refresh_all(&r, &self.p, &self.path_var, &usage_runner(&self.p));
+        Ok(true)
+    }
+
+    /// True once after `overview` showed a row as "checking".
+    pub fn take_wanted(&self) -> bool {
+        self.wanted.swap(false, Ordering::Relaxed)
     }
 
     pub fn first_run(&self) -> Result<FirstRunView, String> {

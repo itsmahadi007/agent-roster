@@ -46,9 +46,10 @@
       <h4>Usage and limits</h4>
       <p>
         Each row's bar shows how much of its weekly limit an account has used, and when that limit resets. It turns coral
-        at 90%. Claude Code and Codex write these numbers down while they run, so they update each time you use an agent.
-        An agent you haven't used yet says so. For a Claude Code agent, open its row and click Show usage once; it never
-        limits the agent. Refresh, under the list, checks again right away.</p>
+        at 90%. Agent Roster asks Claude Code and Codex themselves for these numbers when it starts and every 5 minutes,
+        with each agent's own login and no model call, so nothing has to be open first. Refresh, under the list, asks
+        again right away. A row also says when an account needs a sign-in, has no subscription, has reached its limit, or
+        couldn't be reached (then it keeps the last numbers and says when they're from).</p>
     </section>
     <section>
       <h4>What a row says</h4>

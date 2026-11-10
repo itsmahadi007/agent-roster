@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import { listen } from "@tauri-apps/api/event";
   import type { OpRequest, OverviewView, Screen, TerminalApp } from "./lib/types";
-  import { message, openSite, overview, terminals as findTerminals } from "./lib/api";
+  import { message, openSite, overview, refreshUsage, terminals as findTerminals } from "./lib/api";
   import { startPoll } from "./lib/poll";
   import AddAgent from "./screens/AddAgent.svelte";
   import FirstRun from "./screens/FirstRun.svelte";
@@ -30,20 +30,33 @@
   /** Set when Add agent finishes here, so an agent added from a terminal doesn't take over. */
   let added = false;
 
+  /** Reads the saved state only: the 10-second poll never asks the tools for usage. */
   async function refresh() {
     try {
-      const v = await overview();
-      const fresh = known && added ? v.agents.find((a) => !known!.has(a.id)) : undefined;
-      known = new Set(v.agents.map((a) => a.id));
-      view = v;
-      if (fresh) {
-        added = false;
-        if (!dirty) open = fresh.id;
-      }
-      error = null;
+      show(await overview());
     } catch (e) {
       error = message(e);
     }
+  }
+
+  /** Refresh: asks every tool for usage now, then shows the answers. */
+  async function checkUsage() {
+    try {
+      show(await refreshUsage());
+    } catch (e) {
+      error = message(e);
+    }
+  }
+
+  function show(v: OverviewView) {
+    const fresh = known && added ? v.agents.find((a) => !known!.has(a.id)) : undefined;
+    known = new Set(v.agents.map((a) => a.id));
+    view = v;
+    if (fresh) {
+      added = false;
+      if (!dirty) open = fresh.id;
+    }
+    error = null;
   }
 
   function navigate(s: Screen, note?: string) {
@@ -83,9 +96,12 @@
       .catch(() => (terminals = []));
     const stop = startPoll(refresh, 10_000);
     const unlisten = listen<Screen>("navigate", (e) => navigate(e.payload));
+    // The app asks for usage on start, every 5 minutes and after a sign-in; show each answer.
+    const unchecked = listen("usage-checked", () => refresh());
     return () => {
       stop();
       unlisten.then((f) => f());
+      unchecked.then((f) => f());
     };
   });
 </script>
@@ -132,7 +148,7 @@
             {nudge}
             onToggle={toggle}
             onNavigate={(s) => navigate(s)}
-            onRefresh={refresh}
+            onRefresh={checkUsage}
             onSite={() => openSite().catch((e) => (notice = message(e)))}
             onApplied={changed}
             onDirty={(d) => {

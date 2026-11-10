@@ -23,6 +23,22 @@ pub async fn overview(app: AppHandle, b: State<'_, Arc<Backend>>) -> Result<Over
     Ok(v)
 }
 
+/// Asks every tool for usage now (skipped when a check ran less than 30 s ago), then
+/// returns the overview with the answers.
+#[tauri::command]
+pub async fn refresh_usage(
+    app: AppHandle,
+    b: State<'_, Arc<Backend>>,
+) -> Result<OverviewView, String> {
+    let v = blocking(&b, |b| {
+        b.refresh_usage()?;
+        b.overview()
+    })
+    .await?;
+    crate::tray::update(&app, &v);
+    Ok(v)
+}
+
 #[tauri::command]
 pub async fn first_run(b: State<'_, Arc<Backend>>) -> Result<FirstRunView, String> {
     blocking(&b, |b| b.first_run()).await

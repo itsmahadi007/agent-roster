@@ -30,6 +30,10 @@ export interface AgentView {
   reset_text: string | null;
   reset_hot: boolean;
   limits_note: string | null;
+  /** The account as the row shows it, from the last usage check and the tool's sign-in. */
+  health: "ok" | "sign-in" | "no-subscription" | "limit-reached" | "not-installed" | "checking" | "unreachable";
+  /** "as of 3:40 pm" when the last check failed and the numbers are older. */
+  as_of: string | null;
   claude_limits: boolean | null;
   live: boolean;
   tray_text: string;

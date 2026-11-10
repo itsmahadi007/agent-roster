@@ -12,6 +12,7 @@ use roster_core::paths::RosterPaths;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::Arc;
+use tauri::{Emitter, Manager};
 
 fn spawn_detached(argv: &[String]) -> std::io::Result<()> {
     let (prog, args) = argv
@@ -82,6 +83,28 @@ fn backend() -> Backend {
     })
 }
 
+/// Asks every tool for usage at start, every 5 minutes, and soon after a row shows
+/// "checking" (a new agent, a new sign-in). Runs on its own thread, never the UI's; the
+/// window hears "usage-checked" when fresh answers are saved.
+fn usage_loop(app: tauri::AppHandle, b: Arc<Backend>) {
+    std::thread::spawn(move || {
+        let mut next = std::time::Instant::now();
+        loop {
+            let due = std::time::Instant::now() >= next;
+            if due {
+                next = std::time::Instant::now() + backend::USAGE_EVERY;
+            }
+            if (due || b.take_wanted()) && b.refresh_usage().unwrap_or(false) {
+                if let Ok(v) = b.overview() {
+                    tray::update(&app, &v);
+                }
+                let _ = app.emit("usage-checked", ());
+            }
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        }
+    });
+}
+
 fn main() {
     #[cfg(unix)]
     use_login_path();
@@ -95,6 +118,10 @@ fn main() {
         .manage(Arc::new(backend()))
         .setup(|app| {
             tray::setup(app.handle())?;
+            usage_loop(
+                app.handle().clone(),
+                Arc::clone(app.state::<Arc<Backend>>().inner()),
+            );
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -108,6 +135,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::overview,
+            commands::refresh_usage,
             commands::first_run,
             commands::preview,
             commands::apply,

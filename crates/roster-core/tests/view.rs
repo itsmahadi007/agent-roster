@@ -5,6 +5,7 @@ use roster_core::model::{Agent, AgentColor, LimitsSource, Roster, Tool};
 use roster_core::paths::{Platform, RosterPaths};
 use roster_core::session::SessionRecord;
 use roster_core::status::{AgentState, AgentStatus, Overview};
+use roster_core::usage::{Health, SavedHealth};
 use roster_core::view::{
     CandidateView, FirstRunView, WindowView, changes_view, first_run_view, overview_view,
 };
@@ -40,7 +41,13 @@ fn win(label: &str, used: f64, resets_in: i64) -> LimitWindow {
 
 fn status(a: Agent, state: AgentState, windows: Vec<LimitWindow>) -> AgentStatus {
     let signed_in = !matches!(state, AgentState::NeedsSignIn | AgentState::NotInstalled);
+    let health = match state {
+        AgentState::NotInstalled => None,
+        AgentState::NeedsSignIn => Some(saved(Health::SignedOut)),
+        _ => Some(saved(Health::Ok)),
+    };
     AgentStatus {
+        health,
         agent: a,
         state,
         sign_in: SignIn {
@@ -53,6 +60,14 @@ fn status(a: Agent, state: AgentState, windows: Vec<LimitWindow>) -> AgentStatus
             plan: None,
             windows,
         }),
+    }
+}
+
+fn saved(health: Health) -> SavedHealth {
+    SavedHealth {
+        health,
+        checked_at: NOW - 200,
+        known: (health != Health::Unreachable).then_some(health),
     }
 }
 
@@ -221,10 +236,8 @@ fn only_five_hour_window_shows_nothing() {
 fn notes_when_no_limits() {
     let mut o = sample();
     let v = overview_view(&o, Path::new(HOME), NOW);
-    assert_eq!(
-        v.agents[1].limits_note.as_deref(),
-        Some("usage shows after sign in")
-    );
+    assert_eq!(v.agents[1].limits_note.as_deref(), Some("sign in"));
+    assert_eq!(v.agents[1].health, "sign-in");
     assert_eq!(v.agents[1].tray_text, "sign in");
     assert_eq!(v.agents[1].state, "sign-in");
     assert_eq!(v.agents[2].claude_limits, None);
@@ -234,19 +247,17 @@ fn notes_when_no_limits() {
     o.agents[1].state = AgentState::Ready;
     o.agents[1].sign_in.signed_in = true;
     let v = overview_view(&o, Path::new(HOME), NOW);
-    // Claude numbers come from `claude -p /usage`, so the status line being off no
-    // longer hides them.
-    assert_eq!(
-        v.agents[1].limits_note.as_deref(),
-        Some("usage shows after you use agent2")
-    );
+    // Signed in since the last check, which said signed out: the next check is awaited.
+    assert_eq!(v.agents[1].limits_note.as_deref(), Some("checking"));
+    assert_eq!(v.agents[1].health, "checking");
     assert_eq!(v.agents[1].claude_limits, Some(false));
-    assert_eq!(v.agents[1].tray_text, "");
+    assert_eq!(v.agents[1].tray_text, "checking");
 
     o.agents[1].state = AgentState::NotInstalled;
     let v = overview_view(&o, Path::new(HOME), NOW);
     assert_eq!(v.agents[1].state, "not-installed");
     assert_eq!(v.agents[1].limits_note.as_deref(), Some("not installed"));
+    assert_eq!(v.agents[1].health, "not-installed");
     assert_eq!(v.agents[1].tray_text, "not installed");
 }
 
@@ -553,4 +564,118 @@ fn agent_view_shows_good_at_defaults_until_someone_sets_them() {
     let v = overview_view(&o, Path::new(HOME), NOW);
     assert_eq!(v.agents[0].good_at, ["planning"]);
     assert!(v.agents[0].good_at_custom);
+}
+
+#[test]
+fn before_the_first_check_the_row_says_checking() {
+    let mut o = sample();
+    o.agents[3].limits = None;
+    o.agents[3].health = None;
+    let v = overview_view(&o, Path::new(HOME), NOW);
+    let boss = &v.agents[3];
+    assert_eq!(boss.health, "checking");
+    assert_eq!(boss.limits_note.as_deref(), Some("checking"));
+    assert_eq!(boss.tray_text, "checking");
+}
+
+#[test]
+fn numbers_seen_before_any_check_still_show() {
+    let mut o = sample();
+    o.agents[3].health = None;
+    let v = overview_view(&o, Path::new(HOME), NOW);
+    assert_eq!(v.agents[3].health, "ok");
+    assert_eq!(v.agents[3].windows[0].used_percent, 24);
+    assert_eq!(v.agents[3].tray_text, "24% week");
+}
+
+#[test]
+fn no_subscription_hides_numbers_and_says_so() {
+    let mut o = sample();
+    o.agents[0].health = Some(saved(Health::NoSubscription));
+    let v = overview_view(&o, Path::new(HOME), NOW);
+    let a1 = &v.agents[0];
+    assert_eq!(a1.health, "no-subscription");
+    assert!(a1.windows.is_empty());
+    assert_eq!(a1.reset_text, None);
+    assert_eq!(a1.limits_note.as_deref(), Some("no subscription"));
+    assert_eq!(a1.tray_text, "no subscription");
+    assert!(!a1.tray_hot);
+}
+
+#[test]
+fn a_full_week_is_limit_reached_in_coral() {
+    let mut o = sample();
+    o.agents[3].limits.as_mut().unwrap().windows = vec![win("week", 100.0, 2 * 86_400 + 3 * 3600)];
+    let v = overview_view(&o, Path::new(HOME), NOW);
+    let boss = &v.agents[3];
+    assert_eq!(boss.health, "limit-reached");
+    assert_eq!(
+        boss.limits_note.as_deref(),
+        Some("limit reached, resets in 2d 3h")
+    );
+    assert_eq!(boss.reset_text.as_deref(), Some("resets in 2d 3h"));
+    assert!(boss.reset_hot && boss.windows[0].hot);
+    assert_eq!(boss.tray_text, "limit reached");
+    assert!(boss.tray_hot);
+}
+
+#[test]
+fn the_tool_saying_limit_reached_is_limit_reached() {
+    let mut o = sample();
+    o.agents[3].health = Some(saved(Health::LimitReached));
+    let v = overview_view(&o, Path::new(HOME), NOW);
+    assert_eq!(v.agents[3].health, "limit-reached");
+    assert_eq!(v.agents[3].tray_text, "limit reached");
+    // Once the week has reset, the old verdict no longer holds.
+    o.agents[3].limits.as_mut().unwrap().windows = vec![win("week", 24.0, -60)];
+    let v = overview_view(&o, Path::new(HOME), NOW);
+    assert_eq!(v.agents[3].health, "ok");
+}
+
+#[test]
+fn a_failed_check_keeps_the_last_numbers_with_their_time() {
+    let mut o = sample();
+    o.agents[0].health = Some(SavedHealth {
+        health: Health::Unreachable,
+        checked_at: NOW - 10,
+        known: Some(Health::Ok),
+    });
+    let v = overview_view(&o, Path::new(HOME), NOW);
+    let a1 = &v.agents[0];
+    assert_eq!(a1.health, "unreachable");
+    assert_eq!(a1.windows[0].used_percent, 61);
+    assert_eq!(a1.limits_note, None);
+    assert!(
+        a1.as_of.as_deref().unwrap().starts_with("as of "),
+        "{:?}",
+        a1.as_of
+    );
+    assert_eq!(a1.tray_text, "61% week");
+    assert_eq!(a1.status_text, "calling agent3");
+    // Fresh numbers carry no time.
+    let v = overview_view(&sample(), Path::new(HOME), NOW);
+    assert_eq!(v.agents[0].as_of, None);
+}
+
+#[test]
+fn a_check_that_never_reached_the_tool_says_so() {
+    let mut o = sample();
+    o.agents[3].limits = None;
+    o.agents[3].health = Some(saved(Health::Unreachable));
+    let v = overview_view(&o, Path::new(HOME), NOW);
+    assert_eq!(v.agents[3].health, "unreachable");
+    assert_eq!(v.agents[3].limits_note.as_deref(), Some("couldn't check"));
+}
+
+#[test]
+fn as_of_reads_as_a_clock_time_today_and_a_date_before() {
+    use roster_core::view::as_of_text;
+    let tz = jiff::tz::TimeZone::get("Asia/Dhaka").unwrap();
+    let now = 1_794_294_000; // 2026-11-10 13:00 in Dhaka
+    assert_eq!(
+        as_of_text(now - 3 * 3600 - 20 * 60, now, &tz),
+        "as of 9:40 am"
+    );
+    assert_eq!(as_of_text(now + 2 * 3600, now, &tz), "as of 3:00 pm");
+    assert_eq!(as_of_text(now - 86_400, now, &tz), "as of Nov 9");
 }

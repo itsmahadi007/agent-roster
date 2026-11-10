@@ -1,0 +1,10 @@
+{
+  "loggedIn": true,
+  "authMethod": "api_key",
+  "apiProvider": "firstParty",
+  "analyticsDisabled": false,
+  "projectsDirectory": "C:\\Users\\you\\AppData\\Local\\Temp\\ar-apikey\\projects",
+  "configDirectory": "C:\\Users\\you\\AppData\\Local\\Temp\\ar-apikey",
+  "loginExpiresAt": null,
+  "apiKeySource": "ANTHROPIC_API_KEY"
+}

@@ -644,7 +644,17 @@ fn real() -> Result<u8, String> {
             run_agent(&app, &a.id.clone(), args)
         }
         Some(Cmd::Limits { action, name, yes }) => match (action.as_deref(), name) {
-            (None, _) => show_overview(&app, cli.json),
+            (None, _) => {
+                // Ask every tool fresh first; a failed check leaves the saved numbers to show.
+                let r = app.roster()?;
+                roster_core::usage::refresh_all(
+                    &r,
+                    &app.p,
+                    &env_var("PATH").unwrap_or_default(),
+                    &roster_core::usage::usage_runner(&app.p),
+                );
+                show_overview(&app, cli.json)
+            }
             (Some(act), Some(name)) => {
                 let r = app.roster()?;
                 let plan = if act == "enable" {

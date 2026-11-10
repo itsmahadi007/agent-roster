@@ -177,23 +177,37 @@ pub fn sign_in_for(
     tool_path: &Path,
     runner: &dyn CommandRunner,
 ) -> SignIn {
+    ask_sign_in(agent, r, p, tool_path, runner).unwrap_or_default()
+}
+
+/// Asks the tool whether an agent is signed in. `None` when the tool could not be asked
+/// (timed out, crashed, printed something unreadable): that is not "signed out".
+pub fn ask_sign_in(
+    agent: &Agent,
+    r: &Roster,
+    p: &RosterPaths,
+    tool_path: &Path,
+    runner: &dyn CommandRunner,
+) -> Option<SignIn> {
     let env = crate::run::build_env(agent, r, p, None);
     match agent.tool {
-        Tool::Claude => match runner.run(tool_path, &["auth", "status", "--json"], &env) {
-            Ok(out) => parse_claude_status(&String::from_utf8_lossy(&out.stdout)),
-            Err(_) => SignIn::default(),
-        },
-        Tool::Codex => match runner.run(tool_path, &["login", "status"], &env) {
-            Ok(out) => {
-                let text = format!(
-                    "{}{}",
-                    String::from_utf8_lossy(&out.stdout),
-                    String::from_utf8_lossy(&out.stderr)
-                );
-                parse_codex_status(&text, out.status.success())
-            }
-            Err(_) => SignIn::default(),
-        },
+        Tool::Claude => {
+            let out = runner
+                .run(tool_path, &["auth", "status", "--json"], &env)
+                .ok()?;
+            let json = String::from_utf8_lossy(&out.stdout);
+            crate::usage::claude_health(&json)?;
+            Some(parse_claude_status(&json))
+        }
+        Tool::Codex => {
+            let out = runner.run(tool_path, &["login", "status"], &env).ok()?;
+            let text = format!(
+                "{}{}",
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            );
+            Some(parse_codex_status(&text, out.status.success()))
+        }
     }
 }
 
