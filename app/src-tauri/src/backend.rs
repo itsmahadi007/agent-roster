@@ -187,6 +187,9 @@ pub struct Backend {
     login_seq: AtomicU64,
     /// A sign-in just finished: the next usage check skips the 30 s wait.
     check_now: AtomicBool,
+    /// Tests: runs right after `end_login` took its login out.
+    #[cfg(test)]
+    pub(crate) after_take: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
 
 /// In-app sign-ins in progress, one per agent at most.
@@ -260,6 +263,8 @@ impl Backend {
             logins: Mutex::new(Logins::default()),
             login_seq: AtomicU64::new(1),
             check_now: AtomicBool::new(false),
+            #[cfg(test)]
+            after_take: Mutex::new(None),
         }
     }
 
@@ -345,20 +350,25 @@ impl Backend {
                 Ok(())
             }
             Err(e) => {
-                self.take_login(&id, seq);
+                self.take_login(&id, seq, false);
                 Err(e)
             }
         }
     }
 
-    /// Removes this login if it is still the current one for its agent.
-    fn take_login(&self, id: &str, seq: u64) -> Option<ActiveLogin> {
+    /// Removes this login if it is still the current one for its agent. With `cancel`, a
+    /// login whose handle hasn't come back yet is marked, under the same lock, to be
+    /// canceled when it does: `sign_in_in_app` then always sees either the login or the mark.
+    fn take_login(&self, id: &str, seq: u64, cancel: bool) -> Option<ActiveLogin> {
         let mut l = self.logins();
-        if l.active.get(id).is_some_and(|a| a.seq == seq) {
-            l.active.remove(id)
-        } else {
-            None
+        if !l.active.get(id).is_some_and(|a| a.seq == seq) {
+            return None;
         }
+        let a = l.active.remove(id)?;
+        if cancel && a.handle.is_none() {
+            l.cancel_later.insert(seq);
+        }
+        Some(a)
     }
 
     fn login_event(self: &Arc<Self>, who: &Who, e: LoginEvent) {
@@ -408,16 +418,15 @@ impl Backend {
     /// Ends this login once: cancels it when asked, closes its window, tells the main window,
     /// and after a sign-in asks for a usage check right away.
     fn end_login(&self, who: &Who, how: Ended, cancel: bool) {
-        let Some(a) = self.take_login(&who.id, who.seq) else {
+        let Some(a) = self.take_login(&who.id, who.seq, cancel) else {
             return;
         };
-        if cancel {
-            match a.handle {
-                Some(h) => h.cancel(),
-                None => {
-                    self.logins().cancel_later.insert(who.seq);
-                }
-            }
+        #[cfg(test)]
+        if let Some(hook) = self.after_take.lock().unwrap().clone() {
+            hook();
+        }
+        if cancel && let Some(h) = a.handle {
+            h.cancel();
         }
         let Some(ui) = self.login_ui.get().cloned() else {
             return;

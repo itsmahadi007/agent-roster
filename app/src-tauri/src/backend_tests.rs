@@ -69,6 +69,9 @@ impl LoginUi for FakeUi {
 }
 
 impl FakeUi {
+    fn is_open(&self, agent_id: &str) -> bool {
+        self.hooks.lock().unwrap().contains_key(agent_id)
+    }
     /// The person closes the window with its X.
     fn person_closes(&self, agent_id: &str) {
         let h = self.hooks.lock().unwrap().remove(agent_id).expect("open");
@@ -110,6 +113,9 @@ struct FakeLogin {
     events: Mutex<Vec<Arc<OnEvent>>>,
     cancels: Arc<AtomicUsize>,
     refuse: Mutex<Option<String>>,
+    /// When set, the next start hands over its link at once, then waits for this before it
+    /// hands back its handle.
+    hold: Mutex<Option<std::sync::mpsc::Receiver<()>>>,
 }
 
 impl FakeLogin {
@@ -121,6 +127,11 @@ impl FakeLogin {
             }
             let on_event = Arc::new(on_event);
             me.events.lock().unwrap().push(Arc::clone(&on_event));
+            let hold = me.hold.lock().unwrap().take();
+            if let Some(release) = hold {
+                on_event(LoginEvent::Link("https://auth.openai.com/a".into()));
+                let _ = release.recv();
+            }
             let cancels = Arc::clone(&me.cancels);
             Ok(LoginHandle::new(Box::new(move || {
                 cancels.fetch_add(1, Ordering::SeqCst);
@@ -859,4 +870,44 @@ fn a_login_that_cannot_start_says_why_and_can_be_tried_again() {
     w.b.sign_in_in_app("boss").unwrap();
     assert_eq!(w.login.started(), 1);
     assert!(w.b.sign_in_in_app("nobody").is_err());
+}
+
+fn wait_until(what: &str, f: impl Fn() -> bool) {
+    let started = Instant::now();
+    while !f() {
+        assert!(started.elapsed() < Duration::from_secs(5), "{what}");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+/// The window is closed while the tool's login is still starting, and its handle comes back
+/// right in the middle of that cancel: it must still be canceled, never dropped running.
+#[test]
+fn a_handle_returned_while_its_cancel_is_in_flight_is_canceled() {
+    let w = world();
+    w.add("boss");
+    let id = boss_id(&w);
+    let (release, held) = std::sync::mpsc::channel();
+    *w.login.hold.lock().unwrap() = Some(held);
+    let (in_cancel_tx, in_cancel) = std::sync::mpsc::channel();
+    let (go, go_rx) = std::sync::mpsc::channel::<()>();
+    let go_rx = Mutex::new(go_rx);
+    *w.b.after_take.lock().unwrap() = Some(Arc::new(move || {
+        let _ = in_cancel_tx.send(());
+        let _ = go_rx.lock().unwrap().recv();
+    }));
+    let b = Arc::clone(&w.b);
+    let starting = std::thread::spawn(move || b.sign_in_in_app("boss"));
+    wait_until("the window never opened", || w.ui.is_open(&id));
+    let (ui, closed_id) = (Arc::clone(&w.ui), id.clone());
+    let closing = std::thread::spawn(move || ui.person_closes(&closed_id));
+    in_cancel
+        .recv_timeout(Duration::from_secs(5))
+        .expect("the cancel started");
+    // The cancel is in flight: now the tool's login hands back its handle.
+    release.send(()).unwrap();
+    starting.join().unwrap().unwrap();
+    go.send(()).unwrap();
+    closing.join().unwrap();
+    assert_eq!(w.login.cancels(), 1, "the login was left running");
 }
