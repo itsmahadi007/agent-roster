@@ -691,6 +691,13 @@ fn real() -> Result<u8, String> {
 }
 
 fn main() -> ExitCode {
+    // Started by `claude auth login` as its BROWSER for an in-app sign-in: hand the link
+    // over and stop. With those variables set, nothing else ever runs.
+    let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
+    if let Some(code) = roster_core::login::bridge::browser_handoff(&|k| std::env::var_os(k), &args)
+    {
+        return ExitCode::from(code);
+    }
     match real() {
         Ok(code) => ExitCode::from(code),
         Err(e) => {

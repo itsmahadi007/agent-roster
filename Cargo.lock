@@ -20,6 +20,7 @@ dependencies = [
  "roster-core",
  "serde_json",
  "tempfile",
+ "which",
 ]
 
 [[package]]
@@ -3219,6 +3220,7 @@ dependencies = [
  "sha2 0.11.1",
  "tempfile",
  "toml 1.2.1+spec-1.1.0",
+ "url",
  "which",
  "windows-sys 0.61.2",
  "winreg",
