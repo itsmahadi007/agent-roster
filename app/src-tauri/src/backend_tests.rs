@@ -3,7 +3,7 @@ use crate::sign_in::{
     LoginUi, LoginWindowSpec, NEEDS_BROWSER, OnEvent, SignInUpdate, SignInWith, WindowHooks,
 };
 use roster_core::detect::SignIn;
-use roster_core::login::{LoginEvent, LoginHandle};
+use roster_core::login::{EndSignal, LoginEvent, LoginHandle};
 use roster_core::model::Tool;
 use roster_core::names::CommandLookup;
 use roster_core::paths::{Platform, RosterPaths};
@@ -29,15 +29,19 @@ struct World {
     login: Arc<FakeLogin>,
 }
 
-/// Login windows that are only recorded. Closing one reports it closed, as a real one does.
+/// Login windows that are only recorded, by agent and login. Closing one reports it closed,
+/// as a real one does.
 #[derive(Default)]
 struct FakeUi {
     opened: Mutex<Vec<LoginWindowSpec>>,
-    hooks: Mutex<HashMap<String, WindowHooks>>,
-    closed: Mutex<Vec<String>>,
-    focused: Mutex<Vec<String>>,
+    hooks: Mutex<HashMap<(String, u64), WindowHooks>>,
+    closed: Mutex<Vec<(String, u64)>>,
+    focused: Mutex<Vec<(String, u64)>>,
     updates: Mutex<Vec<SignInUpdate>>,
     refuse: Mutex<Option<String>>,
+    /// The page goes somewhere it may not while the window is still being made: the
+    /// window's hooks run before `open` returns.
+    blocked_while_opening: Mutex<bool>,
 }
 
 impl LoginUi for FakeUi {
@@ -45,20 +49,25 @@ impl LoginUi for FakeUi {
         if let Some(e) = self.refuse.lock().unwrap().clone() {
             return Err(e);
         }
+        if *self.blocked_while_opening.lock().unwrap() {
+            (hooks.on_blocked)();
+        }
         self.opened.lock().unwrap().push(spec.clone());
         self.hooks
             .lock()
             .unwrap()
-            .insert(spec.agent_id.clone(), hooks);
+            .insert((spec.agent_id.clone(), spec.login), hooks);
         Ok(())
     }
-    fn focus(&self, agent_id: &str) -> bool {
-        self.focused.lock().unwrap().push(agent_id.into());
-        self.hooks.lock().unwrap().contains_key(agent_id)
+    fn focus(&self, agent_id: &str, login: u64) -> bool {
+        let key = (agent_id.to_string(), login);
+        self.focused.lock().unwrap().push(key.clone());
+        self.hooks.lock().unwrap().contains_key(&key)
     }
-    fn close(&self, agent_id: &str) {
-        self.closed.lock().unwrap().push(agent_id.into());
-        let h = self.hooks.lock().unwrap().remove(agent_id);
+    fn close(&self, agent_id: &str, login: u64) {
+        let key = (agent_id.to_string(), login);
+        self.closed.lock().unwrap().push(key.clone());
+        let h = self.hooks.lock().unwrap().remove(&key);
         if let Some(h) = h {
             (h.on_closed)();
         }
@@ -69,20 +78,49 @@ impl LoginUi for FakeUi {
 }
 
 impl FakeUi {
+    /// The agent's open window, if any: its login.
+    fn open_login(&self, agent_id: &str) -> Option<u64> {
+        self.hooks
+            .lock()
+            .unwrap()
+            .keys()
+            .find(|(a, _)| a == agent_id)
+            .map(|(_, n)| *n)
+    }
+    fn is_open(&self, agent_id: &str) -> bool {
+        self.open_login(agent_id).is_some()
+    }
+    fn key(&self, agent_id: &str) -> (String, u64) {
+        (
+            agent_id.to_string(),
+            self.open_login(agent_id).expect("open"),
+        )
+    }
+    /// Agent ids of the windows closed, in order.
+    fn closed_ids(&self) -> Vec<String> {
+        self.closed
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(a, _)| a.clone())
+            .collect()
+    }
     /// The person closes the window with its X.
     fn person_closes(&self, agent_id: &str) {
-        let h = self.hooks.lock().unwrap().remove(agent_id).expect("open");
+        let key = self.key(agent_id);
+        let h = self.hooks.lock().unwrap().remove(&key).expect("open");
         (h.on_closed)();
     }
     /// The page tried to go somewhere the window may not show.
     fn page_blocked(&self, agent_id: &str) {
         // Taken out while it runs: the backend closes the window from inside the hook.
-        let h = self.hooks.lock().unwrap().remove(agent_id).expect("open");
+        let key = self.key(agent_id);
+        let h = self.hooks.lock().unwrap().remove(&key).expect("open");
         (h.on_blocked)();
-        if self.closed.lock().unwrap().iter().any(|c| c == agent_id) {
+        if self.closed.lock().unwrap().contains(&key) {
             (h.on_closed)();
         } else {
-            self.hooks.lock().unwrap().insert(agent_id.into(), h);
+            self.hooks.lock().unwrap().insert(key, h);
         }
     }
     fn last(&self) -> SignInUpdate {
@@ -110,6 +148,12 @@ struct FakeLogin {
     events: Mutex<Vec<Arc<OnEvent>>>,
     cancels: Arc<AtomicUsize>,
     refuse: Mutex<Option<String>>,
+    /// When set, the next start hands over its link at once, then waits for this before it
+    /// hands back its handle.
+    hold: Mutex<Option<std::sync::mpsc::Receiver<()>>>,
+    /// How long a canceled login takes to stop what it started; `None`: it never does.
+    cleanup: Mutex<Option<Duration>>,
+    stopped: Arc<AtomicUsize>,
 }
 
 impl FakeLogin {
@@ -121,11 +165,37 @@ impl FakeLogin {
             }
             let on_event = Arc::new(on_event);
             me.events.lock().unwrap().push(Arc::clone(&on_event));
+            let hold = me.hold.lock().unwrap().take();
+            if let Some(release) = hold {
+                on_event(LoginEvent::Link("https://auth.openai.com/a".into()));
+                let _ = release.recv();
+            }
             let cancels = Arc::clone(&me.cancels);
-            Ok(LoginHandle::new(Box::new(move || {
-                cancels.fetch_add(1, Ordering::SeqCst);
-                on_event(LoginEvent::Failed("canceled".into()));
-            })))
+            let (end, stopped) = (EndSignal::default(), Arc::clone(&me.stopped));
+            let cleanup = *me.cleanup.lock().unwrap();
+            let ended = end.clone();
+            Ok(LoginHandle::with_end(
+                Box::new(move || {
+                    cancels.fetch_add(1, Ordering::SeqCst);
+                    on_event(LoginEvent::Failed("canceled".into()));
+                    let (end, stopped) = (end.clone(), Arc::clone(&stopped));
+                    match cleanup {
+                        Some(d) if d.is_zero() => {
+                            stopped.fetch_add(1, Ordering::SeqCst);
+                            end.signal();
+                        }
+                        Some(d) => {
+                            std::thread::spawn(move || {
+                                std::thread::sleep(d);
+                                stopped.fetch_add(1, Ordering::SeqCst);
+                                end.signal();
+                            });
+                        }
+                        None => {}
+                    }
+                }),
+                ended,
+            ))
         })
     }
     fn send(&self, e: LoginEvent) {
@@ -155,6 +225,7 @@ fn world_with(roster_bin: Option<PathBuf>) -> World {
     let rec = opened.clone();
     let scratch = d.path().join("scratch");
     let login = Arc::new(FakeLogin::default());
+    *login.cleanup.lock().unwrap() = Some(Duration::ZERO);
     let b = Backend::new(BackendConfig {
         login: login.starter(),
         path_var: p.bin_dir().display().to_string(),
@@ -726,6 +797,7 @@ fn the_sign_in_link_opens_the_login_window() {
         opened,
         [LoginWindowSpec {
             agent_id: boss_id(&w),
+            login: 1,
             agent_name: "boss".into(),
             tool_label: "Codex".into(),
             url: "https://auth.openai.com/oauth/authorize?x=1".into(),
@@ -746,7 +818,7 @@ fn a_second_click_focuses_the_open_window() {
         .send(LoginEvent::Link("https://auth.openai.com/a".into()));
     w.b.sign_in_in_app("boss").unwrap();
     assert_eq!(w.login.started(), 1);
-    assert_eq!(*w.ui.focused.lock().unwrap(), [boss_id(&w)]);
+    assert_eq!(*w.ui.focused.lock().unwrap(), [(boss_id(&w), 1)]);
     assert_eq!(w.ui.opened.lock().unwrap().len(), 1);
 }
 
@@ -762,9 +834,9 @@ fn done_closes_the_window_and_checks_usage_now() {
     w.login
         .send(LoginEvent::Link("https://auth.openai.com/a".into()));
     // The window stays open through every page; only the tool's own Done closes it.
-    assert!(w.ui.closed.lock().unwrap().is_empty());
+    assert!(w.ui.closed_ids().is_empty());
     w.login.send(LoginEvent::Done);
-    assert_eq!(*w.ui.closed.lock().unwrap(), [boss_id(&w)]);
+    assert_eq!(w.ui.closed_ids(), [boss_id(&w)]);
     assert_eq!(w.ui.states(), ["waiting", "done"]);
     assert_eq!(w.login.cancels(), 0, "a finished login is not canceled");
     assert!(w.b.take_wanted());
@@ -772,9 +844,16 @@ fn done_closes_the_window_and_checks_usage_now() {
         w.b.refresh_usage().unwrap(),
         "the check after a sign-in skips the wait"
     );
-    // The next sign-in starts a new login.
+    // The next sign-in starts a new login, with its own window: only that one is closed
+    // or focused from now on.
     w.b.sign_in_in_app("boss").unwrap();
     assert_eq!(w.login.started(), 2);
+    w.login
+        .send(LoginEvent::Link("https://auth.openai.com/b".into()));
+    assert_eq!(w.ui.open_login(&boss_id(&w)), Some(2));
+    w.b.sign_in_in_app("boss").unwrap();
+    assert_eq!(*w.ui.focused.lock().unwrap(), [(boss_id(&w), 2)]);
+    assert_eq!(*w.ui.closed.lock().unwrap(), [(boss_id(&w), 1)]);
 }
 
 #[test]
@@ -787,7 +866,7 @@ fn failed_closes_the_window_and_says_why() {
     w.login.send(LoginEvent::Failed(
         "Another Codex sign-in is open. Finish or close it first.".into(),
     ));
-    assert_eq!(*w.ui.closed.lock().unwrap(), [boss_id(&w)]);
+    assert_eq!(w.ui.closed_ids(), [boss_id(&w)]);
     let u = w.ui.last();
     assert_eq!(u.state, "failed");
     assert_eq!(
@@ -821,7 +900,7 @@ fn a_page_the_window_may_not_show_sends_the_person_to_the_browser() {
         .send(LoginEvent::Link("https://auth.openai.com/a".into()));
     w.ui.page_blocked(&boss_id(&w));
     assert_eq!(w.login.cancels(), 1);
-    assert_eq!(*w.ui.closed.lock().unwrap(), [boss_id(&w)]);
+    assert_eq!(w.ui.closed_ids(), [boss_id(&w)]);
     let u = w.ui.last();
     assert_eq!(
         (u.state, u.reason.as_deref()),
@@ -859,4 +938,99 @@ fn a_login_that_cannot_start_says_why_and_can_be_tried_again() {
     w.b.sign_in_in_app("boss").unwrap();
     assert_eq!(w.login.started(), 1);
     assert!(w.b.sign_in_in_app("nobody").is_err());
+}
+
+fn wait_until(what: &str, f: impl Fn() -> bool) {
+    let started = Instant::now();
+    while !f() {
+        assert!(started.elapsed() < Duration::from_secs(5), "{what}");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+/// The window is closed while the tool's login is still starting, and its handle comes back
+/// right in the middle of that cancel: it must still be canceled, never dropped running.
+#[test]
+fn a_handle_returned_while_its_cancel_is_in_flight_is_canceled() {
+    let w = world();
+    w.add("boss");
+    let id = boss_id(&w);
+    let (release, held) = std::sync::mpsc::channel();
+    *w.login.hold.lock().unwrap() = Some(held);
+    let (in_cancel_tx, in_cancel) = std::sync::mpsc::channel();
+    let (go, go_rx) = std::sync::mpsc::channel::<()>();
+    let go_rx = Mutex::new(go_rx);
+    *w.b.after_take.lock().unwrap() = Some(Arc::new(move || {
+        let _ = in_cancel_tx.send(());
+        let _ = go_rx.lock().unwrap().recv();
+    }));
+    let b = Arc::clone(&w.b);
+    let starting = std::thread::spawn(move || b.sign_in_in_app("boss"));
+    wait_until("the window never opened", || w.ui.is_open(&id));
+    let (ui, closed_id) = (Arc::clone(&w.ui), id.clone());
+    let closing = std::thread::spawn(move || ui.person_closes(&closed_id));
+    in_cancel
+        .recv_timeout(Duration::from_secs(5))
+        .expect("the cancel started");
+    // The cancel is in flight: now the tool's login hands back its handle.
+    release.send(()).unwrap();
+    starting.join().unwrap().unwrap();
+    go.send(()).unwrap();
+    closing.join().unwrap();
+    assert_eq!(w.login.cancels(), 1, "the login was left running");
+}
+
+/// Quitting Agent Roster cancels every sign-in in progress and waits for each to stop what
+/// it started (on macOS and Linux nothing else would stop the tool's processes).
+#[test]
+fn quitting_cancels_every_sign_in_and_waits_for_it_to_stop() {
+    let w = world();
+    w.add("boss");
+    w.add("kid");
+    *w.login.cleanup.lock().unwrap() = Some(Duration::from_millis(200));
+    w.b.sign_in_in_app("boss").unwrap();
+    w.login
+        .send(LoginEvent::Link("https://auth.openai.com/a".into()));
+    w.b.sign_in_in_app("kid").unwrap();
+    w.login
+        .send(LoginEvent::Link("https://auth.openai.com/b".into()));
+    assert_eq!(w.b.cancel_all_logins(Duration::from_secs(3)), 2);
+    assert_eq!(w.login.cancels(), 2);
+    assert_eq!(
+        w.login.stopped.load(Ordering::SeqCst),
+        2,
+        "returned before the logins stopped"
+    );
+    // Nothing new starts while the app closes.
+    assert!(w.b.sign_in_in_app("boss").is_err());
+    assert_eq!(w.login.started(), 2);
+}
+
+#[test]
+fn quitting_waits_for_a_stuck_sign_in_only_so_long() {
+    let w = world();
+    w.add("boss");
+    *w.login.cleanup.lock().unwrap() = None;
+    w.b.sign_in_in_app("boss").unwrap();
+    w.login
+        .send(LoginEvent::Link("https://auth.openai.com/a".into()));
+    let t = Instant::now();
+    assert_eq!(w.b.cancel_all_logins(Duration::from_millis(300)), 1);
+    assert!(t.elapsed() < Duration::from_secs(2));
+    assert_eq!(w.login.cancels(), 1);
+}
+
+/// The login ends (here: the first page is refused) while its window is still being made.
+/// The window must not stay open, and the main window must not hear "waiting" after "failed".
+#[test]
+fn a_login_that_ends_while_its_window_opens_closes_it() {
+    let w = world();
+    w.add("boss");
+    *w.ui.blocked_while_opening.lock().unwrap() = true;
+    w.b.sign_in_in_app("boss").unwrap();
+    w.login
+        .send(LoginEvent::Link("https://auth.openai.com/a".into()));
+    assert_eq!(w.ui.states(), ["failed"]);
+    assert!(!w.ui.is_open(&boss_id(&w)), "the window was left open");
+    assert_eq!(w.login.cancels(), 1);
 }

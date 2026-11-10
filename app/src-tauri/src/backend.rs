@@ -34,6 +34,9 @@ pub const STALE: &str =
     "Your roster changed since this preview. Look at the new preview before applying.";
 const MAX_PENDING: usize = 16;
 pub const EXPIRED: &str = "That preview has expired. Look at it again.";
+pub const CLOSING: &str = "Agent Roster is closing.";
+/// How long quitting waits for sign-ins in progress to stop what they started.
+pub const EXIT_WAIT: Duration = Duration::from_secs(3);
 /// How often the app asks every tool for usage on its own.
 pub const USAGE_EVERY: Duration = Duration::from_secs(5 * 60);
 /// The shortest time between two usage checks (Refresh clicked again and again).
@@ -187,6 +190,9 @@ pub struct Backend {
     login_seq: AtomicU64,
     /// A sign-in just finished: the next usage check skips the 30 s wait.
     check_now: AtomicBool,
+    /// Tests: runs right after `end_login` took its login out.
+    #[cfg(test)]
+    pub(crate) after_take: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
 
 /// In-app sign-ins in progress, one per agent at most.
@@ -195,6 +201,8 @@ struct Logins {
     active: HashMap<String, ActiveLogin>,
     /// Logins whose window closed before their handle came back: canceled when it does.
     cancel_later: HashSet<u64>,
+    /// The app is quitting: no new sign-in starts.
+    closing: bool,
 }
 
 struct ActiveLogin {
@@ -260,6 +268,8 @@ impl Backend {
             logins: Mutex::new(Logins::default()),
             login_seq: AtomicU64::new(1),
             check_now: AtomicBool::new(false),
+            #[cfg(test)]
+            after_take: Mutex::new(None),
         }
     }
 
@@ -300,9 +310,13 @@ impl Backend {
         let id = agent.id.clone();
         let seq = {
             let mut l = self.logins();
-            if l.active.contains_key(&id) {
+            if l.closing {
+                return Err(CLOSING.into());
+            }
+            if let Some(a) = l.active.get(&id) {
+                let current = a.seq;
                 drop(l);
-                ui.focus(&id);
+                ui.focus(&id, current);
                 return Ok(());
             }
             let seq = self.login_seq.fetch_add(1, Ordering::Relaxed);
@@ -345,20 +359,25 @@ impl Backend {
                 Ok(())
             }
             Err(e) => {
-                self.take_login(&id, seq);
+                self.take_login(&id, seq, false);
                 Err(e)
             }
         }
     }
 
-    /// Removes this login if it is still the current one for its agent.
-    fn take_login(&self, id: &str, seq: u64) -> Option<ActiveLogin> {
+    /// Removes this login if it is still the current one for its agent. With `cancel`, a
+    /// login whose handle hasn't come back yet is marked, under the same lock, to be
+    /// canceled when it does: `sign_in_in_app` then always sees either the login or the mark.
+    fn take_login(&self, id: &str, seq: u64, cancel: bool) -> Option<ActiveLogin> {
         let mut l = self.logins();
-        if l.active.get(id).is_some_and(|a| a.seq == seq) {
-            l.active.remove(id)
-        } else {
-            None
+        if !l.active.get(id).is_some_and(|a| a.seq == seq) {
+            return None;
         }
+        let a = l.active.remove(id)?;
+        if cancel && a.handle.is_none() {
+            l.cancel_later.insert(seq);
+        }
+        Some(a)
     }
 
     fn login_event(self: &Arc<Self>, who: &Who, e: LoginEvent) {
@@ -377,6 +396,7 @@ impl Backend {
                 }
                 let spec = LoginWindowSpec {
                     agent_id: who.id.clone(),
+                    login: who.seq,
                     agent_name: who.name.clone(),
                     tool_label: who.tool_label.clone(),
                     url,
@@ -396,7 +416,18 @@ impl Backend {
                     }),
                 };
                 match ui.open(&spec, hooks) {
-                    Ok(()) => ui.notify(&who.update("waiting", None)),
+                    Ok(()) => {
+                        // The login may have ended while its window was being made: then
+                        // the window goes, and "waiting" never follows "done" or "failed".
+                        // Said under the lock, so an end can only come after it.
+                        let l = self.logins();
+                        if l.active.get(&who.id).is_some_and(|a| a.seq == who.seq) {
+                            ui.notify(&who.update("waiting", None));
+                        } else {
+                            drop(l);
+                            ui.close(&who.id, who.seq);
+                        }
+                    }
                     Err(reason) => self.end_login(who, Ended::Failed(reason), true),
                 }
             }
@@ -408,22 +439,21 @@ impl Backend {
     /// Ends this login once: cancels it when asked, closes its window, tells the main window,
     /// and after a sign-in asks for a usage check right away.
     fn end_login(&self, who: &Who, how: Ended, cancel: bool) {
-        let Some(a) = self.take_login(&who.id, who.seq) else {
+        let Some(a) = self.take_login(&who.id, who.seq, cancel) else {
             return;
         };
-        if cancel {
-            match a.handle {
-                Some(h) => h.cancel(),
-                None => {
-                    self.logins().cancel_later.insert(who.seq);
-                }
-            }
+        #[cfg(test)]
+        if let Some(hook) = self.after_take.lock().unwrap().clone() {
+            hook();
+        }
+        if cancel && let Some(h) = a.handle {
+            h.cancel();
         }
         let Some(ui) = self.login_ui.get().cloned() else {
             return;
         };
         if !matches!(how, Ended::Canceled) {
-            ui.close(&who.id);
+            ui.close(&who.id, who.seq);
         }
         let u = match how {
             Ended::Done => {
@@ -434,6 +464,36 @@ impl Backend {
             Ended::Canceled => who.update("canceled", None),
         };
         ui.notify(&u);
+    }
+
+    /// For app exit: cancels every sign-in in progress and waits, at most `within` in all,
+    /// for each to stop the processes it started (on macOS and Linux nothing else stops them).
+    /// No sign-in starts afterwards. Returns how many were canceled.
+    pub fn cancel_all_logins(&self, within: Duration) -> usize {
+        let deadline = Instant::now() + within;
+        let handles: Vec<LoginHandle> = {
+            let mut l = self.logins();
+            l.closing = true;
+            let all: Vec<ActiveLogin> = l.active.drain().map(|(_, a)| a).collect();
+            let mut handles = vec![];
+            for a in all {
+                match a.handle {
+                    Some(h) => handles.push(h),
+                    // Still starting: canceled the moment its handle comes back.
+                    None => {
+                        l.cancel_later.insert(a.seq);
+                    }
+                }
+            }
+            handles
+        };
+        for h in &handles {
+            h.cancel();
+        }
+        for h in &handles {
+            h.wait_ended(deadline.saturating_duration_since(Instant::now()));
+        }
+        handles.len()
     }
 
     /// A sign-in just finished: the usage loop checks now, skipping the 30 s wait once, and
