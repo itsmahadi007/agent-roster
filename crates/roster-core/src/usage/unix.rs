@@ -16,6 +16,24 @@ pub fn hide(cmd: &mut Command) -> &mut Command {
     cmd.process_group(0)
 }
 
+/// Spawns with the caller's stdin, stdout and stderr as the leader of a new session, and so
+/// of a new process group, so `kill_tree` stops everything the child starts. A new session
+/// rather than only a new group: the child has no terminal, so an interactive shell in it
+/// can't stop itself waiting to take the terminal over. Not for a command already given
+/// to `hide`: a group leader can't start a session.
+pub fn spawn_contained(cmd: &mut Command) -> std::io::Result<Child> {
+    // SAFETY: `setsid` is async-signal-safe and only changes the new child.
+    unsafe {
+        cmd.pre_exec(|| {
+            if libc::setsid() == -1 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    cmd.spawn()
+}
+
 /// Spawns in its own process group with stdin and stdout piped and stderr discarded.
 pub fn spawn_piped(cmd: &mut Command) -> std::io::Result<Child> {
     hide(cmd)
