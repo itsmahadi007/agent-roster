@@ -66,6 +66,8 @@ pub struct AgentView {
     pub reset_text: Option<String>,
     pub reset_hot: bool,
     pub limits_note: Option<String>,
+    /// For the drawer when a limit is used up: which one, and when it resets.
+    pub limit_text: Option<String>,
     /// The account as the row shows it: ok, sign-in, no-subscription, limit-reached,
     /// not-installed, checking or unreachable.
     pub health: String,
@@ -211,33 +213,74 @@ impl Shown {
     }
 }
 
+/// The limit that is used up: a window at 100% whose reset has not passed. When several
+/// are, the one that resets last, since the agent waits for that one.
+pub fn full_window(windows: &[LimitWindow], now: i64) -> Option<&LimitWindow> {
+    windows
+        .iter()
+        .filter(|w| rounded(w) >= 100 && !(w.resets_at > 0 && w.resets_at <= now))
+        .max_by_key(|w| w.resets_at)
+}
+
+/// "weekly limit", "5-hour limit".
+fn limit_name(label: &str) -> String {
+    if label == "week" {
+        "weekly limit".into()
+    } else if let Some(h) = label.strip_suffix(" hr") {
+        format!("{h}-hour limit")
+    } else if let Some(m) = label.strip_suffix(" min") {
+        format!("{m}-minute limit")
+    } else {
+        format!("{label} limit")
+    }
+}
+
+fn windows_of(s: &AgentStatus) -> &[LimitWindow] {
+    s.limits
+        .as_ref()
+        .map(|l| l.windows.as_slice())
+        .unwrap_or(&[])
+}
+
 /// Puts together what the tools say right now (installed, signed in) with what the last
 /// usage check learned. Never "sign in" for a tool that only failed to answer.
+///
+/// A check's "signed out" or "no subscription" is believed even when the cheap status
+/// command says signed in (an expired Codex login still reads "Logged in"). "checking" means
+/// no check has finished since the agent was added, or since the app saw it sign in or get
+/// installed (`signed_in_at`); one finished check always ends it.
 pub fn shown_health(s: &AgentStatus, now: i64) -> Shown {
     match s.state {
         AgentState::NotInstalled => return Shown::NotInstalled,
         AgentState::NeedsSignIn => return Shown::SignIn,
         AgentState::Ready | AgentState::Working => {}
     }
-    let week = s.limits.as_ref().and_then(|l| weekly(&l.windows));
-    let reset_passed = week.is_some_and(|w| w.resets_at > 0 && w.resets_at <= now);
-    let full = week.is_some_and(|w| rounded(w) >= 100) && !reset_passed;
+    let windows = windows_of(s);
+    let week = weekly(windows);
+    let full = full_window(windows, now).is_some();
     let saved = s.health.as_ref();
+    let checked_at = saved.map(|h| h.checked_at).unwrap_or(0);
+    let changed = saved.is_some() && s.signed_in_at.is_some_and(|t| t > checked_at);
     match saved.and_then(SavedHealth::effective) {
+        // Signed in or installed after that check: the next one is awaited.
+        _ if changed => Shown::Checking,
+        Some(Health::SignedOut) => Shown::SignIn,
+        // The overview finds the tool, but the check could not.
+        Some(Health::NotInstalled) => Shown::Unreachable,
         Some(Health::NoSubscription) => Shown::NoSubscription,
         _ if full => Shown::LimitReached,
         Some(Health::LimitReached) => {
             // Numbers newer than that check (the status line) or a passed reset overrule it.
-            let checked_at = saved.map(|h| h.checked_at).unwrap_or(0);
             let newer = s.limits.as_ref().is_some_and(|l| l.as_of > checked_at);
+            let reset_passed = windows.iter().any(|w| {
+                (rounded(w) >= 100 || w.label == "week") && w.resets_at > 0 && w.resets_at <= now
+            });
             if newer || reset_passed {
                 Shown::Ok
             } else {
                 Shown::LimitReached
             }
         }
-        // That check came before this sign-in or install: the next one is awaited.
-        Some(Health::SignedOut | Health::NotInstalled) => Shown::Checking,
         _ if saved.is_some_and(SavedHealth::stale) => Shown::Unreachable,
         Some(_) => Shown::Ok,
         None if week.is_some() => Shown::Ok,
@@ -245,21 +288,46 @@ pub fn shown_health(s: &AgentStatus, now: i64) -> Shown {
     }
 }
 
+/// The limit that is used up ("5-hour limit") and its reset ("resets in 2h 10m"), when a
+/// window is at 100%. `None` when only the tool said a limit is reached.
+fn used_up(s: &AgentStatus, now: i64) -> Option<(String, Option<String>)> {
+    full_window(windows_of(s), now).map(|w| {
+        (
+            limit_name(&w.label),
+            (w.resets_at > now).then(|| reset_phrase(w.resets_at, now)),
+        )
+    })
+}
+
+/// "5-hour limit reached, resets in 2h 10m", or "limit reached" when no window is full.
+fn limit_reached_words(s: &AgentStatus, now: i64) -> String {
+    match used_up(s, now) {
+        Some((limit, Some(reset))) => format!("{limit} reached, {reset}"),
+        Some((limit, None)) => format!("{limit} reached"),
+        None => "limit reached".into(),
+    }
+}
+
+/// The drawer's sentence for a used-up limit.
+fn limit_text(s: &AgentStatus, now: i64) -> String {
+    let name = &s.agent.name;
+    match used_up(s, now) {
+        Some((limit, Some(reset))) => format!("{name} has used its {limit}; it {reset}."),
+        Some((limit, None)) => format!("{name} has used its {limit}."),
+        None => format!("{name} has reached a usage limit."),
+    }
+}
+
 /// The short words for an agent's usage when the row has no numbers to show, or has to say
 /// more than numbers. Shared by the app and `roster`.
 pub fn usage_note(s: &AgentStatus, shown: Shown, now: i64) -> Option<String> {
-    let week = s.limits.as_ref().and_then(|l| weekly(&l.windows));
+    let week = weekly(windows_of(s));
     match shown {
         Shown::NotInstalled => Some("not installed".into()),
         Shown::SignIn => Some("sign in".into()),
         Shown::NoSubscription => Some("no subscription".into()),
         Shown::Checking if week.is_none() => Some("checking".into()),
-        Shown::LimitReached => Some(match week {
-            Some(w) if w.resets_at > now => {
-                format!("limit reached, {}", reset_phrase(w.resets_at, now))
-            }
-            _ => "limit reached".into(),
-        }),
+        Shown::LimitReached => Some(limit_reached_words(s, now)),
         Shown::Unreachable if week.is_none() => Some("couldn't check".into()),
         Shown::Ok if week.is_none() => Some(format!("usage shows after you use {}", s.agent.name)),
         _ => None,
@@ -287,6 +355,8 @@ fn agent_view(s: &AgentStatus, o: &Overview, now: i64) -> AgentView {
         .any(|c| c.agent_id == a.id || c.parent_id.as_deref() == Some(a.id.as_str()));
     let status_text = match calling {
         Some(child) => format!("calling {}", child.agent.name),
+        // The status command says signed in, but the last check found the login expired.
+        None if shown == Shown::SignIn => AgentState::NeedsSignIn.label().to_string(),
         None => s.state.label().to_string(),
     };
     let (reset_text, reset_hot) = match windows.first() {
@@ -303,7 +373,10 @@ fn agent_view(s: &AgentStatus, o: &Overview, now: i64) -> AgentView {
         (Shown::NotInstalled, _) => ("not installed".to_string(), false),
         (Shown::SignIn, _) => ("sign in".to_string(), false),
         (Shown::NoSubscription, _) => ("no subscription".to_string(), false),
-        (Shown::LimitReached, _) => ("limit reached".to_string(), true),
+        (Shown::LimitReached, _) => match used_up(s, now) {
+            Some((limit, _)) => (format!("{limit} reached"), true),
+            None => ("limit reached".to_string(), true),
+        },
         (_, Some(w)) => (format!("{}% {}", rounded(w), w.label), rounded(w) >= HOT),
         (Shown::Checking, None) => ("checking".to_string(), false),
         (_, None) => (String::new(), false),
@@ -342,6 +415,7 @@ fn agent_view(s: &AgentStatus, o: &Overview, now: i64) -> AgentView {
         reset_text,
         reset_hot,
         limits_note,
+        limit_text: (shown == Shown::LimitReached).then(|| limit_text(s, now)),
         health: shown.key().into(),
         as_of,
         claude_limits: (a.tool == Tool::Claude).then_some(a.limits != LimitsSource::Off),

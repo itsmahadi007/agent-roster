@@ -50,6 +50,26 @@ describe("AgentDrawer", () => {
     expect(invoke).toHaveBeenCalledWith("sign_in", { name: "agent2", app: null });
   });
 
+  it("an expired login the check found has a Sign in button, though the tool says ready", async () => {
+    invoke.mockResolvedValue(true);
+    mount(agent("boss", { state: "ready", health: "sign-in", limits_note: "sign in" }));
+    await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    expect(invoke).toHaveBeenCalledWith("sign_in", { name: "boss", app: null });
+  });
+
+  it("a used-up limit says which one and when it resets", () => {
+    mount(
+      agent("boss", {
+        health: "limit-reached",
+        reset_text: "resets in 5d 2h",
+        limits_note: "5-hour limit reached, resets in 2h 0m",
+        limit_text: "boss has used its 5-hour limit; it resets in 2h 0m.",
+      }),
+    );
+    expect(screen.getByText("boss has used its 5-hour limit; it resets in 2h 0m.")).toBeInTheDocument();
+    expect(screen.queryByText(/weekly limit/)).not.toBeInTheDocument();
+  });
+
   it("says where usage comes from, with no Show usage button", () => {
     mount(agent("agent2", { state: "ready", health: "ok", claude_limits: false }));
     expect(screen.getByText(/asks Claude Code itself/)).toBeInTheDocument();

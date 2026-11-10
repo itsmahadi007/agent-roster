@@ -88,11 +88,11 @@
         </span>
         <span class="use">
           {#if w && a.health === "limit-reached"}
+            <!-- Which limit is used up and its own reset: a 5-hour limit resets long before the week. -->
             <span class="line">
-              <span class="pc num hot">limit reached</span>
-              {#if a.reset_text}<span class="rs num hot">{a.reset_text}</span>{/if}
+              <span class="pc num hot">{a.limits_note ?? "limit reached"}</span>
             </span>
-            <span class="track"><i style:width="100%" style:background="var(--coral)"></i></span>
+            <span class="track"><i style:width="{w.used_percent}%" style:background="var(--coral)"></i></span>
           {:else if w}
             <span class="line">
               <span class="pc num" class:hot={w.hot}>{w.used_percent}% week</span>
@@ -101,7 +101,7 @@
             <span class="track"><i style:width="{w.used_percent}%" style:background={w.hot ? "var(--coral)" : a.color}></i></span>
             <span class="remaining num" class:hot={w.hot}>{Math.max(0, Math.min(100, 100 - w.used_percent))}% remaining</span>
             {#if a.as_of}<span class="asof">{a.as_of}</span>{/if}
-          {:else if a.state === "sign-in"}
+          {:else if a.health === "sign-in"}
             <span class="pc dim">sign in</span>
           {:else if a.health === "limit-reached"}
             <span class="pc hot">{a.limits_note ?? "limit reached"}</span>

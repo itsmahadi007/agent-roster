@@ -1,7 +1,10 @@
 use super::*;
+use roster_core::detect::SignIn;
 use roster_core::model::Tool;
 use roster_core::names::CommandLookup;
 use roster_core::paths::{Platform, RosterPaths};
+use roster_core::status::{AgentState, AgentStatus};
+use roster_core::usage::{Health, SavedHealth};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -453,4 +456,98 @@ fn refresh_usage_checks_and_saves_health() {
     );
     // A second click right after is skipped.
     assert!(!w.b.refresh_usage().unwrap());
+}
+
+/// One Codex agent as the overview finds it: signed in or not, and its last check.
+fn codex_overview(w: &World, signed_in: bool, check: Option<(Health, i64)>) -> Overview {
+    let agent = agent_of(w, "boss");
+    Overview {
+        agents: vec![AgentStatus {
+            agent,
+            state: if signed_in {
+                AgentState::Ready
+            } else {
+                AgentState::NeedsSignIn
+            },
+            sign_in: SignIn {
+                signed_in,
+                ..SignIn::default()
+            },
+            limits: None,
+            health: check.map(|(h, at)| SavedHealth {
+                health: h,
+                checked_at: at,
+                known: Some(h),
+            }),
+            sign_in_known: true,
+            signed_in_at: None,
+        }],
+        calls: vec![],
+        tools: vec![],
+    }
+}
+
+#[test]
+fn an_expired_codex_login_offers_sign_in_and_asks_for_no_check() {
+    let w = world();
+    w.add("boss");
+    // `codex login status` says logged in; app-server said signed out (expired-login.jsonl).
+    for t in [1000, 1010, 1020, 1030] {
+        let v =
+            w.b.view_of(codex_overview(&w, true, Some((Health::SignedOut, 900))), t);
+        assert_eq!(v.agents[0].health, "sign-in");
+        assert!(!w.b.take_wanted(), "asked for a check at {t}");
+    }
+}
+
+#[test]
+fn a_new_agent_asks_for_one_check() {
+    let w = world();
+    w.add("boss");
+    let v = w.b.view_of(codex_overview(&w, true, None), 1000);
+    assert_eq!(v.agents[0].health, "checking");
+    assert!(w.b.take_wanted());
+    // That check finished.
+    let v =
+        w.b.view_of(codex_overview(&w, true, Some((Health::Ok, 1005))), 1010);
+    assert_eq!(v.agents[0].health, "ok");
+    assert!(!w.b.take_wanted());
+}
+
+#[test]
+fn a_sign_in_seen_after_the_check_asks_for_the_next_one() {
+    let w = world();
+    w.add("boss");
+    let out = Some((Health::SignedOut, 900));
+    w.b.view_of(codex_overview(&w, false, out), 1000);
+    assert!(!w.b.take_wanted());
+    // Signed in from a terminal: the status command now says so.
+    let v = w.b.view_of(codex_overview(&w, true, out), 1010);
+    assert_eq!(v.agents[0].health, "checking");
+    assert!(w.b.take_wanted());
+    // The check after it says ok: nothing more is asked.
+    let v =
+        w.b.view_of(codex_overview(&w, true, Some((Health::Ok, 1020))), 1030);
+    assert_eq!(v.agents[0].health, "ok");
+    assert!(!w.b.take_wanted());
+}
+
+#[test]
+fn sign_in_from_the_app_asks_for_checks_until_one_says_it_worked() {
+    let w = world();
+    w.add("boss");
+    let t = roster_core::view::now();
+    let expired = |at| codex_overview(&w, true, Some((Health::SignedOut, at)));
+    w.b.view_of(expired(t - 100), t - 50);
+    assert!(!w.b.take_wanted());
+    // An expired login: the status command says logged in before and after `roster login`.
+    assert!(w.b.sign_in("boss", None).unwrap());
+    w.b.view_of(expired(t - 100), t + 10);
+    assert!(w.b.take_wanted());
+    w.b.view_of(expired(t + 40), t + 50);
+    assert!(w.b.take_wanted());
+    w.b.view_of(codex_overview(&w, true, Some((Health::Ok, t + 80))), t + 90);
+    assert!(!w.b.take_wanted());
+    w.b.view_of(expired(t + 100), t + 110);
+    assert!(!w.b.take_wanted());
 }

@@ -209,7 +209,8 @@
     newTag = "";
   }
 
-  const signedOut = $derived(agent.state === "sign-in");
+  // Also when the tool says signed in but the last check found the login expired.
+  const signedOut = $derived(agent.health === "sign-in");
   const noNumbers = $derived(agent.windows.length === 0);
   const live = $derived(agent.state === "working" || agent.live);
 </script>
@@ -260,7 +261,7 @@
           Couldn't reach {agent.tool_label} just now.{agent.as_of ? ` These numbers are ${agent.as_of}.` : " It tries again soon."}
         </p>
       {:else if agent.health === "limit-reached"}
-        <p class="usage-line hot">{agent.name} has used its weekly limit{agent.reset_text ? `; it ${agent.reset_text}` : ""}.</p>
+        <p class="usage-line hot">{agent.limit_text ?? `${agent.name} has reached a usage limit.`}</p>
       {:else if noNumbers}
         <p class="usage-line">Weekly use shows after you use {agent.name}. Type {agent.name} in a terminal and send one message.</p>
       {/if}
