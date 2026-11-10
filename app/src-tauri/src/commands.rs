@@ -54,11 +54,31 @@ pub async fn undo_all(b: State<'_, Arc<Backend>>) -> Result<usize, String> {
 }
 
 #[tauri::command]
-pub async fn sign_in(b: State<'_, Arc<Backend>>, name: String) -> Result<(), String> {
-    blocking(&b, move |b| b.sign_in(&name)).await
+pub async fn sign_in(
+    b: State<'_, Arc<Backend>>,
+    name: String,
+    app: Option<String>,
+) -> Result<bool, String> {
+    blocking(&b, move |b| b.sign_in(&name, app.as_deref())).await
 }
 
 #[tauri::command]
-pub async fn open_terminal_as(b: State<'_, Arc<Backend>>, name: String) -> Result<(), String> {
-    blocking(&b, move |b| b.open_terminal_as(&name)).await
+pub async fn open_terminal_as(
+    b: State<'_, Arc<Backend>>,
+    name: String,
+    app: Option<String>,
+) -> Result<bool, String> {
+    blocking(&b, move |b| b.open_terminal_as(&name, app.as_deref())).await
+}
+
+#[tauri::command]
+pub async fn terminals(
+    b: State<'_, Arc<Backend>>,
+) -> Result<Vec<roster_core::desktop::TerminalApp>, String> {
+    blocking(&b, |b| Ok(b.terminals())).await
+}
+
+#[tauri::command]
+pub async fn open_site(b: State<'_, Arc<Backend>>) -> Result<(), String> {
+    blocking(&b, |b| b.open_site()).await
 }

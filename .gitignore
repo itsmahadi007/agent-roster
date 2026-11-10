@@ -4,3 +4,4 @@ node_modules/
 /app/dist/
 .superpowers/
 assets/icon/*.log
+/app/src-tauri/binaries/

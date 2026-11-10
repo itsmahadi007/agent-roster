@@ -44,9 +44,21 @@ pub struct AgentView {
     pub tool: Tool,
     pub tool_label: String,
     pub color: String,
+    /// The palette name of `color`, as the color picker and `roster color` take it.
+    pub color_label: String,
     pub email: Option<String>,
     pub plan: Option<String>,
     pub default_label: Option<String>,
+    /// A bare `claude` or `codex` opens this agent.
+    pub default: bool,
+    /// The one line other agents see about it.
+    pub role: Option<String>,
+    /// Uses the skills of the main account.
+    pub share: bool,
+    /// What other agents read it's good at: the list someone set, or the tool's defaults.
+    pub good_at: Vec<String>,
+    /// True when someone set `good_at`; false when it shows the defaults.
+    pub good_at_custom: bool,
     pub state: String,
     pub status_text: String,
     pub windows: Vec<WindowView>,
@@ -211,15 +223,13 @@ fn agent_view(s: &AgentStatus, o: &Overview, now: i64) -> AgentView {
     let limits_note = if !windows.is_empty() {
         None
     } else {
-        Some(
-            match (s.state, a.tool, a.limits) {
-                (AgentState::NotInstalled, _, _) => "not installed",
-                (AgentState::NeedsSignIn, _, _) => "limits appear after sign in",
-                (_, Tool::Claude, LimitsSource::Off) => "limits off",
-                _ => "no limit data yet",
-            }
-            .to_string(),
-        )
+        // The tools write their usage down while they run, so numbers come with the next use.
+        Some(match (s.state, a.tool, a.limits) {
+            (AgentState::NotInstalled, _, _) => "not installed".to_string(),
+            (AgentState::NeedsSignIn, _, _) => "usage shows after sign in".to_string(),
+            (_, Tool::Claude, LimitsSource::Off) => "usage not shown".to_string(),
+            _ => format!("usage shows after you use {}", a.name),
+        })
     };
     let (tray_text, tray_hot) = match (s.state, main_window(&windows)) {
         (AgentState::NotInstalled, _) => ("not installed".to_string(), false),
@@ -233,6 +243,7 @@ fn agent_view(s: &AgentStatus, o: &Overview, now: i64) -> AgentView {
         tool: a.tool,
         tool_label: a.tool.display().to_string(),
         color: a.color.hex().to_string(),
+        color_label: a.color.label().to_string(),
         email: s.sign_in.email.clone(),
         plan: s
             .sign_in
@@ -242,6 +253,11 @@ fn agent_view(s: &AgentStatus, o: &Overview, now: i64) -> AgentView {
         default_label: a
             .default
             .then(|| format!("default for {}", tool_word(a.tool))),
+        default: a.default,
+        role: a.role.clone(),
+        share: a.share,
+        good_at: crate::model::good_at_of(a),
+        good_at_custom: a.good_at.is_some(),
         state: state_key(s.state).to_string(),
         status_text,
         windows: windows
@@ -365,6 +381,7 @@ pub fn first_run_view(
                         share: false,
                         limits: LimitsSource::Off,
                         advanced_links: vec![],
+                        good_at: None,
                     };
                     sign_in_for(&probe, r, p, path, runner)
                 })

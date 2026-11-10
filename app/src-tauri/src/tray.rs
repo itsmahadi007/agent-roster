@@ -127,7 +127,7 @@ fn on_menu<R: Runtime>(app: &AppHandle<R>, id: &str) {
                 let b = app.state::<Arc<Backend>>().inner().clone();
                 let name = name.to_string();
                 std::thread::spawn(move || {
-                    let _ = b.open_terminal_as(&name);
+                    let _ = b.open_terminal_as(&name, None);
                 });
             }
         }

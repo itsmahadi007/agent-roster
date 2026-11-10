@@ -26,6 +26,7 @@ fn agent(id: &str, name: &str, tool: Tool, color: AgentColor, limits: LimitsSour
         share: false,
         limits,
         advanced_links: vec![],
+        good_at: None,
     }
 }
 
@@ -188,7 +189,7 @@ fn notes_when_no_limits() {
     let v = overview_view(&o, Path::new(HOME), NOW);
     assert_eq!(
         v.agents[1].limits_note.as_deref(),
-        Some("limits appear after sign in")
+        Some("usage shows after sign in")
     );
     assert_eq!(v.agents[1].tray_text, "sign in");
     assert_eq!(v.agents[1].state, "sign-in");
@@ -199,7 +200,7 @@ fn notes_when_no_limits() {
     o.agents[1].state = AgentState::Ready;
     o.agents[1].sign_in.signed_in = true;
     let v = overview_view(&o, Path::new(HOME), NOW);
-    assert_eq!(v.agents[1].limits_note.as_deref(), Some("limits off"));
+    assert_eq!(v.agents[1].limits_note.as_deref(), Some("usage not shown"));
     assert_eq!(v.agents[1].claude_limits, Some(false));
     assert_eq!(v.agents[1].tray_text, "");
 
@@ -468,4 +469,49 @@ fn next_color_is_the_one_add_would_pick() {
     o.agents.truncate(1);
     let v = overview_view(&o, Path::new(HOME), NOW);
     assert_eq!(v.next_color, "marigold");
+}
+
+#[test]
+fn agent_view_carries_what_the_edit_sheet_needs() {
+    let mut o = sample();
+    o.agents[0].agent.role = Some("reviews pull requests".into());
+    o.agents[0].agent.share = true;
+    let v = overview_view(&o, Path::new(HOME), NOW);
+    let a = &v.agents[0];
+    assert_eq!(a.role.as_deref(), Some("reviews pull requests"));
+    assert!(a.share);
+    assert!(a.default);
+    assert_eq!(a.color_label, "cobalt");
+    let b = &v.agents[1];
+    assert_eq!(b.role, None);
+    assert!(!b.share && !b.default);
+    assert_eq!(b.color_label, "marigold");
+}
+
+#[test]
+fn a_signed_in_agent_without_numbers_says_how_to_get_them() {
+    let mut o = sample();
+    o.agents[3].limits = None;
+    o.agents[3].state = AgentState::Ready;
+    let v = overview_view(&o, Path::new(HOME), NOW);
+    let name = &v.agents[3].name;
+    assert_eq!(
+        v.agents[3].limits_note.as_deref(),
+        Some(format!("usage shows after you use {name}").as_str())
+    );
+}
+
+#[test]
+fn agent_view_shows_good_at_defaults_until_someone_sets_them() {
+    let mut o = sample();
+    let v = overview_view(&o, Path::new(HOME), NOW);
+    assert_eq!(
+        v.agents[0].good_at,
+        ["coding", "reviewing code", "long tasks"]
+    );
+    assert!(!v.agents[0].good_at_custom);
+    o.agents[0].agent.good_at = Some(vec!["planning".into()]);
+    let v = overview_view(&o, Path::new(HOME), NOW);
+    assert_eq!(v.agents[0].good_at, ["planning"]);
+    assert!(v.agents[0].good_at_custom);
 }

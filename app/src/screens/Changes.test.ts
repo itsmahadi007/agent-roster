@@ -73,13 +73,13 @@ describe("Changes", () => {
     render(Changes, { onBack: () => {} });
     expect(await screen.findByText("Hooks added to your tools")).toBeInTheDocument();
     expect(screen.getByText("none, ever")).toBeInTheDocument();
-    expect(screen.getByText("Uninstalling restores all of this.")).toBeInTheDocument();
+    expect(screen.getByText(/To remove Agent Roster and put all of this back, run/)).toBeInTheDocument();
   });
 
   it("empty history", async () => {
     invoke.mockResolvedValue([]);
     render(Changes, { onBack: () => {} });
-    expect(await screen.findByText("Agent Roster hasn't changed anything yet.")).toBeInTheDocument();
+    expect(await screen.findByText("Agent Roster hasn't changed anything yet")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Undo everything" })).not.toBeInTheDocument();
   });
 });

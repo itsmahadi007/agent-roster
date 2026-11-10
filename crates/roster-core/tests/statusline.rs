@@ -222,3 +222,24 @@ fn enable_without_settings_file_then_disable_finds_it() {
     apply(plan, &p, &mut j, &c).unwrap();
     assert!(Roster::load(&p).unwrap().statusline.is_empty());
 }
+
+#[test]
+fn statusline_command_quotes_a_roster_path_with_spaces() {
+    let (d, p, mut j) = world();
+    adopt(&p, &mut j);
+    let bin = PathBuf::from("/Applications/Agent Roster.app/Contents/MacOS/roster");
+    let c = Ctx {
+        lookup: &NoCmds,
+        path_var: p.bin_dir().display().to_string(),
+        roster_bin: bin.clone(),
+    };
+    let plan = plan_enable_claude_limits(&Roster::load(&p).unwrap(), &p, &c, "agent1").unwrap();
+    apply(plan, &p, &mut j, &c).unwrap();
+    let s: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(d.path().join(".claude/settings.json")).unwrap())
+            .unwrap();
+    assert_eq!(
+        s["statusLine"]["command"],
+        format!("\"{}\" statusline", bin.display())
+    );
+}

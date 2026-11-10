@@ -1,0 +1,123 @@
+name: release
+# Builds the Mac and Windows downloads and publishes them as a GitHub Release.
+# Runs when a version tag like v0.2.0 is pushed, or by hand from the Actions tab.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - uses: Swatinem/rust-cache@v2
+      - run: npm ci
+        working-directory: app
+      - run: cargo install tauri-cli --version "^2" --locked
+      - name: Build roster for both Mac chips
+        run: |
+          cargo build --release -p agent-roster --target aarch64-apple-darwin
+          cargo build --release -p agent-roster --target x86_64-apple-darwin
+          mkdir -p app/src-tauri/binaries
+          lipo -create -output app/src-tauri/binaries/roster-universal-apple-darwin \
+            target/aarch64-apple-darwin/release/roster target/x86_64-apple-darwin/release/roster
+      - run: cargo tauri build --target universal-apple-darwin --bundles dmg --config tauri.release.conf.json
+        working-directory: app/src-tauri
+      - name: Check roster is inside the app
+        run: |
+          app=$(ls -d target/universal-apple-darwin/release/bundle/macos/*.app | head -1)
+          test -x "$app/Contents/MacOS/roster"
+          "$app/Contents/MacOS/roster" --help | head -1
+      - name: Collect files
+        run: |
+          mkdir out
+          cp target/universal-apple-darwin/release/bundle/dmg/*.dmg out/
+          cp app/src-tauri/binaries/roster-universal-apple-darwin out/roster-mac
+          ls -la out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac
+          path: out/
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - uses: Swatinem/rust-cache@v2
+      - run: npm ci
+        working-directory: app
+      - run: cargo install tauri-cli --version "^2" --locked
+      - name: Build roster
+        shell: pwsh
+        run: |
+          cargo build --release -p agent-roster
+          New-Item -ItemType Directory -Force app/src-tauri/binaries | Out-Null
+          Copy-Item target/release/roster.exe app/src-tauri/binaries/roster-x86_64-pc-windows-msvc.exe
+      - run: cargo tauri build --bundles nsis --config tauri.release.conf.json
+        working-directory: app/src-tauri
+      - name: Installer puts the app and roster where the app looks
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
+          Start-Process $setup.FullName -ArgumentList '/S' -Wait
+          $dir = Join-Path $env:LOCALAPPDATA 'Agent Roster'
+          foreach ($f in 'agent-roster-app.exe', 'roster.exe') {
+            if (-not (Test-Path (Join-Path $dir $f))) { Get-ChildItem $dir; throw "missing $f" }
+          }
+          & (Join-Path $dir 'roster.exe') --help | Select-Object -First 1
+      - name: Collect files
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory out | Out-Null
+          Copy-Item target/release/bundle/nsis/*-setup.exe out/
+          Copy-Item target/release/roster.exe out/roster-windows.exe
+          Get-ChildItem out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: out/
+
+  release:
+    needs: [mac, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          ls -la dist
+          if [ "${GITHUB_REF_TYPE}" != "tag" ]; then echo "Not a tag: built only, nothing published."; exit 0; fi
+          cat > notes.md <<'NOTES'
+          Download the file for your computer:
+
+          - **Mac (Apple chip or Intel):** the `.dmg`. Open it, drag Agent Roster to Applications. First launch: System Settings > Privacy & Security > **Open Anyway** (the app isn't signed by Apple yet).
+          - **Windows:** the `-setup.exe`. If SmartScreen appears, click **More info** > **Run anyway**.
+
+          The `roster` command is inside the app. `roster-mac` and `roster-windows.exe` are the same command on its own, for using it in a terminal.
+
+          Created by Mahadi Hassan · https://mahadihassan.com
+          NOTES
+          gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --title "Agent Roster $TAG" --notes-file notes.md

@@ -350,3 +350,37 @@ fn ui_without_display_says_no_desktop() {
             "There's no desktop here. Everything works from these commands; run `roster --help` to see them.\n",
         );
 }
+
+#[test]
+fn good_at_sets_and_resets() {
+    let h = Home::new(true);
+    h.init();
+    let out = h
+        .roster()
+        .args(["good-at", "codex1", "tests", "docs", "--yes"])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let json: serde_json::Value =
+        serde_json::from_slice(&h.roster().args(["--json"]).output().unwrap().stdout).unwrap();
+    assert_eq!(
+        json["agents"][1]["good_at"],
+        serde_json::json!(["tests", "docs"])
+    );
+    let out = h
+        .roster()
+        .args(["good-at", "codex1", "--reset", "--yes"])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let json: serde_json::Value =
+        serde_json::from_slice(&h.roster().args(["--json"]).output().unwrap().stdout).unwrap();
+    assert_eq!(
+        json["agents"][1]["good_at"],
+        serde_json::json!(["coding", "making images"])
+    );
+}

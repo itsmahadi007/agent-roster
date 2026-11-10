@@ -31,6 +31,7 @@ fn world_with(roster_bin: Option<PathBuf>) -> World {
         p,
         roster_bin,
         scratch,
+        app_dirs: vec![d.path().join("Applications")],
         lookup: Box::new(NoCmds),
         env: Box::new(|k: &str| (k == "TERMINAL").then(|| "xterm".to_string())),
         opener: Box::new(move |argv: &[String]| {
@@ -201,7 +202,7 @@ fn command_text(argv: &[String]) -> String {
 fn sign_in_opens_terminal_with_roster_login() {
     let w = world();
     w.add("boss");
-    w.b.sign_in("boss").unwrap();
+    assert!(w.b.sign_in("boss", None).unwrap());
     let text = command_text(&last_open(&w));
     if cfg!(target_os = "macos") {
         assert!(
@@ -211,7 +212,7 @@ fn sign_in_opens_terminal_with_roster_login() {
     } else {
         assert!(text.ends_with("/usr/local/bin/roster login boss"), "{text}");
     }
-    assert!(w.b.sign_in("nobody").is_err());
+    assert!(w.b.sign_in("nobody", None).is_err());
 }
 
 #[test]
@@ -219,7 +220,7 @@ fn open_terminal_as_runs_the_agent() {
     let w = world();
     w.add("boss");
     let id = Roster::load(&w.b.p).unwrap().agents[0].id.clone();
-    w.b.open_terminal_as("boss").unwrap();
+    assert!(w.b.open_terminal_as("boss", None).unwrap());
     let text = command_text(&last_open(&w));
     if cfg!(target_os = "macos") {
         assert!(text.contains(&format!("'run' '{id}'")), "{text}");
@@ -257,9 +258,141 @@ fn preview_taken_while_roster_changes_is_stale() {
         p,
         roster_bin: Some(PathBuf::from("/usr/local/bin/roster")),
         scratch: d.path().join("scratch"),
+        app_dirs: vec![],
         env: Box::new(|_| None),
         opener: Box::new(|_| Ok(())),
     });
     let plan = b.preview(add_req("boss")).unwrap();
     assert_eq!(b.apply(plan.token).unwrap_err(), STALE);
+}
+
+#[test]
+fn rename_previews_then_applies_and_keeps_the_login() {
+    let r: OpRequest =
+        serde_json::from_str(r#"{"op":"rename","name":"boss","new_name":"lead"}"#).unwrap();
+    assert!(
+        matches!(r, OpRequest::Rename { ref name, ref new_name } if name == "boss" && new_name == "lead")
+    );
+    let w = world();
+    w.add("boss");
+    let dir_before = Roster::load(&w.b.p).unwrap().agents[0].config_dir.clone();
+    let plan = w.b.preview(r).unwrap();
+    assert_eq!(plan.summary, "Renamed boss to lead");
+    assert_eq!(plan.steps[0].kind, "change");
+    w.b.apply(plan.token).unwrap();
+    assert_eq!(w.names(), ["lead"]);
+    assert_eq!(
+        Roster::load(&w.b.p).unwrap().agents[0].config_dir,
+        dir_before
+    );
+}
+
+fn agent_of(w: &World, name: &str) -> roster_core::model::Agent {
+    Roster::load(&w.b.p)
+        .unwrap()
+        .agents
+        .into_iter()
+        .find(|a| a.name == name)
+        .unwrap()
+}
+
+fn run(w: &World, json: &str) -> PlanView {
+    let req: OpRequest = serde_json::from_str(json).unwrap();
+    let plan = w.b.preview(req).unwrap();
+    w.b.apply(plan.token).unwrap();
+    plan
+}
+
+#[test]
+fn color_role_share_and_default_change_from_the_window() {
+    let w = world();
+    w.add("boss");
+    w.add("helper");
+    run(&w, r#"{"op":"color","name":"boss","color":"orchid"}"#);
+    assert_eq!(agent_of(&w, "boss").color, AgentColor::Orchid);
+    run(
+        &w,
+        r#"{"op":"role","name":"boss","role":"reviews pull requests"}"#,
+    );
+    assert_eq!(
+        agent_of(&w, "boss").role.as_deref(),
+        Some("reviews pull requests")
+    );
+    run(&w, r#"{"op":"role","name":"boss","role":null}"#);
+    assert_eq!(agent_of(&w, "boss").role, None);
+    run(&w, r#"{"op":"share","name":"boss","on":true}"#);
+    assert!(agent_of(&w, "boss").share);
+    run(&w, r#"{"op":"default","name":"helper"}"#);
+    assert!(agent_of(&w, "helper").default);
+    assert!(!agent_of(&w, "boss").default);
+}
+
+#[test]
+fn remove_from_the_window_keeps_the_login_folder() {
+    let w = world();
+    w.add("boss");
+    let dir = roster_core::paths::expand_tilde(&agent_of(&w, "boss").config_dir, &w.b.p.home);
+    assert!(dir.exists());
+    // The window never offers deleting the login folder.
+    let bad: Result<OpRequest, _> =
+        serde_json::from_str(r#"{"op":"remove","name":"boss","delete_login_folder":true}"#);
+    assert!(bad.is_err());
+    let plan = run(&w, r#"{"op":"remove","name":"boss"}"#);
+    assert!(plan.summary.contains("boss"));
+    assert!(w.names().is_empty());
+    assert!(dir.exists());
+}
+
+#[test]
+fn good_at_previews_then_applies() {
+    let w = world();
+    w.add("boss");
+    let plan = run(
+        &w,
+        r#"{"op":"good-at","name":"boss","items":["tests","docs"]}"#,
+    );
+    assert_eq!(plan.summary, "Set what boss is good at");
+    assert_eq!(
+        agent_of(&w, "boss").good_at,
+        Some(vec!["tests".to_string(), "docs".to_string()])
+    );
+    run(&w, r#"{"op":"good-at","name":"boss","items":null}"#);
+    assert_eq!(agent_of(&w, "boss").good_at, None);
+}
+
+#[test]
+fn only_terminals_found_on_this_computer_can_be_used() {
+    let w = world();
+    w.add("boss");
+    let before = w.opened.lock().unwrap().len();
+    assert!(
+        w.b.open_terminal_as("boss", Some("Not A Terminal"))
+            .is_err()
+    );
+    assert_eq!(w.opened.lock().unwrap().len(), before);
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn copy_mode_terminal_is_opened_and_reported() {
+    let w = world();
+    w.add("boss");
+    std::fs::create_dir_all(w.b.p.home.join("Applications/Warp.app")).unwrap();
+    std::fs::create_dir_all(w.b.p.home.join("Applications/iTerm.app")).unwrap();
+    let found = w.b.terminals();
+    assert!(found.iter().any(|t| t.id == "Warp" && !t.runs));
+    assert!(!w.b.open_terminal_as("boss", Some("Warp")).unwrap());
+    assert_eq!(last_open(&w), ["open", "-a", "Warp"]);
+    assert!(w.b.open_terminal_as("boss", Some("iTerm")).unwrap());
+    assert_eq!(last_open(&w)[..3], ["open", "-a", "iTerm"]);
+}
+
+#[test]
+fn open_site_opens_only_the_fixed_url() {
+    let w = world();
+    w.b.open_site().unwrap();
+    assert_eq!(
+        last_open(&w).last().map(String::as_str),
+        Some("https://mahadihassan.com")
+    );
 }

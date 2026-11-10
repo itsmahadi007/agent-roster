@@ -23,13 +23,16 @@ describe("FirstRun", () => {
   it("lists_candidates_with_versions", async () => {
     backend(firstRun as FirstRunView);
     render(FirstRun, { palette, onDone: () => {} });
-    expect(await screen.findByText("You already have two agents.")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "You already have two agents" })).toBeInTheDocument();
     expect(screen.getByText("claude1")).toBeInTheDocument();
     expect(screen.getByText("Claude Code 2.1.0")).toBeInTheDocument();
     expect(screen.getByText("you@example.com")).toBeInTheDocument();
     expect(screen.getByText("Codex 0.167.0")).toBeInTheDocument();
     expect(screen.getByText("Gemini")).toBeInTheDocument();
     expect(screen.getByText("soon")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Your logins stay exactly where they are\. Agent Roster gives each one a name and a command\./),
+    ).toBeInTheDocument();
   });
 
   it("rename_changes_the_pick", async () => {
@@ -65,7 +68,7 @@ describe("FirstRun", () => {
     };
     backend(none);
     render(FirstRun, { palette, onDone: () => {} });
-    expect(await screen.findByText("No Claude Code or Codex login was found.")).toBeInTheDocument();
+    expect(await screen.findByText("No Claude Code or Codex login was found")).toBeInTheDocument();
     expect(screen.getAllByText("not installed")).toHaveLength(2);
     expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
     expect(screen.queryByRole("button", { name: "Rename" })).not.toBeInTheDocument();
@@ -76,7 +79,7 @@ describe("FirstRun", () => {
     fr.candidates[1] = { ...fr.candidates[1], installed: false, version: null };
     backend(fr, { preview: () => plan });
     render(FirstRun, { palette, onDone: () => {} });
-    expect(await screen.findByText("You already have one agent.")).toBeInTheDocument();
+    expect(await screen.findByText("You already have one agent")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Continue" }));
     expect(invoke).toHaveBeenCalledWith("preview", { req: { op: "adopt-all", picks: [["claude", "claude1"]] } });
   });

@@ -4,7 +4,7 @@ use roster_core::model::{AgentColor, Roster, Tool};
 use roster_core::names::CommandLookup;
 use roster_core::ops::{
     AddRequest, Ctx, apply, plan_add, plan_adopt, plan_adopt_all, plan_remove, plan_rename,
-    plan_set_default, plan_set_share,
+    plan_set_default, plan_set_good_at, plan_set_share,
 };
 use roster_core::paths::{Platform, RosterPaths};
 use std::fs;
@@ -390,4 +390,40 @@ fn adopt_all_needs_a_pick() {
     let w = World::new();
     let err = plan_adopt_all(&w.roster(), &w.p, &w.ctx(), &[]).unwrap_err();
     assert_eq!(err.to_string(), "Pick at least one login to add.");
+}
+
+#[test]
+fn set_good_at_plans_applies_and_undoes() {
+    let mut w = World::new();
+    w.adopt_both();
+    let ctx = w.ctx();
+    let plan = plan_set_good_at(
+        &w.roster(),
+        &w.p,
+        &ctx,
+        "agent1",
+        Some(vec![" coding ".into(), "".into(), "tests".into()]),
+    )
+    .unwrap();
+    assert_eq!(plan.summary, "Set what agent1 is good at");
+    apply(plan, &w.p, &mut w.j, &ctx).unwrap();
+    assert_eq!(
+        w.roster().by_name("agent1").unwrap().good_at,
+        Some(vec!["coding".to_string(), "tests".to_string()])
+    );
+    assert!(
+        fs::read_to_string(w.home().join(".claude/CLAUDE.md"))
+            .unwrap()
+            .contains("| agent1 | Claude Code |  | coding, tests |")
+    );
+    let plan = plan_set_good_at(&w.roster(), &w.p, &ctx, "agent1", None).unwrap();
+    assert_eq!(plan.summary, "Reset what agent1 is good at");
+    apply(plan, &w.p, &mut w.j, &ctx).unwrap();
+    assert_eq!(w.roster().by_name("agent1").unwrap().good_at, None);
+    let op = w.j.ops().last().unwrap().id;
+    w.j.undo(op).unwrap();
+    assert_eq!(
+        w.roster().by_name("agent1").unwrap().good_at,
+        Some(vec!["coding".to_string(), "tests".to_string()])
+    );
 }

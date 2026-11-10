@@ -77,7 +77,22 @@ describe("AddAgent", () => {
     const cmds = invoke.mock.calls.map((c) => c[0]);
     expect(cmds.slice(-2)).toEqual(["apply", "sign_in"]);
     expect(invoke).toHaveBeenCalledWith("apply", { token: 3 });
-    expect(invoke).toHaveBeenCalledWith("sign_in", { name: "boss" });
+    expect(invoke).toHaveBeenCalledWith("sign_in", { name: "boss", app: null });
+  });
+
+  it("has a title and a way back", async () => {
+    const onCancel = vi.fn();
+    render(AddAgent, props({ onCancel }));
+    expect(screen.getByRole("heading", { name: "Add an agent" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Back to your agents" }));
+    expect(onCancel).toHaveBeenCalled();
+  });
+
+  it("each choice says what it is for", () => {
+    render(AddAgent, props());
+    expect(screen.getByText("Its row, its name and its menu bar dot use this color")).toBeInTheDocument();
+    expect(screen.getByText("The app this account signs in to. You sign in right after adding it.")).toBeInTheDocument();
+    expect(screen.getByText("Other agents read this to decide what to hand it")).toBeInTheDocument();
   });
 
   it("gemini_is_disabled", () => {
