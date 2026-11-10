@@ -287,24 +287,43 @@ login, so no terminal, session or status line is needed first. It never opens a 
   still reports).
 - **Codex:** `codex app-server` (JSON-RPC over stdio, `CODEX_HOME` from the agent's env): after the
   `initialize` handshake, `account/rateLimits/read` returns the rate-limit snapshot; the 10080-minute
-  window (else `secondary`) is the week, and `rateLimitReachedType` means limit reached. The child
+  window (else `secondary`) is the week; a window at 100% (the 5-hour one included) or
+  `rateLimitReachedType` means limit reached. The child
   is killed after the answer or a timeout. When the app-server fails, the newest `rate_limits`
   record in the agent's session files (`CODEX_HOME/sessions/`) is used.
 - **Fallbacks:** Claude's status line (opt-in per agent, `roster limits enable`) still writes the
   same saved file between checks. For Codex, saved app-server numbers and session files are both
   read and the newest `as_of` wins.
 - **Account health**, saved per agent with its time (`limits/<id>.health.json`; numbers in
-  `limits/<id>.json`): ok, sign in, no subscription, limit reached (week at 100% or the tool says
-  so), not installed, unreachable. Before the first check the row says "checking", never "not used
-  yet". A check that can't reach the tool (offline, timeout, crash) keeps the last numbers, shows
-  "as of <time>", and never turns a signed-in agent into "sign in". Saved numbers are never
+  `limits/<id>.json`): ok, sign in, no subscription, limit reached (a window at 100% or the tool
+  says so), not installed, unreachable. Before the first check the row says "checking", never "not
+  used yet". A check that can't reach the tool (offline, timeout, crash) keeps the last numbers,
+  shows "as of <time>", and never turns a signed-in agent into "sign in". Saved numbers are never
   replaced with nothing or with older ones. "sign in" comes with a Sign in button that opens a
   terminal running `roster login <name>`. Limit reached and 90% or more are coral.
+- **A check is believed over the status command.** `codex login status` says "Logged in" while an
+  expired login file exists, so a check's "sign in" or "no subscription" stands even when the
+  status command says signed in. "checking" means only that no check has finished since the agent
+  was added, or since the app saw it sign in or get installed (the status command went from signed
+  out or missing to signed in, after that check); one finished check always ends it, so it never
+  repeats. The app remembers those changes while it runs (`status::SignInWatch`); the CLI keeps no
+  memory and shows the saved check. A login the status command can't see (an expired Codex login
+  replaced by a fresh one) is caught by the Sign in button: for up to 5 minutes after it is
+  clicked, the app checks again (30 s apart) until a check says the sign-in worked, then by the
+  5-minute check.
+- **Which limit:** a row, the drawer, the tray and `roster` name the limit that is used up and use
+  its own reset: "5-hour limit reached, resets in 2h 10m", "weekly limit reached, resets in 2d 3h"
+  (the window at 100% whose reset has not passed; the one that resets last when several are). When
+  only the tool says so and no window is at 100%, they say "limit reached" with no reset. The week's
+  bar and its reset stay as they are.
 - **When:** the app checks on start, every 5 minutes, soon after a row shows "checking" (a new
   agent or a new sign-in), and when Refresh is clicked; at most one check runs, and at most one per
   30 s (an agent never checked skips the wait). Checks run off the UI thread, side by side for all
-  agents, and the window updates when they finish. The 10-second overview poll only reads the saved
-  results. `roster limits` checks fresh before printing and shows the saved numbers if a check
+  agents, and the window updates when they finish. The 10-second overview poll never runs `/usage`
+  or `codex app-server`: it runs `claude --version` and `codex --version` once each, and for every
+  agent `claude auth status --json` or `codex login status` (5 s limit each, side by side), then
+  reads the saved checks, saved numbers and Codex session files. `roster` (the overview) does the
+  same once. `roster limits` checks fresh before printing and shows the saved numbers if a check
   fails. Every background process is spawned hidden on Windows (`proc::hide_console`).
 - **Platform split:** one app; parsing is shared and platform-free (`usage/claude.rs`,
   `usage/codex.rs`, `usage/mod.rs`). Finding, spawning and stopping the tools lives in
