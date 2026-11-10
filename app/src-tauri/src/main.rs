@@ -3,6 +3,8 @@
 mod backend;
 mod commands;
 mod env;
+mod login_window;
+mod sign_in;
 mod tray;
 
 use backend::{Backend, BackendConfig};
@@ -79,6 +81,7 @@ fn backend() -> Backend {
         lookup: Box::new(lookup),
         env: Box::new(|k: &str| std::env::var(k).ok()),
         opener: Box::new(spawn_detached),
+        login: sign_in::real_starter(),
         p,
     })
 }
@@ -120,6 +123,11 @@ fn main() {
         .manage(Arc::new(backend()))
         .setup(|app| {
             tray::setup(app.handle())?;
+            std::thread::spawn(login_window::clean_old_data);
+            app.state::<Arc<Backend>>()
+                .set_login_ui(Arc::new(login_window::TauriLoginUi::new(
+                    app.handle().clone(),
+                )));
             usage_loop(
                 app.handle().clone(),
                 Arc::clone(app.state::<Arc<Backend>>().inner()),
@@ -127,9 +135,13 @@ fn main() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            // Closing the window keeps Agent Roster in the menu bar / tray (not on Linux).
+            // Closing the main window keeps Agent Roster in the menu bar / tray (not on
+            // Linux). A login window really closes, which cancels its login.
             if let tauri::WindowEvent::CloseRequested { api, .. } = event
-                && tray::hides_on_close(roster_core::paths::Platform::current())
+                && tray::hides_window_on_close(
+                    window.label(),
+                    roster_core::paths::Platform::current(),
+                )
             {
                 let _ = window.hide();
                 api.prevent_close();
@@ -145,6 +157,9 @@ fn main() {
             commands::undo,
             commands::undo_all,
             commands::sign_in,
+            commands::sign_in_in_app,
+            commands::settings,
+            commands::set_sign_in_with,
             commands::open_terminal_as,
             commands::terminals,
             commands::open_site,

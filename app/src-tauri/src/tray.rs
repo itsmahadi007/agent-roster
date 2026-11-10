@@ -105,6 +105,12 @@ pub fn hides_on_close(platform: roster_core::paths::Platform) -> bool {
     platform != roster_core::paths::Platform::Linux
 }
 
+/// Only the main window hides on close; a login window is really closed (which cancels its
+/// login) and so is anything else.
+pub fn hides_window_on_close(label: &str, platform: roster_core::paths::Platform) -> bool {
+    label == "main" && hides_on_close(platform)
+}
+
 pub fn show_main<R: Runtime>(app: &AppHandle<R>) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
@@ -213,6 +219,16 @@ mod tests {
         assert!(hides_on_close(Platform::Windows));
         // Stock GNOME shows no tray icons, so a hidden window could not be brought back.
         assert!(!hides_on_close(Platform::Linux));
+    }
+
+    #[test]
+    fn only_the_main_window_hides_on_close() {
+        use roster_core::paths::Platform;
+        assert!(hides_window_on_close("main", Platform::Windows));
+        assert!(hides_window_on_close("main", Platform::Mac));
+        assert!(!hides_window_on_close("main", Platform::Linux));
+        assert!(!hides_window_on_close("login-1", Platform::Windows));
+        assert!(!hides_window_on_close("login-1", Platform::Mac));
     }
 
     #[test]
