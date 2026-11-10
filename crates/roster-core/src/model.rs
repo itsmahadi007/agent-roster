@@ -43,16 +43,19 @@ impl Tool {
 
 /// An agent's own color: who it is, never how much it has used. No red or yellow, so it can't
 /// be read as a warning (usage has its own colors). `marigold` and `coral` were renamed
-/// `cyan` and `pink` in 0.4.0; old rosters still load and are saved with the new names.
+/// `cyan` and `pink` in 0.4.0. On disk they keep the old names, so 0.3.x can still read a
+/// roster 0.4 saved (it fails on a name it doesn't know); both names load.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AgentColor {
     Cobalt,
-    #[serde(alias = "marigold")]
+    // Saved as the 0.3 name so 0.3.x can still read the roster (downgrade); shown as cyan.
+    #[serde(rename = "marigold", alias = "cyan")]
     Cyan,
     Jade,
     Orchid,
-    #[serde(alias = "coral")]
+    // Saved as the 0.3 name; shown as pink.
+    #[serde(rename = "coral", alias = "pink")]
     Pink,
 }
 
@@ -344,11 +347,55 @@ mod tests {
         assert_eq!(old.c, AgentColor::Pink);
         let old: W = toml::from_str("c = \"marigold\"").unwrap();
         assert_eq!(old.c, AgentColor::Cyan);
-        // and are saved with the new name.
-        assert_eq!(toml::to_string(&old).unwrap().trim(), "c = \"cyan\"");
+        // and are still saved with the old name, so 0.3.x can read a roster 0.4 wrote.
+        assert_eq!(toml::to_string(&old).unwrap().trim(), "c = \"marigold\"");
+        // The new names load too (0.4.0 wrote them).
+        let new: W = toml::from_str("c = \"pink\"").unwrap();
+        assert_eq!(new.c, AgentColor::Pink);
+        let new: W = toml::from_str("c = \"cyan\"").unwrap();
+        assert_eq!(new.c, AgentColor::Cyan);
         assert_eq!(AgentColor::parse("coral"), Some(AgentColor::Pink));
         assert_eq!(AgentColor::parse("pink"), Some(AgentColor::Pink));
         assert_eq!(AgentColor::parse("cyan"), Some(AgentColor::Cyan));
+    }
+
+    /// A roster 0.4 saves stays readable by 0.3.x: every color is written with a name 0.3.x
+    /// knows, and the round trip through the file keeps each color (shown as cyan / pink).
+    #[test]
+    fn saved_colors_round_trip_and_stay_readable_by_0_3() {
+        let (_d, p) = tmp();
+        let r = roster(
+            AgentColor::ORDER
+                .iter()
+                .enumerate()
+                .map(|(i, c)| Agent {
+                    color: *c,
+                    ..agent(&format!("a{i}"), &format!("agent{i}"), Tool::Claude, i == 0)
+                })
+                .collect(),
+        );
+        r.save(&p).unwrap();
+        let text = std::fs::read_to_string(p.roster_file()).unwrap();
+        let saved: Vec<&str> = text
+            .lines()
+            .filter_map(|l| l.strip_prefix("color = "))
+            .map(|c| c.trim_matches('"'))
+            .collect();
+        // The names 0.3.x knows.
+        assert_eq!(saved, ["cobalt", "marigold", "jade", "orchid", "coral"]);
+        let back = Roster::load(&p).unwrap();
+        assert_eq!(back, r);
+        let labels: Vec<&str> = back.agents.iter().map(|a| a.color.label()).collect();
+        assert_eq!(labels, ["cobalt", "cyan", "jade", "orchid", "pink"]);
+        // A roster 0.4.0 wrote with the new names loads, and is saved back old-style.
+        let from_040 = text
+            .replace("\"marigold\"", "\"cyan\"")
+            .replace("\"coral\"", "\"pink\"");
+        std::fs::write(p.roster_file(), from_040).unwrap();
+        let back = Roster::load(&p).unwrap();
+        assert_eq!(back, r);
+        back.save(&p).unwrap();
+        assert_eq!(std::fs::read_to_string(p.roster_file()).unwrap(), text);
     }
 
     fn agent(id: &str, name: &str, tool: Tool, default: bool) -> Agent {
