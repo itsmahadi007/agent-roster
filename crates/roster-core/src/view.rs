@@ -3,7 +3,7 @@
 use crate::detect::{CommandRunner, sign_in_for, tool_info};
 use crate::import::detect_prototype;
 use crate::journal::Op;
-use crate::limits::{LimitWindow, format_reset};
+use crate::limits::{LimitWindow, reset_phrase, weekly};
 use crate::model::{Agent, AgentColor, LimitsSource, Roster, Tool};
 use crate::paths::{RosterPaths, collapse_tilde, expand_tilde};
 use crate::status::{AgentState, AgentStatus, Overview};
@@ -177,21 +177,14 @@ fn headline(n: usize) -> String {
     }
 }
 
-/// The window the tray and warnings talk about: the week, else the longest listed.
-fn main_window(windows: &[LimitWindow]) -> Option<&LimitWindow> {
-    windows
-        .iter()
-        .find(|w| w.label == "week")
-        .or_else(|| windows.last())
-}
-
 fn agent_view(s: &AgentStatus, o: &Overview, now: i64) -> AgentView {
     let a = &s.agent;
     let windows: Vec<LimitWindow> = s
         .limits
         .as_ref()
-        .map(|l| l.windows.clone())
-        .unwrap_or_default();
+        .and_then(|l| weekly(&l.windows).cloned())
+        .into_iter()
+        .collect();
     let calling = o
         .calls
         .iter()
@@ -205,20 +198,9 @@ fn agent_view(s: &AgentStatus, o: &Overview, now: i64) -> AgentView {
         Some(child) => format!("calling {}", child.agent.name),
         None => s.state.label().to_string(),
     };
-    let (reset_text, reset_hot) = match windows.as_slice() {
-        [] => (None, false),
-        [w] => (
-            Some(format!("resets in {}", format_reset(w.resets_at, now))),
-            rounded(w) >= HOT,
-        ),
-        [.., w] => (
-            Some(format!(
-                "{} resets in {}",
-                w.label,
-                format_reset(w.resets_at, now)
-            )),
-            rounded(w) >= HOT,
-        ),
+    let (reset_text, reset_hot) = match windows.first() {
+        None => (None, false),
+        Some(w) => (Some(reset_phrase(w.resets_at, now)), rounded(w) >= HOT),
     };
     let limits_note = if !windows.is_empty() {
         None
@@ -231,7 +213,7 @@ fn agent_view(s: &AgentStatus, o: &Overview, now: i64) -> AgentView {
             _ => format!("usage shows after you use {}", a.name),
         })
     };
-    let (tray_text, tray_hot) = match (s.state, main_window(&windows)) {
+    let (tray_text, tray_hot) = match (s.state, windows.first()) {
         (AgentState::NotInstalled, _) => ("not installed".to_string(), false),
         (AgentState::NeedsSignIn, _) => ("sign in".to_string(), false),
         (_, Some(w)) => (format!("{}% {}", rounded(w), w.label), rounded(w) >= HOT),
@@ -305,23 +287,25 @@ pub fn overview_view(o: &Overview, home: &Path, now: i64) -> OverviewView {
         .collect();
     let mut warnings = vec![];
     for s in &o.agents {
-        for w in s.limits.iter().flat_map(|l| l.windows.iter()) {
-            if rounded(w) >= HOT {
-                let what = if w.label == "week" {
-                    "its week".to_string()
-                } else {
-                    format!("its {} limit", w.label)
-                };
-                warnings.push(WarningView {
-                    name: s.agent.name.clone(),
-                    color: s.agent.color.hex().into(),
-                    text: format!(
-                        "has used {}% of {what}. It resets in {}.",
-                        rounded(w),
-                        format_reset(w.resets_at, now)
-                    ),
-                });
-            }
+        let hot = s
+            .limits
+            .as_ref()
+            .and_then(|l| weekly(&l.windows))
+            .filter(|w| rounded(w) >= HOT);
+        if let Some(w) = hot {
+            warnings.push(WarningView {
+                name: s.agent.name.clone(),
+                color: s.agent.color.hex().into(),
+                text: format!(
+                    "has used {}% of its week. It {}.",
+                    rounded(w),
+                    if w.resets_at <= now {
+                        "is resetting now".to_string()
+                    } else {
+                        reset_phrase(w.resets_at, now)
+                    }
+                ),
+            });
         }
     }
     let limits_updated = o

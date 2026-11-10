@@ -172,15 +172,49 @@ fn hot_single_window_is_coral() {
 }
 
 #[test]
-fn two_windows_reset_line_names_the_last() {
+fn past_reset_says_resetting_now() {
+    let mut o = sample();
+    o.agents[2].limits.as_mut().unwrap().windows[0].resets_at = NOW - 60;
+    let v = overview_view(&o, Path::new(HOME), NOW);
+    assert_eq!(v.agents[2].reset_text.as_deref(), Some("resetting now"));
+    assert_eq!(
+        v.warnings[0].text,
+        "has used 93% of its week. It is resetting now."
+    );
+}
+
+#[test]
+fn five_hour_window_is_ignored() {
     let v = overview_view(&sample(), Path::new(HOME), NOW);
     let a1 = &v.agents[0];
-    assert_eq!(a1.reset_text.as_deref(), Some("week resets in 3d 16h"));
+    assert_eq!(
+        a1.windows,
+        vec![WindowView {
+            label: "week".into(),
+            used_percent: 61,
+            hot: false
+        }]
+    );
+    assert_eq!(a1.reset_text.as_deref(), Some("resets in 3d 16h"));
     assert!(!a1.reset_hot);
     assert_eq!(a1.tray_text, "61% week");
-    assert_eq!(a1.windows[0].label, "5 hr");
-    assert_eq!(a1.windows[0].used_percent, 22);
     assert_eq!(v.limits_updated.as_deref(), Some("Last update 4m ago."));
+}
+
+#[test]
+fn only_five_hour_window_shows_nothing() {
+    let mut o = sample();
+    o.agents[3].limits.as_mut().unwrap().windows = vec![win("5 hr", 95.0, 3600)];
+    let v = overview_view(&o, Path::new(HOME), NOW);
+    let boss = &v.agents[3];
+    assert!(boss.windows.is_empty());
+    assert_eq!(boss.reset_text, None);
+    assert_eq!(boss.tray_text, "");
+    assert!(v.warnings.iter().all(|w| w.name != "boss"));
+    assert_eq!(
+        boss.limits_note.as_deref(),
+        Some("usage shows after you use boss")
+    );
 }
 
 #[test]

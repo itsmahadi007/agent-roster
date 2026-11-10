@@ -1,5 +1,5 @@
 use anstyle::{AnsiColor, Color, RgbColor, Style};
-use roster_core::limits::format_reset;
+use roster_core::limits::{LimitWindow, reset_phrase, weekly};
 use roster_core::model::AgentColor;
 use roster_core::status::{AgentState, Overview};
 use std::fmt::Write;
@@ -15,11 +15,35 @@ fn paint(text: &str, st: Style) -> String {
     format!("{st}{text}{st:#}")
 }
 
+/// One limit in the table: "week ████████░░   94%  resets in 21h 52m".
+fn window_line(w: &LimitWindow, color: AgentColor, now: i64) -> String {
+    let dim = Style::new().dimmed();
+    let coral = Style::new().fg_color(Some(rgb(AgentColor::Coral)));
+    let filled = ((w.used_percent / 10.0).round() as usize).min(10);
+    let hot = w.used_percent >= 90.0;
+    let bar_style = if hot {
+        coral
+    } else {
+        Style::new().fg_color(Some(rgb(color)))
+    };
+    let pct = format!("{:>3.0}%", w.used_percent);
+    format!(
+        "{:<5} {}{}  {}  {}",
+        w.label,
+        paint(&"█".repeat(filled), bar_style),
+        paint(&"░".repeat(10 - filled), dim),
+        if hot { paint(&pct, coral) } else { pct },
+        paint(
+            &reset_phrase(w.resets_at, now),
+            if hot { coral } else { dim }
+        )
+    )
+}
+
 pub fn overview_text(o: &Overview) -> String {
     let mut s = String::new();
     let bold = Style::new().bold();
     let dim = Style::new().dimmed();
-    let coral = Style::new().fg_color(Some(rgb(AgentColor::Coral)));
     let newest = o
         .agents
         .iter()
@@ -58,47 +82,14 @@ pub fn overview_text(o: &Overview) -> String {
             AgentState::NotInstalled => ("○", dim),
         };
         let state = format!("{dot} {:<13}", a.state.label());
-        let lead = format!(
-            "  {:<name_w$}  {:<11}  ",
-            a.agent.name,
-            a.agent.tool.display()
-        );
         let lead_painted = format!(
             "  {}  {:<11}  ",
             paint(&format!("{:<name_w$}", a.agent.name), color),
             a.agent.tool.display()
         );
-        let pad = " ".repeat(lead.chars().count() + 15);
         let _ = write!(s, "{lead_painted}{}", paint(&state, state_style));
-        match &a.limits {
-            Some(l) if !l.windows.is_empty() => {
-                for (i, w) in l.windows.iter().enumerate() {
-                    if i > 0 {
-                        s.push('\n');
-                        s.push_str(&pad);
-                    }
-                    let filled = ((w.used_percent / 10.0).round() as usize).min(10);
-                    let hot = w.used_percent >= 90.0;
-                    let bar_style = if hot {
-                        coral
-                    } else {
-                        Style::new().fg_color(Some(rgb(a.agent.color)))
-                    };
-                    let pct = format!("{:>3.0}%", w.used_percent);
-                    let _ = write!(
-                        s,
-                        "{:<5} {}{}  {}  {}",
-                        w.label,
-                        paint(&"█".repeat(filled), bar_style),
-                        paint(&"░".repeat(10 - filled), dim),
-                        if hot { paint(&pct, coral) } else { pct },
-                        paint(
-                            &format!("resets in {}", format_reset(w.resets_at, now())),
-                            if hot { coral } else { dim }
-                        )
-                    );
-                }
-            }
+        match a.limits.as_ref().and_then(|l| weekly(&l.windows)) {
+            Some(w) => s.push_str(&window_line(w, a.agent.color, now())),
             _ => {
                 let note = match (a.state, a.agent.tool, a.agent.limits) {
                     (AgentState::NotInstalled, _, _) => "",
@@ -186,4 +177,68 @@ pub fn overview_json(o: &Overview) -> serde_json::Value {
     serde_json::json!({ "agents": agents, "calls": o.calls.iter().map(|c| serde_json::json!({
         "from": c.parent_id, "to": c.agent_id, "task": c.task, "cwd": c.cwd, "started_at": c.started_at
     })).collect::<Vec<_>>() })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn overview_shows_week_only() {
+        use roster_core::detect::SignIn;
+        use roster_core::limits::AgentLimits;
+        use roster_core::model::{Agent, LimitsSource, Tool};
+        use roster_core::status::{AgentState, AgentStatus, Overview};
+        let w = |label: &str, used: f64| LimitWindow {
+            label: label.into(),
+            used_percent: used,
+            resets_at: now() + 3600,
+        };
+        let o = Overview {
+            agents: vec![AgentStatus {
+                agent: Agent {
+                    id: "a1".into(),
+                    name: "agent1".into(),
+                    tool: Tool::Claude,
+                    config_dir: "~/.claude".into(),
+                    color: AgentColor::Cobalt,
+                    role: None,
+                    default: false,
+                    share: false,
+                    limits: LimitsSource::ClaudeStatusline,
+                    advanced_links: vec![],
+                    good_at: None,
+                },
+                state: AgentState::Ready,
+                sign_in: SignIn {
+                    signed_in: true,
+                    email: None,
+                    plan: None,
+                },
+                limits: Some(AgentLimits {
+                    as_of: now(),
+                    plan: None,
+                    windows: vec![w("5 hr", 22.0), w("week", 61.0)],
+                }),
+            }],
+            calls: vec![],
+            tools: vec![],
+        };
+        let text = overview_text(&o);
+        assert!(text.contains("week"), "{text}");
+        assert!(!text.contains("5 hr"), "{text}");
+    }
+
+    #[test]
+    fn window_line_past_reset() {
+        let now = 1_000_000;
+        let w = LimitWindow {
+            label: "week".into(),
+            used_percent: 94.0,
+            resets_at: now - 1,
+        };
+        let line = window_line(&w, AgentColor::Jade, now);
+        assert!(line.contains("resetting now"), "{line}");
+        assert!(!line.contains("resets in resetting"), "{line}");
+    }
 }

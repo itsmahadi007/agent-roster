@@ -9,7 +9,6 @@
   import Changes from "./screens/Changes.svelte";
   import Help from "./screens/Help.svelte";
   import AgentList from "./components/AgentList.svelte";
-  import AgentPage from "./components/AgentPage.svelte";
   import TopBar from "./components/TopBar.svelte";
   import { chrome } from "./lib/platform";
 
@@ -18,22 +17,29 @@
   let error = $state<string | null>(null);
   let notice = $state<string | null>(null);
   let terminals = $state<TerminalApp[]>([]);
-  /** The agent whose page is open, by id so a rename keeps it open. */
-  let selected = $state<string | null>(null);
-  /** Bumped after each change so the page starts fresh from the new state. */
+  /** The agent whose row is open, by id so a rename keeps it open. Nothing is open at start. */
+  let open = $state<string | null>(null);
+  /** Whether the open row has a change waiting in its save bar. */
+  let dirty = $state(false);
+  /** Bumped when a close or switch is refused because a change waits. */
+  let nudge = $state(0);
+  /** Bumped after each change so the open drawer starts fresh from the new state. */
   let round = $state(0);
-  /** Ids seen so far: a new one after Add agent gets selected. */
+  /** Ids seen so far: a new one after this app's Add agent gets opened. */
   let known: Set<string> | null = null;
-
-  const current = $derived(view?.agents.find((a) => a.id === selected) ?? view?.agents[0] ?? null);
+  /** Set when Add agent finishes here, so an agent added from a terminal doesn't take over. */
+  let added = false;
 
   async function refresh() {
     try {
       const v = await overview();
-      const fresh = known ? v.agents.find((a) => !known!.has(a.id)) : undefined;
+      const fresh = known && added ? v.agents.find((a) => !known!.has(a.id)) : undefined;
       known = new Set(v.agents.map((a) => a.id));
       view = v;
-      if (fresh) selected = fresh.id;
+      if (fresh) {
+        added = false;
+        if (!dirty) open = fresh.id;
+      }
       error = null;
     } catch (e) {
       error = message(e);
@@ -41,24 +47,30 @@
   }
 
   function navigate(s: Screen, note?: string) {
+    // Leaving the list would drop the change waiting in the open row.
+    if (dirty && s !== "agents") {
+      nudge += 1;
+      return;
+    }
     screen = s;
     notice = note ?? null;
     if (s === "agents") refresh();
   }
 
-  function select(id: string) {
-    selected = id;
-    screen = "agents";
+  /** Open a row, or close the open one. A waiting change keeps its row open. */
+  function toggle(id: string) {
+    if (dirty) {
+      nudge += 1;
+      return;
+    }
+    open = open === id ? null : id;
   }
 
   async function changed(note: string, op: OpRequest["op"]) {
     notice = note;
-    if (op === "remove" && view && current) {
-      // Open the agent above the removed one (or below, if it was first).
-      const gone = current.id;
-      const i = view.agents.findIndex((a) => a.id === gone);
-      const next = view.agents[i - 1] ?? view.agents[i + 1] ?? null;
-      selected = next?.id ?? null;
+    if (op === "remove") {
+      open = null;
+      dirty = false;
     }
     await refresh();
     round += 1;
@@ -94,35 +106,44 @@
   {:else if view.agents.length === 0 && screen !== "add"}
     <div class="content"><FirstRun palette={view.palette} onDone={() => navigate("agents")} /></div>
   {:else}
-    <div class="body">
-      <AgentList
-        {view}
-        selected={screen === "agents" ? (current?.id ?? null) : null}
-        onSelect={select}
-        onNavigate={(s) => navigate(s)}
-        onRefresh={refresh}
-        onSite={() => openSite().catch((e) => (notice = message(e)))}
-      />
-      <main class="right">
+    <div class="content">
+      <div class="column">
         {#if screen === "help"}
-          <div class="pane"><Help {view} onBack={() => navigate("agents")} /></div>
+          <Help {view} onBack={() => navigate("agents")} />
         {:else if screen === "changes"}
-          <div class="pane"><Changes onBack={() => navigate("agents")} /></div>
+          <Changes onBack={() => navigate("agents")} />
         {:else if screen === "add"}
-          <div class="pane">
-            <AddAgent
-              palette={view.palette}
-              nextColor={view.next_color}
-              onDone={(note) => navigate("agents", note)}
-              onCancel={() => navigate("agents")}
-            />
-          </div>
-        {:else if current}
-          {#key `${current.id}:${round}`}
-            <AgentPage agent={current} palette={view.palette} {terminals} onApplied={changed} />
-          {/key}
+          <AddAgent
+            palette={view.palette}
+            nextColor={view.next_color}
+            onDone={(note) => {
+              added = true;
+              navigate("agents", note);
+            }}
+            onCancel={() => navigate("agents")}
+          />
+        {:else}
+          <AgentList
+            {view}
+            {open}
+            palette={view.palette}
+            {terminals}
+            {round}
+            {nudge}
+            onToggle={toggle}
+            onNavigate={(s) => navigate(s)}
+            onRefresh={refresh}
+            onSite={() => openSite().catch((e) => (notice = message(e)))}
+            onApplied={changed}
+            onDirty={(d) => {
+              dirty = d;
+              // The last notice would sit over the new change's save bar.
+              if (d) notice = null;
+            }}
+            onClose={() => (open = null)}
+          />
         {/if}
-      </main>
+      </div>
     </div>
   {/if}
 </div>
@@ -138,23 +159,13 @@
     min-height: 0;
     overflow-y: auto;
   }
-  .body {
-    flex: 1;
-    min-height: 0;
-    display: grid;
-    grid-template-columns: 320px minmax(0, 1fr);
-  }
-  .right {
+  /* The content fills the window, like a native app: no centered page with empty sides. */
+  .column {
     min-width: 0;
-    min-height: 0;
-  }
-  .pane {
-    height: 100%;
-    overflow-y: auto;
   }
   .notice {
     position: fixed;
-    left: calc(50% + 160px);
+    left: 50%;
     bottom: 16px;
     transform: translateX(-50%);
     display: flex;

@@ -5,9 +5,9 @@
       {
         "label": "main",
         "title": "Agent Roster",
-        "width": 1200,
-        "height": 660,
-        "minWidth": 1000,
+        "width": 760,
+        "height": 720,
+        "minWidth": 560,
         "minHeight": 560,
         "backgroundColor": "#111925",
         "titleBarStyle": "Overlay",

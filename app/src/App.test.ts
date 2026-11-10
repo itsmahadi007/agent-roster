@@ -25,7 +25,7 @@ describe("App", () => {
       throw new Error(cmd);
     });
     render(App);
-    await userEvent.click(await screen.findByRole("button", { name: /agent2/ }));
+    await userEvent.click(await screen.findByRole("button", { name: /^agent2/ }));
     await userEvent.click(screen.getByRole("button", { name: "Show usage" }));
     expect(invoke).toHaveBeenCalledWith("preview", { req: { op: "enable-limits", name: "agent2" } });
     const bar = within(await screen.findByRole("region", { name: "Change waiting" }));
@@ -42,6 +42,7 @@ describe("App", () => {
       throw new Error(cmd);
     });
     render(App);
+    await userEvent.click(await screen.findByRole("button", { name: /^agent1/ }));
     await userEvent.click(await screen.findByRole("button", { name: "Hide usage" }));
     expect(invoke).toHaveBeenCalledWith("preview", { req: { op: "disable-limits", name: "agent1" } });
     expect(within(await screen.findByRole("region", { name: "Change waiting" })).getByRole("button", { name: "Hide usage" })).toBeInTheDocument();
@@ -88,7 +89,7 @@ describe("App rename and help", () => {
       throw new Error(cmd);
     });
     render(App);
-    expect(await screen.findByRole("heading", { name: "agent1" })).toBeInTheDocument();
+    await userEvent.click(await screen.findByRole("button", { name: /^agent1/ }));
     const input = screen.getByLabelText("Name");
     await userEvent.clear(input);
     await userEvent.type(input, "lead");
@@ -98,7 +99,7 @@ describe("App rename and help", () => {
     expect(await screen.findByText("agent1 is now lead. Type lead in any terminal to start it.")).toBeInTheDocument();
   });
 
-  it("removing an agent opens the one above it", async () => {
+  it("removing the open agent closes the drawer", async () => {
     invoke.mockImplementation(async (cmd: string) => {
       if (cmd === "overview") return overview;
       if (cmd === "preview") return { token: 3, summary: "Removed boss", steps: [{ kind: "remove", text: "Removes the boss command." }] };
@@ -106,12 +107,13 @@ describe("App rename and help", () => {
       throw new Error(cmd);
     });
     render(App);
-    await userEvent.click(await screen.findByRole("button", { name: /boss/ }));
+    await userEvent.click(await screen.findByRole("button", { name: /^boss/ }));
     await userEvent.click(screen.getByRole("button", { name: "Remove boss" }));
     const bar = within(await screen.findByRole("region", { name: "Change waiting" }));
     await userEvent.click(await bar.findByRole("button", { name: "Remove" }));
     expect(await screen.findByText(/boss was removed/)).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "agent3" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryAllByRole("button", { expanded: true })).toHaveLength(0));
+    expect(screen.queryByLabelText("Name")).not.toBeInTheDocument();
   });
 
   it("how it works explains the app and goes back", async () => {
@@ -120,8 +122,133 @@ describe("App rename and help", () => {
     await userEvent.click(await screen.findByRole("button", { name: "How it works" }));
     expect(await screen.findByRole("heading", { name: "How Agent Roster works" })).toBeInTheDocument();
     expect(screen.getByText(/Type its name in any terminal/)).toBeInTheDocument();
-    expect(screen.getByText(/Click an agent in the list to open its page/)).toBeInTheDocument();
+    expect(screen.getByText(/Click an agent's row to open it in place/)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Back to your agents" }));
-    expect(await screen.findByRole("heading", { name: "agent1" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Your agents" })).toBeInTheDocument();
+  });
+});
+
+describe("App rows", () => {
+  const renames = () =>
+    invoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "overview") return structuredClone(overview);
+      if (cmd === "preview") return { token: 2, summary: "s", steps: [{ kind: "change", text: "Renames." }] };
+      return null;
+    });
+
+  it("nothing is open at first; clicking a row opens it, clicking again closes it", async () => {
+    renames();
+    render(App);
+    const a1 = await screen.findByRole("button", { name: /^agent1/ });
+    expect(screen.queryByLabelText("Name")).not.toBeInTheDocument();
+    await userEvent.click(a1);
+    expect(a1).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByLabelText("Name")).toHaveValue("agent1");
+    await userEvent.click(a1);
+    expect(a1).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByLabelText("Name")).not.toBeInTheDocument();
+  });
+
+  it("another row can't open while a change waits", async () => {
+    renames();
+    render(App);
+    await userEvent.click(await screen.findByRole("button", { name: /^agent1/ }));
+    const input = screen.getByLabelText("Name");
+    await userEvent.clear(input);
+    await userEvent.type(input, "lead");
+    await within(await screen.findByRole("region", { name: "Change waiting" })).findByText("Renames.");
+    await userEvent.click(screen.getByRole("button", { name: /^agent3/ }));
+    expect(screen.getByRole("button", { name: /^agent3/ })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByLabelText("Name")).toHaveValue("lead");
+    expect(await screen.findByText("Apply or cancel this change first.")).toBeInTheDocument();
+  });
+
+  it("open row and its edits survive a refresh", async () => {
+    renames();
+    render(App);
+    await userEvent.click(await screen.findByRole("button", { name: /^agent1/ }));
+    const input = screen.getByLabelText("Name");
+    await userEvent.clear(input);
+    await userEvent.type(input, "lead");
+    await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    expect(await screen.findByText("Checked just now")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^agent1/ })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByLabelText("Name")).toHaveValue("lead");
+  });
+
+  it("leaving for another screen while a change waits is refused", async () => {
+    renames();
+    render(App);
+    await userEvent.click(await screen.findByRole("button", { name: /^agent1/ }));
+    const input = screen.getByLabelText("Name");
+    await userEvent.clear(input);
+    await userEvent.type(input, "lead");
+    await within(await screen.findByRole("region", { name: "Change waiting" })).findByText("Renames.");
+    await userEvent.click(screen.getByRole("button", { name: "How it works" }));
+    expect(screen.queryByRole("heading", { name: "How Agent Roster works" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Name")).toHaveValue("lead");
+    expect(await screen.findByText("Apply or cancel this change first.")).toBeInTheDocument();
+  });
+
+  it("an agent added outside the app doesn't take over the open row", async () => {
+    const after = structuredClone(overview) as OverviewView;
+    after.agents.push({ ...structuredClone(after.agents[3]), id: "a5", name: "helper" });
+    let added = false;
+    invoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "overview") return structuredClone(added ? after : overview);
+      if (cmd === "preview") return { token: 2, summary: "s", steps: [{ kind: "change", text: "Renames." }] };
+      return null;
+    });
+    render(App);
+    await userEvent.click(await screen.findByRole("button", { name: /^agent1/ }));
+    const input = screen.getByLabelText("Name");
+    await userEvent.clear(input);
+    await userEvent.type(input, "lead");
+    added = true;
+    await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    await screen.findByRole("button", { name: /^helper/ });
+    expect(screen.getByRole("button", { name: /^helper/ })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByRole("button", { name: /^agent1/ })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByLabelText("Name")).toHaveValue("lead");
+  });
+
+  it("a new waiting change clears the last notice so it can't cover the save bar", async () => {
+    invoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "overview") return structuredClone(overview);
+      if (cmd === "preview") return { token: 2, summary: "s", steps: [{ kind: "change", text: "Changes it." }] };
+      if (cmd === "apply") return 7;
+      return null;
+    });
+    render(App);
+    await userEvent.click(await screen.findByRole("button", { name: /^agent1/ }));
+    await userEvent.click(screen.getByRole("radio", { name: "coral" }));
+    const bar = within(await screen.findByRole("region", { name: "Change waiting" }));
+    await userEvent.click(await bar.findByRole("button", { name: "Change color" }));
+    expect(await screen.findByText("agent1 is coral now.")).toBeInTheDocument();
+    await userEvent.click(await screen.findByRole("radio", { name: "jade" }));
+    await screen.findByRole("region", { name: "Change waiting" });
+    await waitFor(() => expect(screen.queryByText("agent1 is coral now.")).not.toBeInTheDocument());
+  });
+
+  it("add agent opens the new agent's row", async () => {
+    const after = structuredClone(overview) as OverviewView;
+    after.agents.push({ ...structuredClone(after.agents[3]), id: "a5", name: "helper" });
+    let added = false;
+    invoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "overview") return added ? after : overview;
+      if (cmd === "preview") return { token: 4, summary: "Added helper", steps: [{ kind: "change", text: "Adds helper." }] };
+      if (cmd === "apply") {
+        added = true;
+        return 9;
+      }
+      return null;
+    });
+    render(App);
+    await userEvent.click(await screen.findByRole("button", { name: "Add agent" }));
+    await userEvent.type(screen.getByLabelText("Name"), "helper");
+    const go = screen.getByRole("button", { name: "Add and sign in" });
+    await waitFor(() => expect(go).toBeEnabled());
+    await userEvent.click(go);
+    await waitFor(() => expect(screen.getByRole("button", { name: /^helper/ })).toHaveAttribute("aria-expanded", "true"));
   });
 });
