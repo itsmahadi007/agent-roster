@@ -49,7 +49,7 @@ The owner wants it for himself and his boss today, and as a public open-source p
   agents. They are never moved or rewritten.
 - G4. Sign-in per agent from the app (opens a terminal running that agent's normal login) or CLI.
 - G5. Roster note so agents can call each other by name, with optional one-line **role** per agent.
-- G6. Limits and reset times per agent (Codex always; Claude opt-in, see §6.6).
+- G6. Limits, reset times and account health per agent, asked from each tool itself (see §6.6).
 - G7. Live view of which agent is working for which (the "cable").
 - G8. Change journal with per-change undo, undo-all, and uninstall that restores everything.
 - G9. Menu bar (macOS) / tray (Windows, Linux) with quick "open a terminal as …".
@@ -270,18 +270,48 @@ reset times, live calls). Other commands: `add`, `rename`, `color`, `role`, `def
 `login`, `limits`, `changes`, `undo`, `ui` (opens the app), `doctor` (checks PATH, tool versions,
 markers), `run` (internal). Colors respect `NO_COLOR` and non-TTY output. `--json` on read commands.
 
-### 6.6 Limits and reset times
-- **Codex:** read the newest session file under that agent's `CODEX_HOME/sessions/` and take the
-  last `rate_limits` record (`used_percent`, `window_minutes`, `resets_at`, `plan_type`). Read-only.
-  Verified present on the owner's Mac 2026-11-09.
-- **Claude Code:** limits reach only the status line (`rate_limits.five_hour` / `seven_day` with
-  `used_percentage`, `resets_at`). Capturing them needs a status line command in that agent's
-  `settings.json`. This is **opt-in per Claude agent, off by default**, previewed and journaled.
-  If the agent already has a status line, ours runs the existing one with the same input and
-  prints its output unchanged, so the user's line is preserved. (Claude's call: owner was asked
-  "ask first or off by default" and moved on; off-by-default with a clear "Turn on limits" button
-  satisfies both.)
-- Both: show "as of <time>"; numbers update when an agent is used. 90% or more is coral.
+### 6.6 Limits, reset times and account health
+Rewritten 2026-11-10 (owner approved): Agent Roster asks each tool itself, with each agent's own
+login, so no terminal, session or status line is needed first. It never opens a credential file.
+
+- **Claude Code:** `claude auth status --json` gives the account: `loggedIn: false` is signed out;
+  `authMethod: "claude.ai"` with a `subscriptionType` (pro, max, …) has a plan; `api_key`, Bedrock,
+  Vertex, or claude.ai without a plan is "no subscription". Then
+  `claude -p /usage --output-format json --no-session-persistence --setting-sources local` (run in
+  an empty folder, so no project settings or hooks apply) prints the plan's lines, e.g.
+  `Current week (all models): 75% used · resets Nov 13, 6am (Asia/Dhaka)`. `/usage` is a local
+  command: the reply has `num_turns: 0` and `total_cost_usd: 0` (verified on 2.1.322, ~1.5–3 s).
+  Signed out or with an API key it prints only a cost summary (`Total cost: …`), read as "no plan".
+  A reply with turns or cost means that Claude Code version sent `/usage` to the model: the version
+  is written to `limits/claude-usage-unsupported` and never asked again (the status line, if on,
+  still reports).
+- **Codex:** `codex app-server` (JSON-RPC over stdio, `CODEX_HOME` from the agent's env): after the
+  `initialize` handshake, `account/rateLimits/read` returns the rate-limit snapshot; the 10080-minute
+  window (else `secondary`) is the week, and `rateLimitReachedType` means limit reached. The child
+  is killed after the answer or a timeout. When the app-server fails, the newest `rate_limits`
+  record in the agent's session files (`CODEX_HOME/sessions/`) is used.
+- **Fallbacks:** Claude's status line (opt-in per agent, `roster limits enable`) still writes the
+  same saved file between checks. For Codex, saved app-server numbers and session files are both
+  read and the newest `as_of` wins.
+- **Account health**, saved per agent with its time (`limits/<id>.health.json`; numbers in
+  `limits/<id>.json`): ok, sign in, no subscription, limit reached (week at 100% or the tool says
+  so), not installed, unreachable. Before the first check the row says "checking", never "not used
+  yet". A check that can't reach the tool (offline, timeout, crash) keeps the last numbers, shows
+  "as of <time>", and never turns a signed-in agent into "sign in". Saved numbers are never
+  replaced with nothing or with older ones. "sign in" comes with a Sign in button that opens a
+  terminal running `roster login <name>`. Limit reached and 90% or more are coral.
+- **When:** the app checks on start, every 5 minutes, soon after a row shows "checking" (a new
+  agent or a new sign-in), and when Refresh is clicked; at most one check runs, and at most one per
+  30 s (an agent never checked skips the wait). Checks run off the UI thread, side by side for all
+  agents, and the window updates when they finish. The 10-second overview poll only reads the saved
+  results. `roster limits` checks fresh before printing and shows the saved numbers if a check
+  fails. Every background process is spawned hidden on Windows (`proc::hide_console`).
+- **Platform split:** one app; parsing is shared and platform-free (`usage/claude.rs`,
+  `usage/codex.rs`, `usage/mod.rs`). Finding, spawning and stopping the tools lives in
+  `usage/windows.rs` (`#[cfg(windows)]`: claude.exe, npm's `codex.cmd` shim, `%APPDATA%\npm`,
+  WinGet links, hidden windows, killing the whole process tree) and `usage/unix.rs`
+  (`#[cfg(unix)]`: login-shell PATH, `~/.local/bin`, Homebrew, plain spawn). The app and the CLI
+  call one function, `usage::refresh_all`.
 
 ### 6.7 Menu bar / tray
 List agents with color dot and week %, "Open a terminal as …", "Add agent", "Open Agent Roster".

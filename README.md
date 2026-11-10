@@ -147,7 +147,7 @@ roster rename agent2 writer  # rename (the login stays signed in)
 roster role agent1 Leader    # set a role
 roster good-at agent3 coding "making images"
 roster default agent2        # a plain `claude` now opens agent2
-roster limits enable agent1  # show a Claude Code account's usage
+roster limits                # ask every tool for usage now, then show it
 roster changes               # everything Agent Roster did
 roster undo --last           # undo the last change
 roster doctor                # check the setup
@@ -175,9 +175,24 @@ stay as they are. The version you have is shown at the bottom of the list.
 
 ## Questions
 
-**An agent shows no usage.** Claude Code and Codex record usage while they run, so an agent you
-haven't used yet has no numbers. Start it and send one message. For a Claude Code agent, click
-**Show usage** once in its row.
+**Where do the usage numbers come from?** Agent Roster asks each tool itself, with each agent's
+own login, when it starts, every 5 minutes, and when you click **Refresh** (at most every 30
+seconds). Claude Code answers `claude -p /usage` locally, without a model call or any cost; Codex
+answers through `codex app-server`. Nothing has to be open first, and Agent Roster never reads
+password or token files. If a tool can't be reached, the row keeps the last numbers and says when
+they're from.
+
+**What the usage column says.**
+
+| It says | Meaning |
+|---|---|
+| `61% week` | used this much of the weekly limit; coral from 90% |
+| `limit reached` | the week is used up; the row says when it resets |
+| `sign in` | the agent isn't signed in; open its row and click **Sign in** |
+| `no subscription` | signed in, but with no plan (none, ended, or an API key): no weekly limit |
+| `checking` | the first check since it was added or signed in is still running |
+| `not installed` | Claude Code or Codex isn't on this computer |
+| `not used yet` | signed in with a plan, but the tool reported no numbers yet |
 
 **A new name isn't found in my terminal.** Open a new terminal window. Old windows still have the
 old command list.
