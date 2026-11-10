@@ -38,17 +38,17 @@
     <section>
       <h4>Hand work to another agent</h4>
       <p>
-        Inside a session, ask for another agent by name, like "ask {other} to write the tests". While it works, a cable
-        joins the two jacks on the right and the call shows under On the line now.
+        Inside a session, ask for another agent by name, like "ask {other} to write the tests". While it works, the call
+        shows under the list, and both rows say what they're doing.
       </p>
     </section>
     <section>
       <h4>Usage and limits</h4>
       <p>
-        The bars show how much of each limit an account has used: 5 hr is the 5-hour limit, week the weekly one. They turn
-        red at 90%. Claude Code and Codex write these numbers down while they run, so they update each time you use an
-        agent. An agent you haven't used yet says so. For a Claude Code agent, click Show usage on its row once; it never
-        limits the agent. Refresh, next to Limits on the right, checks again right away.</p>
+        Each row's bar shows how much of its weekly limit an account has used, and when that limit resets. It turns coral
+        at 90%. Claude Code and Codex write these numbers down while they run, so they update each time you use an agent.
+        An agent you haven't used yet says so. For a Claude Code agent, open its row and click Show usage once; it never
+        limits the agent. Refresh, under the list, checks again right away.</p>
     </section>
     <section>
       <h4>What a row says</h4>
@@ -70,7 +70,7 @@
     <section>
       <h4>Change an agent</h4>
       <p>
-        Click an agent in the list to open its page. There you can rename it, change its color, pick a ready-made role
+        Click an agent's row to open it in place. There you can rename it, change its color, pick a ready-made role
         like Leader or Worker 1, edit what it's good at, share your skills with it, make it the default, sign in again or
         remove it. Each change waits in a bar at the bottom until you save it. Removing keeps its login folder.</p>
     </section>

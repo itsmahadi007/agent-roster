@@ -6,7 +6,7 @@ Rust workspace: `crates/roster-core` (all logic) + `crates/roster-cli` (binary `
 ## Read first
 - Spec (binding): `docs/superpowers/specs/2026-11-09-agent-roster-design.md`
 - Plans: `docs/superpowers/plans/` (Plans 1 and 2 done, each with a ledger of every ruling; Plan 0 spike pending)
-- Visual source of truth for the app: `docs/mockups/app-window.html` and `docs/mockups/terminal.html`
+- Visual source of truth for the app: `docs/mockups/list-first.html` for the main window (list-first, rows open in place, weekly limit only; chosen 2026-11-10), `docs/mockups/app-window.html` for the other screens, and `docs/mockups/terminal.html`
 - App: `app/` (Tauri 2 + Svelte 5). `cd app && npm test`, `cargo tauri build --bundles app`. Done goal: `docs/goals/plan-2-app-window.goal.txt`
 - App icon: `assets/icon/icon-a.png` (chosen; generated with Codex)
 
