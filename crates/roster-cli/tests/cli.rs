@@ -104,7 +104,10 @@ fn overview_lists_agents_plain_when_piped() {
     let text = String::from_utf8(out).unwrap();
     assert!(!text.contains('\u{1b}'), "no escape codes when piped");
     assert!(text.contains("Claude Code") && text.contains("Codex"));
-    assert!(text.contains("93%") && text.contains("resets in"));
+    assert!(text.contains("93%"));
+    // The fixture's reset time is fixed, so it may already have passed.
+    assert!(text.contains("resets in") || text.contains("resetting now"));
+    assert!(!text.contains("resets in resetting"));
     assert!(text.contains("ready"));
 }
 

@@ -45,6 +45,15 @@ pub fn format_reset(resets_at: i64, now: i64) -> String {
     }
 }
 
+/// "resets in 21h 52m", or "resetting now" once the time has passed.
+pub fn reset_phrase(resets_at: i64, now: i64) -> String {
+    if resets_at <= now {
+        "resetting now".into()
+    } else {
+        format!("resets in {}", format_reset(resets_at, now))
+    }
+}
+
 fn mtime(p: &Path) -> i64 {
     std::fs::metadata(p)
         .and_then(|m| m.modified())
@@ -251,6 +260,14 @@ mod tests {
         assert_eq!(format_reset(now + 78_745, now), "21h 52m");
         assert_eq!(format_reset(now + 600, now), "10m");
         assert_eq!(format_reset(now - 5, now), "resetting now");
+    }
+
+    #[test]
+    fn reset_phrase_reads_well() {
+        let now = 1_000_000;
+        assert_eq!(reset_phrase(now + 78_745, now), "resets in 21h 52m");
+        assert_eq!(reset_phrase(now - 5, now), "resetting now");
+        assert_eq!(reset_phrase(now, now), "resetting now");
     }
 
     #[test]

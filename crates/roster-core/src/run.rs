@@ -6,7 +6,7 @@ use crate::paths::RosterPaths;
 pub type EnvChanges = Vec<(String, Option<String>)>;
 
 use crate::detect::find_tool;
-use crate::limits::{format_reset, read_claude_limits, read_codex_limits};
+use crate::limits::{AgentLimits, read_claude_limits, read_codex_limits, reset_phrase};
 use crate::model::Tool;
 use crate::session::{SessionRecord, task_from_args};
 use std::fmt;
@@ -101,12 +101,9 @@ pub fn prepare_run(
     })
 }
 
-fn banner_text(agent: &Agent, r: &Roster, p: &RosterPaths, color: bool) -> String {
-    let limits = match agent.tool {
-        Tool::Codex => read_codex_limits(&r.config_dir_of(agent, p)),
-        Tool::Claude => read_claude_limits(p, &agent.id),
-    };
-    let limit_text = limits
+/// The limit part of the banner: "  week 94%, resets in 21h 52m".
+fn banner_limit(limits: Option<AgentLimits>, now: i64) -> String {
+    limits
         .and_then(|l| {
             l.windows
                 .into_iter()
@@ -114,13 +111,21 @@ fn banner_text(agent: &Agent, r: &Roster, p: &RosterPaths, color: bool) -> Strin
         })
         .map(|w| {
             format!(
-                "  {} {:.0}%, resets in {}",
+                "  {} {:.0}%, {}",
                 w.label,
                 w.used_percent,
-                format_reset(w.resets_at, now())
+                reset_phrase(w.resets_at, now)
             )
         })
-        .unwrap_or_default();
+        .unwrap_or_default()
+}
+
+fn banner_text(agent: &Agent, r: &Roster, p: &RosterPaths, color: bool) -> String {
+    let limits = match agent.tool {
+        Tool::Codex => read_codex_limits(&r.config_dir_of(agent, p)),
+        Tool::Claude => read_claude_limits(p, &agent.id),
+    };
+    let limit_text = banner_limit(limits, now());
     if color {
         let (cr, cg, cb) = agent.color.rgb();
         format!(
@@ -222,6 +227,31 @@ mod tests {
             statusline: vec![],
         };
         (d, p, r)
+    }
+
+    fn week(used: f64, resets_at: i64) -> crate::limits::AgentLimits {
+        crate::limits::AgentLimits {
+            as_of: 0,
+            plan: None,
+            windows: vec![crate::limits::LimitWindow {
+                label: "week".into(),
+                used_percent: used,
+                resets_at,
+            }],
+        }
+    }
+
+    #[test]
+    fn banner_past_reset() {
+        let now = 1_000_000;
+        assert_eq!(
+            banner_limit(Some(week(94.0, now - 1)), now),
+            "  week 94%, resetting now"
+        );
+        assert_eq!(
+            banner_limit(Some(week(94.0, now + 78_745)), now),
+            "  week 94%, resets in 21h 52m"
+        );
     }
 
     #[test]

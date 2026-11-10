@@ -172,6 +172,18 @@ fn hot_single_window_is_coral() {
 }
 
 #[test]
+fn past_reset_says_resetting_now() {
+    let mut o = sample();
+    o.agents[2].limits.as_mut().unwrap().windows[0].resets_at = NOW - 60;
+    let v = overview_view(&o, Path::new(HOME), NOW);
+    assert_eq!(v.agents[2].reset_text.as_deref(), Some("resetting now"));
+    assert_eq!(
+        v.warnings[0].text,
+        "has used 93% of its week. It is resetting now."
+    );
+}
+
+#[test]
 fn two_windows_reset_line_names_the_last() {
     let v = overview_view(&sample(), Path::new(HOME), NOW);
     let a1 = &v.agents[0];

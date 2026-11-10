@@ -3,7 +3,7 @@
 use crate::detect::{CommandRunner, sign_in_for, tool_info};
 use crate::import::detect_prototype;
 use crate::journal::Op;
-use crate::limits::{LimitWindow, format_reset};
+use crate::limits::{LimitWindow, reset_phrase};
 use crate::model::{Agent, AgentColor, LimitsSource, Roster, Tool};
 use crate::paths::{RosterPaths, collapse_tilde, expand_tilde};
 use crate::status::{AgentState, AgentStatus, Overview};
@@ -207,16 +207,9 @@ fn agent_view(s: &AgentStatus, o: &Overview, now: i64) -> AgentView {
     };
     let (reset_text, reset_hot) = match windows.as_slice() {
         [] => (None, false),
-        [w] => (
-            Some(format!("resets in {}", format_reset(w.resets_at, now))),
-            rounded(w) >= HOT,
-        ),
+        [w] => (Some(reset_phrase(w.resets_at, now)), rounded(w) >= HOT),
         [.., w] => (
-            Some(format!(
-                "{} resets in {}",
-                w.label,
-                format_reset(w.resets_at, now)
-            )),
+            Some(format!("{} {}", w.label, reset_phrase(w.resets_at, now))),
             rounded(w) >= HOT,
         ),
     };
@@ -316,9 +309,13 @@ pub fn overview_view(o: &Overview, home: &Path, now: i64) -> OverviewView {
                     name: s.agent.name.clone(),
                     color: s.agent.color.hex().into(),
                     text: format!(
-                        "has used {}% of {what}. It resets in {}.",
+                        "has used {}% of {what}. It {}.",
                         rounded(w),
-                        format_reset(w.resets_at, now)
+                        if w.resets_at <= now {
+                            "is resetting now".to_string()
+                        } else {
+                            reset_phrase(w.resets_at, now)
+                        }
                     ),
                 });
             }
