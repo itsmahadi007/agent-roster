@@ -17,3 +17,4 @@ pub mod status;
 pub mod statusline;
 pub mod usage;
 pub mod view;
+pub mod login;
