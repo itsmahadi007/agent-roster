@@ -25,16 +25,21 @@
   let nudge = $state(0);
   /** Bumped after each change so the open drawer starts fresh from the new state. */
   let round = $state(0);
-  /** Ids seen so far: a new one after Add agent gets opened. */
+  /** Ids seen so far: a new one after this app's Add agent gets opened. */
   let known: Set<string> | null = null;
+  /** Set when Add agent finishes here, so an agent added from a terminal doesn't take over. */
+  let added = false;
 
   async function refresh() {
     try {
       const v = await overview();
-      const fresh = known ? v.agents.find((a) => !known!.has(a.id)) : undefined;
+      const fresh = known && added ? v.agents.find((a) => !known!.has(a.id)) : undefined;
       known = new Set(v.agents.map((a) => a.id));
       view = v;
-      if (fresh) open = fresh.id;
+      if (fresh) {
+        added = false;
+        if (!dirty) open = fresh.id;
+      }
       error = null;
     } catch (e) {
       error = message(e);
@@ -42,6 +47,11 @@
   }
 
   function navigate(s: Screen, note?: string) {
+    // Leaving the list would drop the change waiting in the open row.
+    if (dirty && s !== "agents") {
+      nudge += 1;
+      return;
+    }
     screen = s;
     notice = note ?? null;
     if (s === "agents") refresh();
@@ -106,7 +116,10 @@
           <AddAgent
             palette={view.palette}
             nextColor={view.next_color}
-            onDone={(note) => navigate("agents", note)}
+            onDone={(note) => {
+              added = true;
+              navigate("agents", note);
+            }}
             onCancel={() => navigate("agents")}
           />
         {:else}
@@ -122,7 +135,11 @@
             onRefresh={refresh}
             onSite={() => openSite().catch((e) => (notice = message(e)))}
             onApplied={changed}
-            onDirty={(d) => (dirty = d)}
+            onDirty={(d) => {
+              dirty = d;
+              // The last notice would sit over the new change's save bar.
+              if (d) notice = null;
+            }}
             onClose={() => (open = null)}
           />
         {/if}

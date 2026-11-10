@@ -176,6 +176,60 @@ describe("App rows", () => {
     expect(screen.getByLabelText("Name")).toHaveValue("lead");
   });
 
+  it("leaving for another screen while a change waits is refused", async () => {
+    renames();
+    render(App);
+    await userEvent.click(await screen.findByRole("button", { name: /^agent1/ }));
+    const input = screen.getByLabelText("Name");
+    await userEvent.clear(input);
+    await userEvent.type(input, "lead");
+    await within(await screen.findByRole("region", { name: "Change waiting" })).findByText("Renames.");
+    await userEvent.click(screen.getByRole("button", { name: "How it works" }));
+    expect(screen.queryByRole("heading", { name: "How Agent Roster works" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Name")).toHaveValue("lead");
+    expect(await screen.findByText("Apply or cancel this change first.")).toBeInTheDocument();
+  });
+
+  it("an agent added outside the app doesn't take over the open row", async () => {
+    const after = structuredClone(overview) as OverviewView;
+    after.agents.push({ ...structuredClone(after.agents[3]), id: "a5", name: "helper" });
+    let added = false;
+    invoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "overview") return structuredClone(added ? after : overview);
+      if (cmd === "preview") return { token: 2, summary: "s", steps: [{ kind: "change", text: "Renames." }] };
+      return null;
+    });
+    render(App);
+    await userEvent.click(await screen.findByRole("button", { name: /^agent1/ }));
+    const input = screen.getByLabelText("Name");
+    await userEvent.clear(input);
+    await userEvent.type(input, "lead");
+    added = true;
+    await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    await screen.findByRole("button", { name: /^helper/ });
+    expect(screen.getByRole("button", { name: /^helper/ })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByRole("button", { name: /^agent1/ })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByLabelText("Name")).toHaveValue("lead");
+  });
+
+  it("a new waiting change clears the last notice so it can't cover the save bar", async () => {
+    invoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "overview") return structuredClone(overview);
+      if (cmd === "preview") return { token: 2, summary: "s", steps: [{ kind: "change", text: "Changes it." }] };
+      if (cmd === "apply") return 7;
+      return null;
+    });
+    render(App);
+    await userEvent.click(await screen.findByRole("button", { name: /^agent1/ }));
+    await userEvent.click(screen.getByRole("radio", { name: "coral" }));
+    const bar = within(await screen.findByRole("region", { name: "Change waiting" }));
+    await userEvent.click(await bar.findByRole("button", { name: "Change color" }));
+    expect(await screen.findByText("agent1 is coral now.")).toBeInTheDocument();
+    await userEvent.click(await screen.findByRole("radio", { name: "jade" }));
+    await screen.findByRole("region", { name: "Change waiting" });
+    await waitFor(() => expect(screen.queryByText("agent1 is coral now.")).not.toBeInTheDocument());
+  });
+
   it("add agent opens the new agent's row", async () => {
     const after = structuredClone(overview) as OverviewView;
     after.agents.push({ ...structuredClone(after.agents[3]), id: "a5", name: "helper" });
