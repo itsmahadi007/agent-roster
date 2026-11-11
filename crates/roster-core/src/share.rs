@@ -12,7 +12,7 @@ pub const SHARED_END: &str = "<!-- agent-roster:shared-end -->";
 fn shared_dirs(tool: Tool) -> &'static [&'static str] {
     match tool {
         Tool::Claude => &["skills", "agents", "commands"],
-        Tool::Codex => &["skills"],
+        Tool::Codex | Tool::Grok => &["skills"],
     }
 }
 
@@ -80,7 +80,7 @@ pub fn apply_share(txn: &mut Txn, r: &Roster, p: &RosterPaths) -> Result<(), Jou
                     format!("{SHARED_BEGIN}\n@{src}\n{SHARED_END}\n"),
                 )
             }
-            Tool::Codex => {
+            Tool::Codex | Tool::Grok => {
                 let src_path = primary.join("AGENTS.md");
                 let content = remove_block(&std::fs::read_to_string(&src_path).unwrap_or_default());
                 let src = collapse_tilde(&src_path, &p.home);

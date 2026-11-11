@@ -47,6 +47,29 @@ describe("AddAgent", () => {
     }
   });
 
+  it("a grok agent signs in with the browser even when the window is set", async () => {
+    resetSignIn();
+    prefs.signInWith = "window";
+    backend({ preview: () => plan, apply: () => 9, sign_in: () => true });
+    const onDone = vi.fn();
+    render(AddAgent, props({ onDone }));
+    await userEvent.click(screen.getByRole("button", { name: "Grok" }));
+    await userEvent.type(screen.getByLabelText("Name"), "grok2");
+    await waitFor(() =>
+      expect(invoke).toHaveBeenLastCalledWith("preview", {
+        req: { op: "add", name: "grok2", tool: "grok", color: "pink", role: null, share: false },
+      }),
+    );
+    await screen.findByText(plan.steps[0].text);
+    await userEvent.click(screen.getByRole("button", { name: "Add and sign in" }));
+    try {
+      await waitFor(() => expect(onDone).toHaveBeenCalled());
+      expect(invoke).not.toHaveBeenCalledWith("sign_in_in_app", expect.anything());
+    } finally {
+      resetSignIn();
+    }
+  });
+
   it("add_preview_shows_backend_steps", async () => {
     backend({ preview: () => plan });
     render(AddAgent, props());

@@ -19,7 +19,7 @@
   const installed = $derived(fr ? fr.candidates.filter((c) => c.installed) : []);
   const title = $derived(
     installed.length === 0
-      ? "No Claude Code or Codex login was found"
+      ? "No Claude Code, Codex or Grok login was found"
       : `You already have ${COUNT[installed.length] ?? installed.length} agent${installed.length === 1 ? "" : "s"}`,
   );
 
@@ -55,7 +55,7 @@
       {title}
       sub={installed.length
         ? `We found these ${installed.every((c) => c.signed_in) ? "signed in " : ""}on this computer. Give them names, or keep ours. Nothing changes until you continue.`
-        : "Install Claude Code or Codex, sign in once, then open Agent Roster again."}
+        : "Install Claude Code, Codex or Grok, sign in once, then open Agent Roster again."}
     />
 
     {#if fr.prototype}

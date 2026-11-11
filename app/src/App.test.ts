@@ -86,7 +86,7 @@ describe("App first run", () => {
       throw new Error(cmd);
     });
     render(App);
-    expect(await screen.findByText("No Claude Code or Codex login was found")).toBeInTheDocument();
+    expect(await screen.findByText("No Claude Code, Codex or Grok login was found")).toBeInTheDocument();
   });
 });
 

@@ -49,6 +49,10 @@ pub fn task_from_args(tool: Tool, args: &[String]) -> Option<String> {
             }
             found
         }
+        Tool::Grok => {
+            let i = args.iter().position(|a| a == "-p" || a == "--single")?;
+            args.get(i + 1).filter(|a| !a.starts_with('-')).cloned()
+        }
     }?;
     Some(raw.chars().take(120).collect())
 }
@@ -150,6 +154,14 @@ mod tests {
         );
         assert_eq!(
             task_from_args(Tool::Codex, &s(&["exec", "-C", "/tmp", "go"])),
+            Some("go".into())
+        );
+        assert_eq!(
+            task_from_args(Tool::Grok, &s(&["--always-approve", "-p", "fix the test"])),
+            Some("fix the test".into())
+        );
+        assert_eq!(
+            task_from_args(Tool::Grok, &s(&["--single", "go"])),
             Some("go".into())
         );
         assert_eq!(task_from_args(Tool::Claude, &s(&[])), None);

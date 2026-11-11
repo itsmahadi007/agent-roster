@@ -39,22 +39,27 @@ struct Yes {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Put your existing Claude Code and Codex logins on the roster.
+    /// Put your existing Claude Code, Codex and Grok logins on the roster.
     Init {
         #[arg(long, default_value = "claude1")]
         claude_name: String,
         #[arg(long, default_value = "codex1")]
         codex_name: String,
+        #[arg(long, default_value = "grok1")]
+        grok_name: String,
         #[command(flatten)]
         yes: Yes,
     },
-    /// Add an agent with its own login.
+    /// Add an agent with its own login. Pick its tool: --claude, --codex or --grok.
+    #[command(group(clap::ArgGroup::new("tool").required(true)))]
     Add {
         name: String,
-        #[arg(long, conflicts_with = "codex", required_unless_present = "codex")]
+        #[arg(long, group = "tool")]
         claude: bool,
-        #[arg(long)]
+        #[arg(long, group = "tool")]
         codex: bool,
+        #[arg(long, group = "tool")]
+        grok: bool,
         #[arg(long)]
         color: Option<String>,
         #[arg(long)]
@@ -221,8 +226,14 @@ impl App {
     }
 }
 
-fn tool_of(claude: bool) -> Tool {
-    if claude { Tool::Claude } else { Tool::Codex }
+fn tool_of(claude: bool, grok: bool) -> Tool {
+    if claude {
+        Tool::Claude
+    } else if grok {
+        Tool::Grok
+    } else {
+        Tool::Codex
+    }
 }
 
 fn parse_color(c: Option<String>) -> Result<Option<AgentColor>, String> {
@@ -238,10 +249,10 @@ fn show_overview(app: &App, json: bool) -> Result<u8, String> {
     let r = app.roster()?;
     if r.agents.is_empty() && !json {
         println!("\n Agent Roster has no agents yet.\n");
-        let tools = [Tool::Claude, Tool::Codex].map(|t| {
+        let tools = Tool::ALL.map(|t| {
             roster_core::detect::find_tool(t, &env_var("PATH").unwrap_or_default(), &app.p)
         });
-        for (t, found) in [Tool::Claude, Tool::Codex].iter().zip(tools.iter()) {
+        for (t, found) in Tool::ALL.iter().zip(tools.iter()) {
             match found {
                 Some(path) => println!("  {}  found at {}", t.display(), path.display()),
                 None => println!("  {}  not installed", t.display()),
@@ -326,7 +337,7 @@ fn doctor(app: &App) -> Result<u8, String> {
         }
     };
     println!();
-    for t in [Tool::Claude, Tool::Codex] {
+    for t in Tool::ALL {
         let found = roster_core::detect::find_tool(t, &path_var, &app.p);
         let used = r.agents.iter().any(|a| a.tool == t);
         check(
@@ -362,11 +373,7 @@ fn doctor(app: &App) -> Result<u8, String> {
             format!("{} has its command", a.name),
             "Run `roster rename <name> <same name>` or re-run `roster init` to rewrite commands.",
         );
-        let note = r.config_dir_of(a, &app.p).join(if a.tool == Tool::Claude {
-            "CLAUDE.md"
-        } else {
-            "AGENTS.md"
-        });
+        let note = r.config_dir_of(a, &app.p).join(a.tool.note_file());
         let has_note = std::fs::read_to_string(&note)
             .map(|t| t.contains(roster_core::note::BEGIN))
             .unwrap_or(false);
@@ -533,12 +540,17 @@ fn real() -> Result<u8, String> {
         Some(Cmd::Init {
             claude_name,
             codex_name,
+            grok_name,
             yes,
         }) => {
             let mut r = app.roster()?;
             let mut any = false;
             let path_var = env_var("PATH").unwrap_or_default();
-            for (tool, name) in [(Tool::Claude, claude_name), (Tool::Codex, codex_name)] {
+            for (tool, name) in [
+                (Tool::Claude, claude_name),
+                (Tool::Codex, codex_name),
+                (Tool::Grok, grok_name),
+            ] {
                 let installed = roster_core::detect::find_tool(tool, &path_var, &app.p).is_some();
                 let standard = expand_tilde(tool.standard_dir(), &app.p.home);
                 let on_roster = r
@@ -566,6 +578,7 @@ fn real() -> Result<u8, String> {
             name,
             claude,
             codex: _,
+            grok,
             color,
             role,
             share,
@@ -573,7 +586,7 @@ fn real() -> Result<u8, String> {
         }) => {
             let req = AddRequest {
                 name,
-                tool: tool_of(claude),
+                tool: tool_of(claude, grok),
                 color: parse_color(color)?,
                 role,
                 share,
@@ -635,6 +648,10 @@ fn real() -> Result<u8, String> {
                 Tool::Claude => vec!["auth".into(), "login".into()],
                 Tool::Codex if device || headless() => vec!["login".into(), "--device-auth".into()],
                 Tool::Codex => vec!["login".into()],
+                Tool::Grok if device || headless() => {
+                    vec!["login".into(), "--device-auth".into()]
+                }
+                Tool::Grok => vec!["login".into(), "--oauth".into()],
             };
             run_agent(&app, &a.id.clone(), args)
         }

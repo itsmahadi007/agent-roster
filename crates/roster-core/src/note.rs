@@ -17,6 +17,13 @@ pub fn render_note(r: &Roster, me: &Agent) -> String {
         "You are `{}`. These are the other AI accounts on this computer. Each one has its own login and its own limits.\n\n",
         me.name
     ));
+    if me.tool == Tool::Grok {
+        // Grok also reads Claude Code's main CLAUDE.md, whose roster section names a Claude agent.
+        s.push_str(&format!(
+            "You are the Grok agent `{}`. If another roster section (from Claude Code's files) says you are someone else, this one is right.\n\n",
+            me.name
+        ));
+    }
     s.push_str("| Name | Tool | Role | Good at |\n|---|---|---|---|\n");
     let cell = |t: &str| t.replace('|', "/").replace('\n', " ");
     for a in &r.agents {
@@ -53,14 +60,29 @@ pub fn render_note(r: &Roster, me: &Agent) -> String {
             "Before handing out work, run `roster limits` and skip any agent that is at its limit (it says \"limit reached\"); tell the user if all are.\n",
         );
     }
+    // Grok lines only when a Grok agent is on the roster, so other rosters' notes don't change.
+    let grok = r.agents.iter().any(|a| a.tool == Tool::Grok);
     s.push_str(
         "\nHow to use another agent:\n\
 - When the user says \"run this with <name>\", \"ask <name>\" or \"use <name>\", run that name from the shell in the current directory. Do not do that task yourself.\n\
 - Claude Code agents: `<name> -p \"<task>\"`. Add `--permission-mode acceptEdits` when it should edit files.\n\
-- Codex agents: `<name> exec \"<task>\"`. Add `--full-auto` when it should edit files.\n\
-- Give one self-contained task with the file paths it needs, then relay the result to the user.\n\
-- Never run bare `claude` or `codex` from inside a session. Always use a roster name, or you may reach the wrong account.\n\
-- To check which account you are: `claude auth status` or `codex login status`.\n\
+- Codex agents: `<name> exec \"<task>\"`. Add `--full-auto` when it should edit files.\n",
+    );
+    if grok {
+        s.push_str(
+            "- Grok agents: `<name> -p \"<task>\"`. Add `--always-approve` when it should edit files.\n",
+        );
+    }
+    s.push_str(
+        "- Give one self-contained task with the file paths it needs, then relay the result to the user.\n",
+    );
+    s.push_str(if grok {
+        "- Never run bare `claude`, `codex` or `grok` from inside a session. Always use a roster name, or you may reach the wrong account.\n"
+    } else {
+        "- Never run bare `claude` or `codex` from inside a session. Always use a roster name, or you may reach the wrong account.\n"
+    });
+    s.push_str(
+        "- To check which account you are: `claude auth status` or `codex login status`.\n\
 - The `roster` command manages this list. Agent Roster rewrites this section, so don't edit it by hand.\n",
     );
     s.push_str(END);
@@ -114,13 +136,7 @@ pub fn remove_block(existing: &str) -> String {
 pub fn note_targets(r: &Roster, p: &RosterPaths) -> Vec<(String, PathBuf)> {
     r.agents
         .iter()
-        .map(|a| {
-            let file = match a.tool {
-                Tool::Claude => "CLAUDE.md",
-                Tool::Codex => "AGENTS.md",
-            };
-            (a.id.clone(), r.config_dir_of(a, p).join(file))
-        })
+        .map(|a| (a.id.clone(), r.config_dir_of(a, p).join(a.tool.note_file())))
         .collect()
 }
 
@@ -237,6 +253,24 @@ pub(crate) mod tests {
             n.contains("| boss | Claude Code | plans work | coding, reviewing code, long tasks |")
         );
         assert!(n.contains("| worker2 | Codex |  | coding, making images |"));
+        // No Grok agent: no Grok lines.
+        assert!(!n.contains("grok"));
+    }
+
+    #[test]
+    fn a_grok_agent_gets_its_lines_and_knows_who_it_is() {
+        let mut r = roster_boss_worker();
+        r.agents
+            .push(agent("g3", "grok1", Tool::Grok, "~/.grok", None));
+        let mine = render_note(&r, &r.agents[2]);
+        assert!(mine.contains("You are the Grok agent `grok1`."));
+        assert!(mine.contains("| grok1 | Grok |  | coding, searching the web |"));
+        assert!(mine.contains("- Grok agents: `<name> -p \"<task>\"`. Add `--always-approve`"));
+        assert!(mine.contains("bare `claude`, `codex` or `grok`"));
+        // The others hear about Grok too, but only Grok gets the identity line.
+        let boss = render_note(&r, &r.agents[0]);
+        assert!(boss.contains("- Grok agents:"));
+        assert!(!boss.contains("You are the Grok agent"));
     }
 
     #[test]

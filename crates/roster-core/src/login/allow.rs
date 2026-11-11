@@ -27,6 +27,8 @@ fn first_hosts(tool: Tool) -> &'static [&'static str] {
     match tool {
         Tool::Claude => &["claude.com", "claude.ai"],
         Tool::Codex => &["auth.openai.com"],
+        // Grok signs in only through the browser (see `login::start_login`): no window page.
+        Tool::Grok => &[],
     }
 }
 

@@ -168,7 +168,8 @@ pub struct AddRequest {
 pub(crate) fn default_limits(tool: Tool) -> LimitsSource {
     match tool {
         Tool::Codex => LimitsSource::CodexSessions,
-        Tool::Claude => LimitsSource::Off,
+        // Grok has no usage reading Agent Roster can use yet (`grok usage` says to use /usage).
+        Tool::Claude | Tool::Grok => LimitsSource::Off,
     }
 }
 
@@ -379,10 +380,7 @@ pub fn plan_remove(
     let mut after = r.clone();
     after.agents.retain(|x| x.id != a.id);
     let dir = r.config_dir_of(&a, p);
-    let note_file = dir.join(match a.tool {
-        Tool::Claude => "CLAUDE.md",
-        Tool::Codex => "AGENTS.md",
-    });
+    let note_file = dir.join(a.tool.note_file());
     let mut steps = vec![step(
         StepKind::Remove,
         format!("Removes the {} command.", a.name),

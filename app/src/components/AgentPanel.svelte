@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { AgentView, ColorView, OpRequest, PlanView, TerminalApp } from "../lib/types";
+  import { browserOnly, type AgentView, type ColorView, type OpRequest, type PlanView, type TerminalApp } from "../lib/types";
   import { apply, copyText, message, preview, signIn } from "../lib/api";
   import { rememberedTerminal } from "../lib/terminal";
   import { clearLogin, logins, prefs, setSignInWith, signInInApp, type SignInWith } from "../lib/signin.svelte";
@@ -192,7 +192,7 @@
   /** Sign in, the way the setting says: the browser (a terminal running `roster login`) or an Agent Roster window. */
   async function signInAgain() {
     actionError = null;
-    if (prefs.signInWith === "window") {
+    if (prefs.signInWith === "window" && !browserOnly(agent.tool)) {
       await signInInApp(agent.name, agent.id);
       return;
     }
@@ -247,7 +247,7 @@
   const used = $derived(week ? Math.max(0, Math.min(100, week.used_percent)) : 0);
   const resetLine = $derived(agent.reset_text ? agent.reset_text.charAt(0).toUpperCase() + agent.reset_text.slice(1) : null);
   const checkedLine = $derived(agent.as_of ?? (updated ? updated.replace(/^Last update/, "checked").replace(/\.$/, "") : null));
-  const opensIn = $derived(prefs.signInWith === "window" ? "Opens in an Agent Roster window" : "Opens in your browser");
+  const opensIn = $derived(prefs.signInWith === "window" && !browserOnly(agent.tool) ? "Opens in an Agent Roster window" : "Opens in your browser");
 </script>
 
 <svelte:window

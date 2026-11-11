@@ -194,10 +194,19 @@ pub fn refresh_all(
 ) -> Vec<(String, Check)> {
     let claude = tool_info(Tool::Claude, path_var, p, runner);
     let codex = find_tool(Tool::Codex, path_var, p);
+    let grok = find_tool(Tool::Grok, path_var, p);
     let version = claude.version.as_deref();
     let check = |a: &crate::model::Agent| match (a.tool, &claude.path, &codex) {
         (Tool::Claude, Some(path), _) => check_claude(a, r, p, path, version, runner),
         (Tool::Codex, _, Some(path)) => codex::fetch_codex_usage(a, r, p, path).settled(),
+        // Grok gives no usage numbers Agent Roster can read yet: only whether it is signed in.
+        (Tool::Grok, _, _) if grok.is_some() => Check::health(
+            if crate::detect::grok_sign_in(&r.config_dir_of(a, p)).signed_in {
+                Health::Ok
+            } else {
+                Health::SignedOut
+            },
+        ),
         _ => Check::health(Health::NotInstalled),
     };
     let asks_claude = |a: &crate::model::Agent| a.tool == Tool::Claude && claude.path.is_some();

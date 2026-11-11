@@ -62,8 +62,8 @@ The apps aren't signed by Apple or Microsoft yet. The first time you open a down
 
 The install commands skip this step.
 
-You need [Claude Code](https://claude.com/claude-code) or [Codex](https://github.com/openai/codex)
-installed. Agent Roster finds the logins you already have the first time it opens.
+You need [Claude Code](https://claude.com/claude-code), [Codex](https://github.com/openai/codex)
+or Grok (xAI's `grok` CLI) installed. Agent Roster finds the logins you already have the first time it opens.
 
 ## Start in a minute
 
@@ -143,7 +143,7 @@ Everything in the window also works as a command:
 
 ```sh
 roster                       # every agent, its status and limits
-roster add reviewer --codex  # add an account
+roster add reviewer --codex  # add an account (--claude, --codex or --grok)
 roster rename agent2 writer  # rename (the login stays signed in)
 roster role agent1 Leader    # set a role
 roster good-at agent3 coding "making images"
@@ -179,8 +179,9 @@ stay as they are. The version you have is shown at the bottom of the list.
 **Where do the usage numbers come from?** Agent Roster asks each tool itself, with each agent's
 own login, when it starts, every 5 minutes, and when you click **Refresh** (at most every 30
 seconds). Claude Code answers `claude -p /usage` locally, without a model call or any cost; Codex
-answers through `codex app-server`. Nothing has to be open first, and Agent Roster never reads
-password or token files. If a tool can't be reached, the row keeps the last numbers and says when
+answers through `codex app-server`. Grok has no usage reading yet, so a Grok agent shows only
+whether it is signed in (Agent Roster checks that its `auth.json` exists, without opening it).
+Nothing has to be open first, and Agent Roster never reads password or token files. If a tool can't be reached, the row keeps the last numbers and says when
 they're from.
 
 **What the usage column says.**

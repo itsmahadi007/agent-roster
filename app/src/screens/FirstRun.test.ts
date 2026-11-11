@@ -68,7 +68,7 @@ describe("FirstRun", () => {
     };
     backend(none);
     render(FirstRun, { palette, onDone: () => {} });
-    expect(await screen.findByText("No Claude Code or Codex login was found")).toBeInTheDocument();
+    expect(await screen.findByText("No Claude Code, Codex or Grok login was found")).toBeInTheDocument();
     expect(screen.getAllByText("not installed")).toHaveLength(2);
     expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
     expect(screen.queryByRole("button", { name: "Rename" })).not.toBeInTheDocument();

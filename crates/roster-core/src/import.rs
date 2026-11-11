@@ -43,6 +43,7 @@ fn parse(conf: &str) -> Result<Vec<Line>, OpError> {
         let tool = match tool {
             "claude" => Tool::Claude,
             "codex" => Tool::Codex,
+            "grok" => Tool::Grok,
             other => {
                 return Err(OpError::Refused(format!(
                     "roster.conf names an unknown tool: {other}"
@@ -97,7 +98,7 @@ pub fn plan_import(r: &Roster, p: &RosterPaths, ctx: &Ctx) -> Result<Plan, OpErr
                     &["skills", "agents", "commands"],
                     &["settings.json", "hooks"],
                 ),
-                Tool::Codex => ("AGENTS.md", &["skills"], &["config.toml"]),
+                Tool::Codex | Tool::Grok => ("AGENTS.md", &["skills"], &["config.toml"]),
             };
             for s in skills {
                 if is_link(&dir.join(s))
@@ -181,7 +182,7 @@ pub fn plan_import(r: &Roster, p: &RosterPaths, ctx: &Ctx) -> Result<Plan, OpErr
         let agent = after.by_name(name).expect("imported agent");
         let how = match agent.tool {
             Tool::Claude => "through an import line",
-            Tool::Codex => "as a copy Agent Roster keeps up to date",
+            Tool::Codex | Tool::Grok => "as a copy Agent Roster keeps up to date",
         };
         let text = if agent.share {
             format!(

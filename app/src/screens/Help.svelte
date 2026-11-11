@@ -15,7 +15,7 @@
     <section>
       <h4>What an agent is</h4>
       <p>
-        One Claude Code or Codex login with a name you chose. Each agent has its own sign-in and its own limits, so when
+        One Claude Code, Codex or Grok login with a name you chose. Each agent has its own sign-in and its own limits, so when
         one runs low you can carry on with another.
       </p>
     </section>

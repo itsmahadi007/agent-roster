@@ -10,19 +10,25 @@ use std::path::PathBuf;
 pub enum Tool {
     Claude,
     Codex,
+    Grok,
 }
 
 impl Tool {
+    /// Every tool Agent Roster knows, in the order they are shown.
+    pub const ALL: [Tool; 3] = [Tool::Claude, Tool::Codex, Tool::Grok];
+
     pub fn display(&self) -> &'static str {
         match self {
             Tool::Claude => "Claude Code",
             Tool::Codex => "Codex",
+            Tool::Grok => "Grok",
         }
     }
     pub fn binary(&self) -> &'static str {
         match self {
             Tool::Claude => "claude",
             Tool::Codex => "codex",
+            Tool::Grok => "grok",
         }
     }
     /// The environment variable that points the tool at a config folder.
@@ -30,6 +36,7 @@ impl Tool {
         match self {
             Tool::Claude => "CLAUDE_CONFIG_DIR",
             Tool::Codex => "CODEX_HOME",
+            Tool::Grok => "GROK_HOME",
         }
     }
     /// The folder the tool uses when the variable is unset.
@@ -37,6 +44,14 @@ impl Tool {
         match self {
             Tool::Claude => "~/.claude",
             Tool::Codex => "~/.codex",
+            Tool::Grok => "~/.grok",
+        }
+    }
+    /// The instruction file inside the config folder that holds the roster note.
+    pub fn note_file(&self) -> &'static str {
+        match self {
+            Tool::Claude => "CLAUDE.md",
+            Tool::Codex | Tool::Grok => "AGENTS.md",
         }
     }
 }
@@ -139,6 +154,8 @@ pub fn default_good_at(tool: Tool) -> Vec<&'static str> {
         Tool::Claude => vec!["coding", "reviewing code", "long tasks"],
         // Image generation is a stable, on-by-default Codex feature (codex-cli 0.167.0).
         Tool::Codex => vec!["coding", "making images"],
+        // Web search and web fetch are built-in Grok tools (grok 1.0.77).
+        Tool::Grok => vec!["coding", "searching the web"],
     }
 }
 
@@ -271,7 +288,7 @@ impl Roster {
                 return Err(ModelError::DuplicateId(a.id.clone()));
             }
         }
-        for tool in [Tool::Claude, Tool::Codex] {
+        for tool in Tool::ALL {
             if self
                 .agents
                 .iter()

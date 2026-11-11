@@ -111,7 +111,7 @@ pub fn start_login(
                 "the roster command is missing",
             )
         })?),
-        Tool::Codex => None,
+        Tool::Codex | Tool::Grok => None,
     };
     start_login_with(agent, r, p, tool_path, roster_bin.as_deref(), on_event)
 }
@@ -167,6 +167,12 @@ pub fn start_login_with(
         std::env::temp_dir()
     };
     match agent.tool {
+        // Grok's sign-in pages (auth.x.ai and where it sends people) have not been tested in
+        // the window, so Grok signs in only in the browser, through `roster login`.
+        Tool::Grok => Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            msg::GROK_BROWSER_ONLY,
+        )),
         Tool::Codex => {
             if CODEX_ACTIVE.swap(true, Ordering::SeqCst) {
                 return Ok(failed_now(msg::CODEX_BUSY, on_event));
@@ -250,6 +256,8 @@ pub mod msg {
     pub const NO_CLAUDE_LINK: &str =
         "Claude Code didn't hand over a sign-in link. Use Sign in with your browser.";
     pub const CLAUDE_FAILED: &str = "Claude Code couldn't finish signing in. Try again.";
+    pub const GROK_BROWSER_ONLY: &str =
+        "Grok signs in with your browser. Pick Sign in with: your browser, then try again.";
     pub const CLAUDE_START_FAILED: &str =
         "Claude Code couldn't start signing in. Try again, or use Sign in with your browser.";
 }

@@ -55,7 +55,7 @@ pub struct Overview {
 pub fn limits_for(a: &Agent, r: &Roster, p: &RosterPaths) -> Option<AgentLimits> {
     let saved = read_agent_limits(p, &a.id);
     match a.tool {
-        Tool::Claude => saved,
+        Tool::Claude | Tool::Grok => saved,
         Tool::Codex => match (saved, read_codex_limits(&r.config_dir_of(a, p))) {
             (Some(s), Some(f)) => Some(if f.as_of > s.as_of { f } else { s }),
             (s, f) => s.or(f),
@@ -69,7 +69,7 @@ pub fn overview(
     path_var: &str,
     runner: &(dyn CommandRunner + Sync),
 ) -> Overview {
-    let tools: Vec<ToolInfo> = [Tool::Claude, Tool::Codex]
+    let tools: Vec<ToolInfo> = Tool::ALL
         .into_iter()
         .map(|t| tool_info(t, path_var, p, runner))
         .collect();

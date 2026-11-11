@@ -1,4 +1,4 @@
-//! Finds Claude Code and Codex, and asks each tool whether an agent is signed in.
+//! Finds Claude Code, Codex and Grok, and asks each tool whether an agent is signed in.
 
 use crate::model::{Agent, Roster, Tool};
 use crate::paths::RosterPaths;
@@ -141,6 +141,8 @@ fn usual_tool_dirs(p: &RosterPaths) -> Vec<PathBuf> {
         _ => None,
     };
     let mut dirs = crate::usage::sys::tool_dirs_with(&p.home, &env);
+    // Grok's own installer puts it in `~/.grok/bin` and may leave that off PATH.
+    dirs.push(p.home.join(".grok").join("bin"));
     if real_home {
         dirs.extend(crate::usage::sys::system_tool_dirs());
     }
@@ -168,6 +170,8 @@ pub fn parse_version(tool: Tool, stdout: &str) -> Option<String> {
     let token = match tool {
         Tool::Claude => line.split_whitespace().next(),
         Tool::Codex => line.split_whitespace().last(),
+        // `grok 1.0.77 (50ca579fa996)`
+        Tool::Grok => line.split_whitespace().nth(1),
     }?;
     token
         .chars()
@@ -256,6 +260,19 @@ pub fn ask_sign_in(
             );
             Some(parse_codex_status(&text, out.status.success()))
         }
+        // Grok has no sign-in status command (1.0.77). Its login is the `auth.json` it saves
+        // in the agent's folder: only whether the file is there is looked at, never what is in it.
+        Tool::Grok => Some(grok_sign_in(&r.config_dir_of(agent, p))),
+    }
+}
+
+/// Whether Grok has saved a login in `dir`. Looks only at the file's existence: the file holds
+/// tokens and is never opened.
+pub fn grok_sign_in(dir: &Path) -> SignIn {
+    SignIn {
+        signed_in: std::fs::symlink_metadata(dir.join("auth.json")).is_ok_and(|m| m.is_file()),
+        email: None,
+        plan: None,
     }
 }
 
@@ -305,6 +322,26 @@ mod tests {
             parse_version(Tool::Codex, "codex-cli 0.167.0\n").as_deref(),
             Some("0.167.0")
         );
+        assert_eq!(
+            parse_version(
+                Tool::Grok,
+                "grok 1.0.77 (50ca579fa996)
+"
+            )
+            .as_deref(),
+            Some("1.0.77")
+        );
+    }
+
+    #[test]
+    fn grok_is_signed_in_when_its_login_file_is_there() {
+        let d = tempfile::tempdir().unwrap();
+        assert!(!grok_sign_in(d.path()).signed_in);
+        std::fs::create_dir(d.path().join("auth.json")).unwrap();
+        assert!(!grok_sign_in(d.path()).signed_in, "a folder is not a login");
+        std::fs::remove_dir(d.path().join("auth.json")).unwrap();
+        std::fs::write(d.path().join("auth.json"), "{}").unwrap();
+        assert!(grok_sign_in(d.path()).signed_in);
     }
 
     #[cfg(unix)]

@@ -393,7 +393,7 @@ fn first_run_lists_installed_tools_with_versions() {
         &dir.display().to_string(),
         &FakeRunner,
     );
-    assert_eq!(v.candidates.len(), 2);
+    assert_eq!(v.candidates.len(), 3);
     let c = &v.candidates[0];
     assert_eq!(c.tool, Tool::Claude);
     assert!(c.installed && c.signed_in);
@@ -402,6 +402,9 @@ fn first_run_lists_installed_tools_with_versions() {
     assert_eq!(c.suggested_name, "claude1");
     assert_eq!(v.candidates[1].suggested_name, "codex1");
     assert!(!v.candidates[1].installed);
+    assert_eq!(v.candidates[2].tool, Tool::Grok);
+    assert_eq!(v.candidates[2].suggested_name, "grok1");
+    assert!(!v.candidates[2].installed);
     assert!(!v.prototype);
 }
 
@@ -424,8 +427,9 @@ fn first_run_skips_tools_already_on_roster() {
         statusline: vec![],
     };
     let v = first_run_view(&r, &p, &dir.display().to_string(), &FakeRunner);
-    assert_eq!(v.candidates.len(), 1);
+    assert_eq!(v.candidates.len(), 2);
     assert_eq!(v.candidates[0].tool, Tool::Codex);
+    assert_eq!(v.candidates[1].tool, Tool::Grok);
     assert!(!v.candidates[0].installed);
 }
 

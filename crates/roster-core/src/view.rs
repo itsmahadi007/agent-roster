@@ -152,6 +152,7 @@ fn tool_word(t: Tool) -> &'static str {
     match t {
         Tool::Claude => "claude",
         Tool::Codex => "codex",
+        Tool::Grok => "grok",
     }
 }
 
@@ -507,45 +508,49 @@ pub fn first_run_view(
     path_var: &str,
     runner: &(dyn CommandRunner + Sync),
 ) -> FirstRunView {
-    let candidates = [(Tool::Claude, "claude1"), (Tool::Codex, "codex1")]
-        .into_iter()
-        .filter(|(tool, _)| {
-            let standard = expand_tilde(tool.standard_dir(), &p.home);
-            !r.agents.iter().any(|a| r.config_dir_of(a, p) == standard)
-        })
-        .map(|(tool, name)| {
-            let info = tool_info(tool, path_var, p, runner);
-            let sign_in = info
-                .path
-                .as_ref()
-                .map(|path| {
-                    let probe = Agent {
-                        id: "first-run".into(),
-                        name: name.into(),
-                        tool,
-                        config_dir: tool.standard_dir().into(),
-                        color: AgentColor::Cobalt,
-                        role: None,
-                        default: true,
-                        share: false,
-                        limits: LimitsSource::Off,
-                        advanced_links: vec![],
-                        good_at: None,
-                    };
-                    sign_in_for(&probe, r, p, path, runner)
-                })
-                .unwrap_or_default();
-            CandidateView {
-                tool,
-                tool_label: tool.display().into(),
-                installed: info.path.is_some(),
-                version: info.version,
-                email: sign_in.email,
-                signed_in: sign_in.signed_in,
-                suggested_name: name.into(),
-            }
-        })
-        .collect();
+    let candidates = [
+        (Tool::Claude, "claude1"),
+        (Tool::Codex, "codex1"),
+        (Tool::Grok, "grok1"),
+    ]
+    .into_iter()
+    .filter(|(tool, _)| {
+        let standard = expand_tilde(tool.standard_dir(), &p.home);
+        !r.agents.iter().any(|a| r.config_dir_of(a, p) == standard)
+    })
+    .map(|(tool, name)| {
+        let info = tool_info(tool, path_var, p, runner);
+        let sign_in = info
+            .path
+            .as_ref()
+            .map(|path| {
+                let probe = Agent {
+                    id: "first-run".into(),
+                    name: name.into(),
+                    tool,
+                    config_dir: tool.standard_dir().into(),
+                    color: AgentColor::Cobalt,
+                    role: None,
+                    default: true,
+                    share: false,
+                    limits: LimitsSource::Off,
+                    advanced_links: vec![],
+                    good_at: None,
+                };
+                sign_in_for(&probe, r, p, path, runner)
+            })
+            .unwrap_or_default();
+        CandidateView {
+            tool,
+            tool_label: tool.display().into(),
+            installed: info.path.is_some(),
+            version: info.version,
+            email: sign_in.email,
+            signed_in: sign_in.signed_in,
+            suggested_name: name.into(),
+        }
+    })
+    .collect();
     FirstRunView {
         candidates,
         prototype: detect_prototype(p).is_some(),

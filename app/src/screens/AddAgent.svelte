@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { ColorView, PlanView, Tool } from "../lib/types";
+  import { browserOnly, type ColorView, type PlanView, type Tool } from "../lib/types";
   import { apply, message, preview, signIn } from "../lib/api";
   import { prefs, signInInApp } from "../lib/signin.svelte";
   import Overlay from "../components/Overlay.svelte";
@@ -22,6 +22,7 @@
   const TOOLS: { tool: Tool; label: string; maker: string }[] = [
     { tool: "claude", label: "Claude Code", maker: "Anthropic" },
     { tool: "codex", label: "Codex", maker: "OpenAI" },
+    { tool: "grok", label: "Grok", maker: "xAI" },
   ];
 
   let name = $state("");
@@ -85,7 +86,7 @@
       return;
     }
     try {
-      if (prefs.signInWith === "window") await signInInApp(added);
+      if (prefs.signInWith === "window" && !browserOnly(tool)) await signInInApp(added);
       else await signIn(added);
       onDone();
     } catch (e) {
@@ -184,7 +185,7 @@
   }
   .tools {
     display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
+    grid-template-columns: 1fr 1fr;
     gap: 8px;
   }
   .tools button {

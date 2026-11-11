@@ -1,7 +1,10 @@
 // Mirrors roster-core's view structs (crates/roster-core/src/view.rs) and the app backend's
 // PlanView. Fixtures in ./fixtures are written by roster-core's tests, so drift fails a test.
 
-export type Tool = "claude" | "codex";
+export type Tool = "claude" | "codex" | "grok";
+
+/** Grok signs in only in the browser: its sign-in pages are not allowed in the login window. */
+export const browserOnly = (t: Tool) => t === "grok";
 
 export interface WindowView {
   label: string;
