@@ -1,0 +1,2 @@
+{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true},"authMethods":[{"id":"cached_token","name":"cached_token"}],"_meta":{"agentVersion":"1.0.77","grokShell":true}}}
+{"jsonrpc":"2.0","id":2,"error":{"code":-32000,"message":"Authentication required","data":"Authentication required to fetch billing data"}}

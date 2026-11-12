@@ -1,12 +1,14 @@
 //! Asks each tool itself for an agent's usage, limits and account health, with no terminal
 //! and no status line: Claude Code through `claude -p /usage`, Codex through
-//! `codex app-server` (`account/rateLimits/read`). Agent Roster never opens a credential file.
+//! `codex app-server` (`account/rateLimits/read`), Grok through `grok usage --json`
+//! or, while that only works on Grok's daemon route, `grok agent stdio` (`_x.ai/billing`). Agent Roster never opens a credential file.
 //!
 //! Parsing is shared by every platform. How a tool is found, spawned and stopped differs:
 //! that lives in `windows.rs` and `unix.rs`, and `sys` picks the right one at build time.
 
 pub mod claude;
 pub mod codex;
+pub mod grok;
 
 #[cfg(unix)]
 mod unix;
@@ -181,7 +183,7 @@ pub fn usage_runner(p: &RosterPaths) -> RealRunner {
 
 /// Checks every agent side by side and saves what each check learned where the overview
 /// reads it. Claude Code is asked with `claude auth status` and `claude -p /usage`; Codex
-/// with `codex app-server`. Returns each agent's id and check.
+/// with `codex app-server`; Grok with `grok usage --json`, then `grok agent stdio`. Returns each agent's id and check.
 ///
 /// A Claude Code version not yet known to answer `/usage` locally is asked by one Claude agent
 /// at a time, until one answers cleanly; only then do the other Claude agents ask, side by
@@ -199,14 +201,14 @@ pub fn refresh_all(
     let check = |a: &crate::model::Agent| match (a.tool, &claude.path, &codex) {
         (Tool::Claude, Some(path), _) => check_claude(a, r, p, path, version, runner),
         (Tool::Codex, _, Some(path)) => codex::fetch_codex_usage(a, r, p, path).settled(),
-        // Grok gives no usage numbers Agent Roster can read yet: only whether it is signed in.
-        (Tool::Grok, _, _) if grok.is_some() => Check::health(
-            if crate::detect::grok_sign_in(&r.config_dir_of(a, p)).signed_in {
-                Health::Ok
-            } else {
-                Health::SignedOut
-            },
-        ),
+        (Tool::Grok, _, _) => match &grok {
+            Some(path) => {
+                let cwd = p.limits_dir().join("cwd");
+                let _ = std::fs::create_dir_all(&cwd);
+                grok::fetch_grok_usage(a, r, p, path, &cwd, runner)
+            }
+            None => Check::health(Health::NotInstalled),
+        },
         _ => Check::health(Health::NotInstalled),
     };
     let asks_claude = |a: &crate::model::Agent| a.tool == Tool::Claude && claude.path.is_some();

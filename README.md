@@ -179,8 +179,11 @@ stay as they are. The version you have is shown at the bottom of the list.
 **Where do the usage numbers come from?** Agent Roster asks each tool itself, with each agent's
 own login, when it starts, every 5 minutes, and when you click **Refresh** (at most every 30
 seconds). Claude Code answers `claude -p /usage` locally, without a model call or any cost; Codex
-answers through `codex app-server`. Grok has no usage reading yet, so a Grok agent shows only
-whether it is signed in (Agent Roster checks that its `auth.json` exists, without opening it).
+answers through `codex app-server`. Grok is asked with `grok usage --json`, and, where Grok
+doesn't answer that yet, with the `x.ai/billing` call behind its own `/usage` screen (no prompt,
+no cost). That call isn't documented by xAI, so if a Grok update drops it, a Grok agent falls back
+to showing only whether it is signed in (Agent Roster checks that its `auth.json` exists, without
+opening it).
 Nothing has to be open first, and Agent Roster never reads password or token files. If a tool can't be reached, the row keeps the last numbers and says when
 they're from.
 

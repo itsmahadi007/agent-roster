@@ -168,7 +168,7 @@ pub struct AddRequest {
 pub(crate) fn default_limits(tool: Tool) -> LimitsSource {
     match tool {
         Tool::Codex => LimitsSource::CodexSessions,
-        // Grok has no usage reading Agent Roster can use yet (`grok usage` says to use /usage).
+        // Grok's usage is asked from Grok itself (`usage::grok`); there is nothing to turn on.
         Tool::Claude | Tool::Grok => LimitsSource::Off,
     }
 }
