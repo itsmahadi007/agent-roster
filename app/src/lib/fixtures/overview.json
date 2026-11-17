@@ -37,7 +37,7 @@
       "as_of": null,
       "claude_limits": true,
       "live": true,
-      "tray_text": "61% week",
+      "tray_text": "61% week · resets in 3d 16h",
       "tray_hot": false
     },
     {
@@ -108,7 +108,7 @@
       "as_of": null,
       "claude_limits": null,
       "live": true,
-      "tray_text": "93% week",
+      "tray_text": "93% week · resets in 21h 52m",
       "tray_hot": true
     },
     {
@@ -146,7 +146,7 @@
       "as_of": null,
       "claude_limits": null,
       "live": false,
-      "tray_text": "24% week",
+      "tray_text": "24% week · resets in 5d 2h",
       "tray_hot": false
     }
   ],

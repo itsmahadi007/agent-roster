@@ -177,7 +177,7 @@ stay as they are. The version you have is shown at the bottom of the list.
 ## Questions
 
 **Where do the usage numbers come from?** Agent Roster asks each tool itself, with each agent's
-own login, when it starts, every 5 minutes, and when you click **Refresh** (at most every 30
+own login, when it starts, every 2 minutes, and when you click **Refresh** (at most every 30
 seconds). Claude Code answers `claude -p /usage` locally, without a model call or any cost; Codex
 answers through `codex app-server`. Grok is asked with `grok usage --json`, and, where Grok
 doesn't answer that yet, with the `x.ai/billing` call behind its own `/usage` screen (no prompt,

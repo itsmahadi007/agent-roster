@@ -38,7 +38,7 @@ pub const CLOSING: &str = "Agent Roster is closing.";
 /// How long quitting waits for sign-ins in progress to stop what they started.
 pub const EXIT_WAIT: Duration = Duration::from_secs(3);
 /// How often the app asks every tool for usage on its own.
-pub const USAGE_EVERY: Duration = Duration::from_secs(5 * 60);
+pub const USAGE_EVERY: Duration = Duration::from_secs(2 * 60);
 /// The shortest time between two usage checks (Refresh clicked again and again).
 pub const USAGE_GAP: Duration = Duration::from_secs(30);
 

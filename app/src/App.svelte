@@ -115,7 +115,7 @@
       .catch(() => (terminals = []));
     const stop = startPoll(refresh, 10_000);
     const unlisten = listen<Screen>("navigate", (e) => navigate(e.payload));
-    // The app asks for usage on start, every 5 minutes and after a sign-in; show each answer.
+    // The app asks for usage on start, every 2 minutes and after a sign-in; show each answer.
     const unchecked = listen("usage-checked", () => refresh());
     // Signing in inside an Agent Roster window: the agent panel shows progress; a finished one updates the row.
     loadPrefs();

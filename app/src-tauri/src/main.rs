@@ -86,7 +86,7 @@ fn backend() -> Backend {
     })
 }
 
-/// Asks every tool for usage at start, every 5 minutes, soon after a row shows "checking"
+/// Asks every tool for usage at start, every 2 minutes, soon after a row shows "checking"
 /// (an agent never checked, or one seen signing in since its last check), and, for up to
 /// 5 minutes after Sign in is clicked, until a check says that sign-in worked. One finished
 /// check ends "checking", so nothing here repeats on its own. Runs on its own thread, never

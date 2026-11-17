@@ -268,3 +268,140 @@ fn another_tools_statusline_command_is_kept_as_the_chain() {
         Some("npx ccusage statusline")
     );
 }
+
+fn now_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
+}
+
+/// A session's transcript, last changed `ago` seconds ago: when it last talked to Claude.
+fn transcript(dir: &std::path::Path, name: &str, ago: i64) -> PathBuf {
+    let f = dir.join(format!("{name}.jsonl"));
+    fs::write(&f, "{}\n").unwrap();
+    let t = std::time::SystemTime::now() - std::time::Duration::from_secs(ago as u64);
+    fs::File::options()
+        .write(true)
+        .open(&f)
+        .unwrap()
+        .set_modified(t)
+        .unwrap();
+    f
+}
+
+fn session(transcript: Option<&std::path::Path>, week: f64) -> String {
+    let mut v = serde_json::json!({
+        "rate_limits": {"seven_day": {"used_percentage": week, "resets_at": 1794528000}}
+    });
+    if let Some(t) = transcript {
+        v["transcript_path"] = t.display().to_string().into();
+    }
+    v.to_string()
+}
+
+fn week_of(p: &RosterPaths, id: &str) -> f64 {
+    read_claude_limits(p, id)
+        .unwrap()
+        .windows
+        .last()
+        .unwrap()
+        .used_percent
+}
+
+fn adopted() -> (tempfile::TempDir, RosterPaths, Roster, String) {
+    let (d, p, mut j) = world();
+    adopt(&p, &mut j);
+    let r = Roster::load(&p).unwrap();
+    let id = r.agents[0].id.clone();
+    (d, p, r, id)
+}
+
+#[test]
+fn an_idle_session_never_hides_a_fresh_check() {
+    // 2026-11-17 on the owner's Mac: Claude's own /usage said 9% after a bonus reset, while a
+    // session idle since before it kept saying 89% every second, and the menu showed 89%.
+    let (d, p, r, id) = adopted();
+    let check = roster_core::usage::Check {
+        health: roster_core::usage::Health::Ok,
+        limits: Some(roster_core::limits::AgentLimits {
+            as_of: now_secs() - 30,
+            plan: None,
+            windows: vec![roster_core::limits::LimitWindow {
+                label: "week".into(),
+                used_percent: 9.0,
+                resets_at: 1794528000,
+            }],
+        }),
+    };
+    roster_core::usage::record_check(&p, &id, &check, now_secs() - 30).unwrap();
+    let idle = transcript(d.path(), "idle", 3 * 3600);
+    let env = |k: &str| (k == "ROSTER_AGENT").then(|| id.clone());
+    for _ in 0..3 {
+        handle_statusline(&session(Some(&idle), 89.0), &env, &r, &p, &|_, _| {
+            String::new()
+        });
+    }
+    assert_eq!(week_of(&p, &id), 9.0);
+}
+
+#[test]
+fn a_session_that_talked_since_the_last_save_updates_the_numbers_even_down() {
+    let (d, p, r, id) = adopted();
+    let env = |k: &str| (k == "ROSTER_AGENT").then(|| id.clone());
+    let old = transcript(d.path(), "old", 3 * 3600);
+    handle_statusline(&session(Some(&old), 89.0), &env, &r, &p, &|_, _| {
+        String::new()
+    });
+    assert_eq!(week_of(&p, &id), 89.0);
+    // A bonus from the provider: the active session's next reply carries the lower number.
+    let active = transcript(d.path(), "active", 5);
+    handle_statusline(&session(Some(&active), 8.0), &env, &r, &p, &|_, _| {
+        String::new()
+    });
+    assert_eq!(week_of(&p, &id), 8.0);
+    // Its numbers are dated by its last talk with Claude, not by when the line was drawn.
+    let as_of = read_claude_limits(&p, &id).unwrap().as_of;
+    assert!(
+        (now_secs() - 7..=now_secs() - 3).contains(&as_of),
+        "{as_of}"
+    );
+}
+
+#[test]
+fn two_open_sessions_never_flip_the_numbers() {
+    let (d, p, r, id) = adopted();
+    let env = |k: &str| (k == "ROSTER_AGENT").then(|| id.clone());
+    let idle = transcript(d.path(), "idle", 3 * 3600);
+    let active = transcript(d.path(), "active", 5);
+    for _ in 0..4 {
+        handle_statusline(&session(Some(&active), 8.0), &env, &r, &p, &|_, _| {
+            String::new()
+        });
+        handle_statusline(&session(Some(&idle), 89.0), &env, &r, &p, &|_, _| {
+            String::new()
+        });
+        assert_eq!(week_of(&p, &id), 8.0);
+    }
+}
+
+#[test]
+fn a_session_without_a_transcript_waits_for_a_check_to_go_stale() {
+    let (_d, p, r, id) = adopted();
+    let env = |k: &str| (k == "ROSTER_AGENT").then(|| id.clone());
+    let saved = |ago: i64| roster_core::limits::AgentLimits {
+        as_of: now_secs() - ago,
+        plan: None,
+        windows: vec![roster_core::limits::LimitWindow {
+            label: "week".into(),
+            used_percent: 9.0,
+            resets_at: 1794528000,
+        }],
+    };
+    roster_core::limits::write_claude_limits(&p, &id, &saved(60)).unwrap();
+    handle_statusline(&session(None, 89.0), &env, &r, &p, &|_, _| String::new());
+    assert_eq!(week_of(&p, &id), 9.0);
+    roster_core::limits::write_claude_limits(&p, &id, &saved(20 * 60)).unwrap();
+    handle_statusline(&session(None, 89.0), &env, &r, &p, &|_, _| String::new());
+    assert_eq!(week_of(&p, &id), 89.0);
+}

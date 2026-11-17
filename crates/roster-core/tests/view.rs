@@ -178,7 +178,7 @@ fn hot_single_window_is_coral() {
     );
     assert_eq!(a3.reset_text.as_deref(), Some("resets in 21h 52m"));
     assert!(a3.reset_hot);
-    assert_eq!(a3.tray_text, "93% week");
+    assert_eq!(a3.tray_text, "93% week · resets in 21h 52m");
     assert!(a3.tray_hot);
     assert_eq!(v.warnings.len(), 1);
     assert_eq!(v.warnings[0].name, "agent3");
@@ -214,8 +214,19 @@ fn five_hour_window_is_ignored() {
     );
     assert_eq!(a1.reset_text.as_deref(), Some("resets in 3d 16h"));
     assert!(!a1.reset_hot);
-    assert_eq!(a1.tray_text, "61% week");
+    assert_eq!(a1.tray_text, "61% week · resets in 3d 16h");
     assert_eq!(v.limits_updated.as_deref(), Some("Last update 4m ago."));
+}
+
+#[test]
+fn the_menu_line_leaves_out_a_reset_it_cannot_read() {
+    let mut o = sample();
+    o.agents[2].limits.as_mut().unwrap().windows[0].resets_at = 0;
+    let v = overview_view(&o, Path::new(HOME), NOW);
+    assert_eq!(v.agents[2].tray_text, "93% week");
+    o.agents[2].limits.as_mut().unwrap().windows[0].resets_at = NOW - 60;
+    let v = overview_view(&o, Path::new(HOME), NOW);
+    assert_eq!(v.agents[2].tray_text, "93% week · resetting now");
 }
 
 #[test]
@@ -592,7 +603,7 @@ fn numbers_seen_before_any_check_still_show() {
     let v = overview_view(&o, Path::new(HOME), NOW);
     assert_eq!(v.agents[3].health, "ok");
     assert_eq!(v.agents[3].windows[0].used_percent, 24);
-    assert_eq!(v.agents[3].tray_text, "24% week");
+    assert_eq!(v.agents[3].tray_text, "24% week · resets in 5d 2h");
 }
 
 #[test]
@@ -626,7 +637,7 @@ fn a_full_week_is_limit_reached_in_coral() {
     );
     assert_eq!(boss.reset_text.as_deref(), Some("resets in 2d 3h"));
     assert!(boss.reset_hot && boss.windows[0].hot);
-    assert_eq!(boss.tray_text, "weekly limit reached");
+    assert_eq!(boss.tray_text, "weekly limit reached · resets in 2d 3h");
     assert!(boss.tray_hot);
 }
 
@@ -661,7 +672,7 @@ fn a_failed_check_keeps_the_last_numbers_with_their_time() {
         "{:?}",
         a1.as_of
     );
-    assert_eq!(a1.tray_text, "61% week");
+    assert_eq!(a1.tray_text, "61% week · resets in 3d 16h");
     assert_eq!(a1.status_text, "calling agent3");
     // Fresh numbers carry no time.
     let v = overview_view(&sample(), Path::new(HOME), NOW);
@@ -755,7 +766,7 @@ fn a_full_five_hour_window_says_so_with_its_own_reset() {
         boss.limit_text.as_deref(),
         Some("boss has used its 5-hour limit; it resets in 2h 0m.")
     );
-    assert_eq!(boss.tray_text, "5-hour limit reached");
+    assert_eq!(boss.tray_text, "5-hour limit reached · resets in 2h 0m");
     assert!(boss.tray_hot);
     // The week's own bar and reset stay as they are.
     assert_eq!(boss.windows[0].used_percent, 40);

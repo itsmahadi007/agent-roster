@@ -1,7 +1,13 @@
 //! `roster statusline`: Claude Code's status line command when an agent's limits are turned on.
 //! It saves the limits Claude passes in, then prints the user's own status line unchanged.
+//!
+//! Every open Claude Code session draws its status line about once a second, each with the
+//! numbers from its own last reply. A session idle since before a provider's bonus reset still
+//! holds the old, higher numbers. So the numbers are dated by when the session last talked to
+//! Claude (its transcript's last change, read from file times only, never the contents), and
+//! only numbers newer than the saved ones replace them.
 
-use crate::limits::{AgentLimits, LimitWindow, write_claude_limits};
+use crate::limits::{AgentLimits, LimitWindow, read_claude_limits, write_claude_limits};
 use crate::model::{Agent, Roster, Tool};
 use crate::paths::{RosterPaths, expand_tilde};
 use std::path::PathBuf;
@@ -52,6 +58,22 @@ fn now() -> i64 {
         .unwrap_or(0)
 }
 
+/// How long saved numbers stand against a session whose numbers can't be dated.
+pub const UNDATED_WAIT: i64 = 10 * 60;
+
+/// When this session last talked to Claude: the last change of its transcript, never later
+/// than `now`. `None` when Claude passed no transcript or it can't be found.
+fn last_talk(stdin_json: &str, now: i64) -> Option<i64> {
+    let v: serde_json::Value = serde_json::from_str(stdin_json).ok()?;
+    let path = v.get("transcript_path")?.as_str()?;
+    let changed = std::fs::metadata(path).ok()?.modified().ok()?;
+    let secs = changed
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs() as i64;
+    Some(secs.min(now))
+}
+
 fn windows_from(stdin_json: &str) -> Option<Vec<LimitWindow>> {
     let v: serde_json::Value = serde_json::from_str(stdin_json).ok()?;
     let rl = v.get("rate_limits")?;
@@ -80,15 +102,24 @@ pub fn handle_statusline(
         return String::new();
     };
     if let Some(windows) = windows_from(stdin_json) {
-        let _ = write_claude_limits(
-            p,
-            &agent.id,
-            &AgentLimits {
-                as_of: now(),
-                plan: None,
-                windows,
-            },
-        );
+        let now = now();
+        let saved = read_claude_limits(p, &agent.id).map(|l| l.as_of);
+        let (as_of, keep_saved) = match last_talk(stdin_json, now) {
+            Some(t) => (t, saved.is_some_and(|s| s >= t)),
+            // No transcript to date them: a recent check's numbers stand.
+            None => (now, saved.is_some_and(|s| now - s < UNDATED_WAIT)),
+        };
+        if !keep_saved {
+            let _ = write_claude_limits(
+                p,
+                &agent.id,
+                &AgentLimits {
+                    as_of,
+                    plan: None,
+                    windows,
+                },
+            );
+        }
     }
     let real = settings_real_path(agent, r, p).display().to_string();
     match r

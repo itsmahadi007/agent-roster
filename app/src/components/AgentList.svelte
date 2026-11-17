@@ -126,7 +126,7 @@
         <button
           class="link"
           disabled={checking}
-          title="Asks Claude Code and Codex for every agent's use now. Agent Roster also does this every 5 minutes."
+          title="Asks Claude Code and Codex for every agent's use now. Agent Roster also does this every 2 minutes."
           onclick={refresh}>{checking ? "Checking…" : "Refresh"}</button
         >
       {/if}

@@ -375,10 +375,17 @@ fn agent_view(s: &AgentStatus, o: &Overview, now: i64) -> AgentView {
         (Shown::SignIn, _) => ("sign in".to_string(), false),
         (Shown::NoSubscription, _) => ("no subscription".to_string(), false),
         (Shown::LimitReached, _) => match used_up(s, now) {
-            Some((limit, _)) => (format!("{limit} reached"), true),
+            Some((limit, Some(reset))) => (format!("{limit} reached · {reset}"), true),
+            Some((limit, None)) => (format!("{limit} reached"), true),
             None => ("limit reached".to_string(), true),
         },
-        (_, Some(w)) => (format!("{}% {}", rounded(w), w.label), rounded(w) >= HOT),
+        (_, Some(w)) => {
+            let used = format!("{}% {}", rounded(w), w.label);
+            match &reset_text {
+                Some(reset) => (format!("{used} · {reset}"), rounded(w) >= HOT),
+                None => (used, rounded(w) >= HOT),
+            }
+        }
         (Shown::Checking, None) => ("checking".to_string(), false),
         (_, None) => (String::new(), false),
     };

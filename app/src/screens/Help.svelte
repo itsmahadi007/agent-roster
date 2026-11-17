@@ -45,7 +45,7 @@
       <p>
         Each row's bar shows how much of its weekly limit an account has used, and when that limit resets. The bar is
         light grey under 70%, amber from 70% and red from 90% or when a limit is reached, the same for every agent: an
-        agent's own color is only its dot and its name. Agent Roster asks Claude Code and Codex themselves for these numbers when it starts and every 5 minutes,
+        agent's own color is only its dot and its name. Agent Roster asks Claude Code and Codex themselves for these numbers when it starts and every 2 minutes,
         with each agent's own login and no model call, so nothing has to be open first. Refresh, under the list, asks
         again right away. A row also says when an account needs a sign-in, has no subscription, has reached its limit, or
         couldn't be reached (then it keeps the last numbers and says when they're from).</p>

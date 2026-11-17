@@ -282,6 +282,8 @@ login, so no terminal, session or status line is needed first. It never opens a 
   `Current week (all models): 75% used · resets Nov 13, 6am (Asia/Dhaka)`. `/usage` is a local
   command: the reply has `num_turns: 0` and `total_cost_usd: 0` (verified on 2.1.322, ~1.5–3 s).
   Signed out or with an API key it prints only a cost summary (`Total cost: …`), read as "no plan".
+  With `"verbose": true` in the account's `.claude.json`, print mode prints every message as one
+  JSON array; the reply is its last `"type": "result"` message (seen on 2.1.326).
   A reply with turns or cost means that Claude Code version sent `/usage` to the model: the version
   is written to `limits/claude-usage-unsupported` and never asked again (the status line, if on,
   still reports).
@@ -292,7 +294,11 @@ login, so no terminal, session or status line is needed first. It never opens a 
   is killed after the answer or a timeout. When the app-server fails, the newest `rate_limits`
   record in the agent's session files (`CODEX_HOME/sessions/`) is used.
 - **Fallbacks:** Claude's status line (opt-in per agent, `roster limits enable`) still writes the
-  same saved file between checks. For Codex, saved app-server numbers and session files are both
+  same saved file between checks. Every open session draws it about once a second with the numbers
+  from its own last reply, so a session idle since a provider's bonus reset still says the old,
+  higher number. Its numbers are dated by its transcript's last change (`transcript_path`, file time
+  only, never read) and replace the saved ones only when newer; a lower number that is newer wins
+  (usage can drop). A session with no transcript waits until the saved numbers are 10 minutes old. For Codex, saved app-server numbers and session files are both
   read and the newest `as_of` wins.
 - **Account health**, saved per agent with its time (`limits/<id>.health.json`; numbers in
   `limits/<id>.json`): ok, sign in, no subscription, limit reached (a window at 100% or the tool
@@ -316,7 +322,7 @@ login, so no terminal, session or status line is needed first. It never opens a 
   (the window at 100% whose reset has not passed; the one that resets last when several are). When
   only the tool says so and no window is at 100%, they say "limit reached" with no reset. The week's
   bar and its reset stay as they are.
-- **When:** the app checks on start, every 5 minutes, soon after a row shows "checking" (a new
+- **When:** the app checks on start, every 2 minutes, soon after a row shows "checking" (a new
   agent or a new sign-in), and when Refresh is clicked; at most one check runs, and at most one per
   30 s (an agent never checked skips the wait). Checks run off the UI thread, side by side for all
   agents, and the window updates when they finish. The 10-second overview poll never runs `/usage`
@@ -333,7 +339,9 @@ login, so no terminal, session or status line is needed first. It never opens a 
   call one function, `usage::refresh_all`.
 
 ### 6.7 Menu bar / tray
-List agents with color dot and week %, "Open a terminal as …", "Add agent", "Open Agent Roster".
+List agents with color dot, week % and time to reset ("claude1 — 9% week · resets in 2d 20h";
+"weekly limit reached · resets in 3h 5m" when used up), "Open a terminal as …", "Add agent",
+"Open Agent Roster". The menu is rebuilt from saved numbers every 30 s.
 Built with Tauri's tray support.
 
 ### 6.8 Without a GUI: SSH and servers

@@ -41,6 +41,21 @@ pub fn parse_usage_reply(json: &str, now: i64) -> UsageReply {
     let Ok(v) = serde_json::from_str::<serde_json::Value>(json.trim()) else {
         return UsageReply::Nothing;
     };
+    // With `"verbose": true` in the account's `.claude.json`, print mode prints every message
+    // as one array; the reply is its last "result".
+    let v = match v {
+        serde_json::Value::Array(messages) => {
+            let result = messages
+                .into_iter()
+                .rev()
+                .find(|m| m.get("type").and_then(|t| t.as_str()) == Some("result"));
+            match result {
+                Some(m) => m,
+                None => return UsageReply::Nothing,
+            }
+        }
+        v => v,
+    };
     let turns = v.get("num_turns").and_then(|x| x.as_u64());
     let cost = v.get("total_cost_usd").and_then(|x| x.as_f64());
     if turns.is_some_and(|t| t > 0) || cost.is_some_and(|c| c > 0.0) {
@@ -440,6 +455,35 @@ mod tests {
         assert_eq!(w.used_percent, 72.0);
         // 2026-11-13 06:00 at UTC+6 is 2026-11-13 00:00 UTC.
         assert_eq!(w.resets_at, 1_794_528_000);
+    }
+
+    #[test]
+    fn reads_the_reply_when_verbose_prints_every_message() {
+        // `"verbose": true` in an account's `.claude.json` makes print mode print an array of
+        // every message; the reply is its last "result". Recorded from Claude Code 2.1.326.
+        let text = "You are currently using your subscription to power your Claude Code usage\n\nCurrent week (all models): 9% used · resets Nov 13, 6am (Asia/Dhaka)\nCurrent week (Fable): 0% used · resets Nov 13, 6am (Asia/Dhaka)";
+        let json = serde_json::json!([
+            {"type": "system", "subtype": "init", "claude_code_version": "2.1.326"},
+            {"type": "assistant", "message": {"content": [{"type": "text", "text": text}]}},
+            {"type": "result", "subtype": "success", "num_turns": 0, "total_cost_usd": 0,
+             "local_command": "usage", "result": text}
+        ])
+        .to_string();
+        let UsageReply::Limits(l) = parse_usage_reply(&json, DHAKA_NOV_10_1PM) else {
+            panic!("no limits from the verbose reply");
+        };
+        assert_eq!(l.windows[0].used_percent, 9.0);
+        assert_eq!(l.windows[0].resets_at, 1_794_528_000);
+        // The same rule as the plain reply: a turn means it went to the model.
+        let json = json.replace("\"num_turns\":0", "\"num_turns\":1");
+        assert_eq!(
+            parse_usage_reply(&json, DHAKA_NOV_10_1PM),
+            UsageReply::Unsupported
+        );
+        assert_eq!(
+            parse_usage_reply(r#"[{"type":"system"}]"#, DHAKA_NOV_10_1PM),
+            UsageReply::Nothing
+        );
     }
 
     #[test]

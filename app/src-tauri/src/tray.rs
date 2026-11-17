@@ -208,10 +208,10 @@ mod tests {
         assert_eq!(
             texts,
             [
-                "agent1  —  61% week",
+                "agent1  —  61% week · resets in 3d 16h",
                 "agent2  —  sign in",
-                "agent3  —  93% week",
-                "boss  —  24% week"
+                "agent3  —  93% week · resets in 21h 52m",
+                "boss  —  24% week · resets in 5d 2h"
             ]
         );
         assert_eq!(e[0].id, "agent:a1");

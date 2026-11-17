@@ -311,7 +311,7 @@
           <p class="line">Weekly use shows after you use {agent.name}. Type {agent.name} in a terminal and send one message.</p>
         {/if}
         <p class="line quiet">
-          Agent Roster asks {agent.tool_label} itself for this account's use, every 5 minutes. It never limits the agent.
+          Agent Roster asks {agent.tool_label} itself for this account's use, every 2 minutes. It never limits the agent.
         </p>
       {/if}
     </div>
